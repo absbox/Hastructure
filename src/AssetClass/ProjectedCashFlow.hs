@@ -109,51 +109,52 @@ seperateCashflows :: ProjectedCashFlow -> Maybe A.AssetPerfAssumption -> Maybe [
 seperateCashflows a@(ProjectedByFactor pflow dp (fixPct,fixRate) floaterList)
                   mPassump
                   mRates
-  = let
-        totalBals = (view _2) <$> pflow
-        principalFlows = diffNum totalBals
-        (begDate,begBal) = head pflow
-        ds = (view _1) <$> pflow
-        flowSize = length ds
-        -- fix rate cashflow
-        fixedBals = flip mulBR fixPct <$> totalBals
-        fixedPrincipalFlow = diffNum fixedBals 
-        fixedAmortFactor 
-	  | all (== 0) fixedBals = replicate flowSize 0.0
-          | otherwise =  zipWith divideBB fixedPrincipalFlow (init fixedBals) `debug` ("fix balance" ++ show fixedBals)
-        fixRates = calcIntRates DC_ACT_365F fixRate ds
-        -- float rate cashflow
-        totalFloatBalFlow = zipWith (-) totalBals fixedBals
-        floatPrincipalFlow = zipWith (-) principalFlows fixedPrincipalFlow
-        
-        rs = (\(a,iRate,b,c) -> a) <$> floaterList      -- portion of each floater
-        spds = (\(a,iRate,b,c) -> b) <$> floaterList    -- spreads
-        indexes = (\(a,iRate,b,c) -> c) <$> floaterList -- indexes
-        floaterSize = length rs
-        -- float bal brekdown by index
-        floatBalsBreakDown = (\r -> flip mulBR r <$> totalFloatBalFlow) <$> rs
-        -- float principal flow breakdown by index
-        floatPrincipalFloat = diffNum <$> floatBalsBreakDown 
-        floatPrincipalFactor = (\(floatPrin,fBals) -> zipWith divideBB floatPrin (init fBals)) <$> (zip floatPrincipalFloat floatBalsBreakDown) 
-        recoveryLag = case mPassump of 
-                        Nothing -> 0 
-                        Just passump -> fromMaybe 0 $ getRecoveryLagFromAssumption passump
-        curveDatesLength = flowSize + recoveryLag
-      in
-        do
-          assumptionInput <- case mPassump of 
-                              Just pAssump -> buildAssumptionPpyDefRecRate a ds pAssump 
-                              Nothing -> Right (replicate curveDatesLength 0.0, replicate curveDatesLength 0.0, 0.0, 0)
-          fixedCashFlow <- projFixCfwithAssumption (fixedBals, ds, fixedAmortFactor, replicate flowSize fixRate, dp)
-                                                   assumptionInput
-                                                   begDate
-          floatedCashFlow <- traverse 
-                              (\x -> projIndexCashflows x dp assumptionInput mRates) 
-                              $ zip4 floatBalsBreakDown
-                                     (replicate floaterSize ds)
-                                     indexes
-                                     spds 
-          return (fixedCashFlow, floatedCashFlow) -- `debug` ("float cf"++ show floatedCashFlow)
+  | fixPct + sum (view _1 <$> floaterList) /= 1.0
+    = Left $ "Fix portion " ++ show fixPct ++ " + float portion " ++ show (sum (view _1 <$> floaterList)) ++ " is not sum up to 100% "
+  | otherwise = let
+                  totalBals = (view _2) <$> pflow
+                  principalFlows = diffNum totalBals
+                  (begDate,begBal) = head pflow
+                  ds = (view _1) <$> pflow
+                  flowSize = length ds
+                  -- fix rate cashflow
+                  fixedBals = flip mulBR fixPct <$> totalBals
+                  fixedPrincipalFlow = diffNum fixedBals 
+                  fixedAmortFactor 
+                    | all (== 0) fixedBals = replicate flowSize 0.0
+                    | otherwise =  zipWith divideBB fixedPrincipalFlow (init fixedBals)
+                  fixRates = calcIntRates DC_ACT_365F fixRate ds
+                  -- float rate cashflow
+                  floatPrincipalFlow = zipWith (-) principalFlows fixedPrincipalFlow
+                  
+                  rs = (\(a,iRate,b,c) -> a) <$> floaterList      -- portion of each floater
+                  spds = (\(a,iRate,b,c) -> b) <$> floaterList    -- spreads
+                  indexes = (\(a,iRate,b,c) -> c) <$> floaterList -- indexes
+                  floaterSize = length rs
+                  -- float bal brekdown by index
+                  floatBalsBreakDown = (\r -> flip mulBR r <$> totalBals) <$> rs
+                  -- float principal flow breakdown by index
+                  floatPrincipalFloat = diffNum <$> floatBalsBreakDown 
+                  floatPrincipalFactor = (\(floatPrin,fBals) -> zipWith divideBB floatPrin (init fBals)) <$> (zip floatPrincipalFloat floatBalsBreakDown) 
+                  recoveryLag = case mPassump of 
+                                  Nothing -> 0 
+                                  Just passump -> fromMaybe 0 $ getRecoveryLagFromAssumption passump
+                  curveDatesLength = flowSize + recoveryLag
+                in
+                  do
+                    assumptionInput <- case mPassump of 
+                                        Just pAssump -> buildAssumptionPpyDefRecRate a ds pAssump 
+                                        Nothing -> Right (replicate curveDatesLength 0.0, replicate curveDatesLength 0.0, 0.0, 0)
+                    fixedCashFlow <- projFixCfwithAssumption (fixedBals, ds, fixedAmortFactor, replicate flowSize fixRate, dp)
+                                                             assumptionInput
+                                                             begDate
+                    floatedCashFlow <- traverse 
+                                        (\x -> projIndexCashflows x dp assumptionInput mRates) 
+                                        $ zip4 floatBalsBreakDown
+                                               (replicate floaterSize ds)
+                                               indexes
+                                               spds 
+                    return (fixedCashFlow, floatedCashFlow)
 
 
 

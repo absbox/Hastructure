@@ -325,25 +325,25 @@ combineTs (CashFlow d1 a1 ) (CashFlow _ a2 ) = CashFlow d1 (a1 + a2)
 
 combineTs (BondFlow d1 b1 p1 i1 ) tr@(BondFlow _ b2 p2 i2 ) = BondFlow d1 (b1 + b2) (p1 + p2) (i1 + i2)
 
-combineTs (MortgageDelinqFlow d1 b1 p1 i1 prep1 delinq1 def1 rec1 los1 rat1 mbn1 pn1 st1) tr@(MortgageDelinqFlow _ b2 p2 i2 prep2 delinq2 def2 rec2 los2 rat2 mbn2 pn2 st2)
+combineTs tr1@(MortgageDelinqFlow d1 b1 p1 i1 prep1 delinq1 def1 rec1 los1 rat1 mbn1 pn1 st1) tr2@(MortgageDelinqFlow _ b2 p2 i2 prep2 delinq2 def2 rec2 los2 rat2 mbn2 pn2 st2)
   = let 
       bn = (+) <$> mbn1 <*> mbn2
       p =  (+) <$> pn1 <*> pn2
       delinq = (+) delinq1 delinq2
       st = sumStats st1 st2
     in 
-      MortgageDelinqFlow d1 (b1 + b2) (p1 + p2) (i1 + i2) (prep1 + prep2) delinq (def1 + def2) (rec1 + rec2) (los1+los2) (fromRational (weightedBy (toRational <$> [b1,b2]) (toRational <$> [rat1,rat2]))) bn p st
+      MortgageDelinqFlow d1 (b1 + b2) (p1 + p2) (i1 + i2) (prep1 + prep2) delinq (def1 + def2) (rec1 + rec2) (los1+los2) (fromRational (weightedBy (toRational <$> [mflowBegBalance tr1,mflowBegBalance tr2]) (toRational <$> [rat1,rat2]))) bn p st 
 
-combineTs (MortgageFlow d1 b1 p1 i1 prep1 def1 rec1 los1 rat1 mbn1 pn1 st1) tr@(MortgageFlow _ b2 p2 i2 prep2 def2 rec2 los2 rat2 mbn2 pn2 st2)
+combineTs tr1@(MortgageFlow d1 b1 p1 i1 prep1 def1 rec1 los1 rat1 mbn1 pn1 st1) tr2@(MortgageFlow _ b2 p2 i2 prep2 def2 rec2 los2 rat2 mbn2 pn2 st2)
   = let 
       bn = (+) <$> mbn1 <*> mbn2
       p =  (+) <$> pn1 <*> pn2
       st = sumStats st1 st2
     in 
-      MortgageFlow d1 (b1 + b2) (p1 + p2) (i1 + i2) (prep1 + prep2) (def1 + def2) (rec1 + rec2) (los1+los2) (fromRational (weightedBy (toRational <$> [b1,b2]) (toRational <$> [rat1,rat2]))) bn p st
+      MortgageFlow d1 (b1 + b2) (p1 + p2) (i1 + i2) (prep1 + prep2) (def1 + def2) (rec1 + rec2) (los1+los2) (fromRational (weightedBy (toRational <$> [mflowBegBalance tr1, mflowBegBalance tr2]) (toRational <$> [rat1,rat2]))) bn p st 
 
-combineTs (LoanFlow d1 b1 p1 i1 prep1 def1 rec1 los1 rat1 st1) tr@(LoanFlow _ b2 p2 i2 prep2 def2 rec2 los2 rat2 st2)
-  = LoanFlow d1 (b1 + b2) (p1 + p2) (i1 + i2) (prep1 + prep2) (def1 + def2) (rec1 + rec2) (los1+los2) (fromRational (weightedBy (toRational <$> [b1,b2]) (toRational <$> [rat1,rat2]))) (sumStats st1 st2)
+combineTs tr1@(LoanFlow d1 b1 p1 i1 prep1 def1 rec1 los1 rat1 st1) tr2@(LoanFlow _ b2 p2 i2 prep2 def2 rec2 los2 rat2 st2)
+  = LoanFlow d1 (b1 + b2) (p1 + p2) (i1 + i2) (prep1 + prep2) (def1 + def2) (rec1 + rec2) (los1+los2) (fromRational (weightedBy (toRational <$> [mflowBegBalance tr1, mflowBegBalance tr2]) (toRational <$> [rat1,rat2]))) (sumStats st1 st2)
 
 combineTs (LeaseFlow d1 b1 r1 def1) tr@(LeaseFlow d2 b2 r2 def2) 
   = LeaseFlow d1 (b1 + b2) (r1 + r2) (def1 + def2)
