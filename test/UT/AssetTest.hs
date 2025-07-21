@@ -676,7 +676,7 @@ delinqScheduleCFTest =
         (CF.cfAt poolCf 5)
       ,testCase "case 06" $
         assertEqual "first loss/recovery from default & first back to perf"
-        (Just (CF.MortgageDelinqFlow (L.toDate "20240229") 496.64  2.97 0 0 0 1.25 0 1.25 0.000480 Nothing Nothing (Just (500.79,0.00,8.52,2.55,0.00,2.55))))
+        (Just (CF.MortgageDelinqFlow (L.toDate "20240229") 496.64  2.97 0 0 0 1.25 0 1.25 0.000952 Nothing Nothing (Just (500.79,0.00,8.52,2.55,0.00,2.55))))
         (CF.cfAt poolCf 6)
       -- ,testCase "case 07" $
       --   assertEqual "first loss/recovery from default & first back to perf"
