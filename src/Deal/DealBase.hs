@@ -199,13 +199,13 @@ data DateDesp = PreClosingDates CutoffDate ClosingDate (Maybe RevolvingDate) Sta
 
 populateDealDates :: DateDesp -> DealStatus -> Either String (Date,Date,Date,[ActionOnDate],[ActionOnDate],Date,[ActionOnDate])
 populateDealDates (PreClosingDates cutoff closing mRevolving end (firstCollect,poolDp) (firstPay,bondDp)) _
-  = Right (cutoff,closing,firstPay,pa,ba,end, []) 
+  = return (cutoff,closing,firstPay,pa,ba,end, []) 
     where 
       pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 IE firstCollect poolDp end ]
       ba = [ RunWaterfall _d "" | _d <- genSerialDatesTill2 IE firstPay bondDp end ]
 
 populateDealDates (CurrentDates (lastCollect,lastPay) mRevolving end (nextCollect,poolDp) (nextPay,bondDp)) _
-  = Right (lastCollect, lastPay,head futurePayDates, pa, ba, end, []) 
+  = return (lastCollect, lastPay,head futurePayDates, pa, ba, end, []) 
     where 
       futurePayDates = genSerialDatesTill2 IE nextPay bondDp end 
       ba = [ RunWaterfall _d "" | _d <- futurePayDates]
@@ -232,7 +232,7 @@ populateDealDates (GenericDates m)
                 cu = [ RunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall
                                                 , _d <- genSerialDatesTill2 EE closingDate custDp statedDate ]
               in 
-                Right (coffDate, closingDate, fPayDate, pa, ba, statedDate, cu)
+                return (coffDate, closingDate, fPayDate, pa, ba, statedDate, cu)
         _ 
           -> Left "Missing required dates in GenericDates in deal status PreClosing"
 
@@ -255,7 +255,7 @@ populateDealDates (GenericDates m) _
                 cu = [ RunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall
                                                 , _d <- genSerialDatesTill2 EE lastCollect custDp statedDate ]
               in 
-                Right (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu) -- `debug` ("custom action"++ show cu)
+                return (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu) -- `debug` ("custom action"++ show cu)
         _ 
           -> Left "Missing required dates in GenericDates in deal status PreClosing"
 

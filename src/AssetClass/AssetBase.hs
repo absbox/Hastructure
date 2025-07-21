@@ -11,7 +11,7 @@ module AssetClass.AssetBase
   ,AmortPlan(..),Loan(..),Mortgage(..),AssetUnion(..),MixedAsset(..),FixedAsset(..)
   ,AmortRule(..),Capacity(..),AssociateExp(..),AssociateIncome(..),ReceivableFeeType(..),Receivable(..)
   ,ProjectedCashFlow(..),Obligor(..),LeaseRateCalc(..)
-  ,calcAssetPrinInt, calcPmt
+  ,calcAssetPrinInt, calcPmt ,ProjectedFlow ,ScheduleCashFlow
   )
   where
 
@@ -202,9 +202,11 @@ data Mortgage = Mortgage OriginalInfo Balance IRate RemainTerms (Maybe BorrowerN
 
 type FixRatePortion   = (Rate, IRate)
 type FloatRatePortion = (Rate, IRate, Spread, Index)
+type ScheduleCashFlow = (Date, Balance)
+type ProjectedFlow = Balance
 
-data ProjectedCashFlow = ProjectedCashflow CF.CashFlowFrame DatePattern FixRatePortion [FloatRatePortion]
-                       | DUMMY3
+data ProjectedCashFlow = ProjectedByFactor [ScheduleCashFlow] DatePattern FixRatePortion [FloatRatePortion]
+                       | ProjectedCashflow CF.CashFlowFrame
                        deriving (Show,Generic,Eq,Ord)
 
 
@@ -286,8 +288,8 @@ instance IR.UseRate Receivable where
   getIndex _ = Nothing
 
 instance IR.UseRate ProjectedCashFlow where 
-  getIndex (ProjectedCashflow cf _ _ (f:fs)) = Just $ (\(_,a,b,c) -> c) f 
-  getIndexes (ProjectedCashflow cf _ _ fs ) 
+  getIndex (ProjectedByFactor cf _ _ (f:fs)) = Just $ (\(_,a,b,c) -> c) f 
+  getIndexes (ProjectedByFactor cf _ _ fs ) 
     = Just $ (\(a,_,b,c) -> c) <$> fs
 
 

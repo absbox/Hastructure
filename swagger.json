@@ -14622,7 +14622,21 @@
                             "contents": {
                                 "items": [
                                     {
-                                        "$ref": "#/components/schemas/CashFlowFrame"
+                                        "items": {
+                                            "items": [
+                                                {
+                                                    "$ref": "#/components/schemas/Day"
+                                                },
+                                                {
+                                                    "multipleOf": 1.0e-2,
+                                                    "type": "number"
+                                                }
+                                            ],
+                                            "maxItems": 2,
+                                            "minItems": 2,
+                                            "type": "array"
+                                        },
+                                        "type": "array"
                                     },
                                     {
                                         "$ref": "#/components/schemas/DatePattern"
@@ -14674,6 +14688,25 @@
                             },
                             "tag": {
                                 "enum": [
+                                    "ProjectedByFactor"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "tag",
+                            "contents"
+                        ],
+                        "title": "ProjectedByFactor",
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "contents": {
+                                "$ref": "#/components/schemas/CashFlowFrame"
+                            },
+                            "tag": {
+                                "enum": [
                                     "ProjectedCashflow"
                                 ],
                                 "type": "string"
@@ -14684,21 +14717,6 @@
                             "contents"
                         ],
                         "title": "ProjectedCashflow",
-                        "type": "object"
-                    },
-                    {
-                        "properties": {
-                            "tag": {
-                                "enum": [
-                                    "DUMMY3"
-                                ],
-                                "type": "string"
-                            }
-                        },
-                        "required": [
-                            "tag"
-                        ],
-                        "title": "DUMMY3",
                         "type": "object"
                     }
                 ]
