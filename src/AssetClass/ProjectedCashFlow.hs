@@ -76,7 +76,7 @@ projFixCfwithAssumption :: ([Balance], [Date], [Rational], [IRate], DatePattern)
 projFixCfwithAssumption (bals, ds, amortFactors, rates, dp) (ppyRates,defRates,recoveryRate,recoveryLag) asOfDay
   | all (== 0) bals = return $ CF.CashFlowFrame (0.0,asOfDay,Nothing) []
   | length amortFactors /= length ppyRates || length amortFactors /= length defRates 
-    = Left $ "Not even rates amort "++ ((show . length) amortFactors) ++ "ppy rate " ++ ((show . length) ppyRates) ++ " def rate" ++ ((show . length) defRates)
+    = Left $ "Not even rates amort "++ (showLength amortFactors) ++ "ppy rate " ++ (showLength ppyRates) ++ " def rate" ++ (showLength defRates)
   | otherwise = let
                   curveDatesLength = recoveryLag + length ds
                   extraDates = genSerialDates dp Exc (last ds) recoveryLag
@@ -121,7 +121,7 @@ seperateCashflows a@(ProjectedByFactor pflow dp (fixPct,fixRate) floaterList)
                   fixedBals = flip mulBR fixPct <$> totalBals
                   fixedPrincipalFlow = diffNum fixedBals 
                   fixedAmortFactor 
-                    | all (== 0) fixedBals = replicate flowSize 0.0
+                    | all (== 0) fixedBals = replicate (pred flowSize) 0.0
                     | otherwise =  zipWith divideBB fixedPrincipalFlow (init fixedBals)
                   fixRates = calcIntRates DC_ACT_365F fixRate ds
                   -- float rate cashflow
@@ -144,7 +144,7 @@ seperateCashflows a@(ProjectedByFactor pflow dp (fixPct,fixRate) floaterList)
                   do
                     assumptionInput <- case mPassump of 
                                         Just pAssump -> buildAssumptionPpyDefRecRate a ds pAssump 
-                                        Nothing -> Right (replicate curveDatesLength 0.0, replicate curveDatesLength 0.0, 0.0, 0)
+                                        Nothing -> Right (replicate (pred flowSize) 0.0, replicate (pred flowSize) 0.0, 0.0, 0)
                     fixedCashFlow <- projFixCfwithAssumption (fixedBals, ds, fixedAmortFactor, replicate flowSize fixRate, dp)
                                                              assumptionInput
                                                              begDate

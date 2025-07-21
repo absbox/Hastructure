@@ -16,7 +16,7 @@ module Util
     ,lookupInMap,selectInMap,scaleByFstElement
     ,lookupTuple6 ,lookupTuple7,diffNum,splitBal
     -- for debug
-    ,debugOnDate,paySeqM,splitByLengths
+    ,debugOnDate,paySeqM,splitByLengths,showLength
     )
     where
 import qualified Data.Time as T
@@ -476,3 +476,6 @@ debugOnDate :: Date -> Date -> Date -> String
 debugOnDate d1 d2 d 
   | (d <= d2) && (d >= d1)  = "Date:"++show d
   | otherwise = ""
+
+showLength :: Show a => [a] -> String
+showLength xs = "Length:" ++ (show . length) xs
