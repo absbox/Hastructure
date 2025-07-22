@@ -12,7 +12,7 @@ module Deal (run,getInits,runDeal,ExpectReturn(..)
             ,populateDealDates
             ,calcTargetAmount,updateLiqProvider
             ,projAssetUnion,priceAssetUnion
-            ,removePoolCf,runPoolType,PoolType
+            ,runPoolType,PoolType
             ,ActionOnDate(..),DateDesp(..)
             ,changeDealStatus
             ) where
@@ -281,30 +281,30 @@ runDeal t er perfAssumps nonPerfAssumps@AP.NonPerfAssumption{AP.callWhen = opts 
   | otherwise 
     = do 
         (newT, ads, pcf, unStressPcf) <- getInits er t perfAssumps (Just nonPerfAssumps)  
-        (_finalDeal, logs, osPoolFlow) <- run (removePoolCf newT) 
+        (_finalDeal, logs, osPoolFlow) <- run newT 
                                               pcf
                                               (Just ads) 
                                               mInterest
                                               (AP.readCallOptions <$> opts)
                                               mRevolvingCtx
                                               DL.empty
-	-- prepare deal with expected return
+    -- prepare deal with expected return
         let finalDeal = prepareDeal er _finalDeal
-	-- extract pool cash collected to deal
+    -- extract pool cash collected to deal
         let poolFlowUsedNoEmpty = Map.map 
-	                            (over CF.cashflowTxn CF.dropTailEmptyTxns) 
-	                            (getAllCollectedFrame finalDeal Nothing)
+                                (over CF.cashflowTxn CF.dropTailEmptyTxns) 
+                                (getAllCollectedFrame finalDeal Nothing)
         let poolFlowUnUsed = osPoolFlow & mapped . _1 . CF.cashflowTxn %~ CF.dropTailEmptyTxns
-		                        & mapped . _2 . _Just . each . CF.cashflowTxn %~ CF.dropTailEmptyTxns
+                                & mapped . _2 . _Just . each . CF.cashflowTxn %~ CF.dropTailEmptyTxns
         bndPricing <- case mPricing of 
                         (Just p) -> priceBonds finalDeal p 
                         Nothing -> Right Map.empty
         return (finalDeal
                  , poolFlowUsedNoEmpty
                  , getRunResult finalDeal ++ V.validateRun finalDeal ++ DL.toList (DL.append logs (unCollectedPoolFlowWarning poolFlowUnUsed))
-		 , bndPricing
-	         , poolFlowUnUsed
-	       ) -- `debug` ("run deal done with pool" ++ show poolFlowUsedNoEmpty)
+         , bndPricing
+             , poolFlowUnUsed
+           ) -- `debug` ("run deal done with pool" ++ show poolFlowUsedNoEmpty)
     where
       (runFlag, valLogs) = V.validateReq t nonPerfAssumps 
       -- getinits() will get (new deal snapshot, actions, pool cashflows, unstressed pool cashflow)
@@ -316,10 +316,10 @@ runDeal t er perfAssumps nonPerfAssumps@AP.NonPerfAssumption{AP.callWhen = opts 
       unCollectedPoolFlowWarning pMap = let
                                            countMap = Map.map (CF.sizeCashFlowFrame . view _1) pMap 
                                         in 
-					  if sum (Map.elems countMap) > 0 then 
+                      if sum (Map.elems countMap) > 0 then 
                                           DL.singleton $ WarningMsg $ "Oustanding pool cashflow hasn't been collected yet"++ show countMap
                                         else
-					  DL.empty
+                      DL.empty
 
       -- run() is a recusive function loop over all actions till deal end conditions are met
       
@@ -340,24 +340,13 @@ prepareDeal er t@TestDeal {bonds = bndMap ,pool = poolType }
       consolePoolFlowFn = over CF.cashflowTxn CF.dropTailEmptyTxns
       rmAssetLevelFn xs 
         | S.member AssetLevelFlow er = xs
-	| otherwise = []
+        | otherwise = []
     in 
       t {bonds = Map.map (L.patchBondFactor . L.consolStmt) bndMap
-	 ,pool = poolType & over (_MultiPool . mapped . P.poolFutureCf . _Just ._1) consolePoolFlowFn 
-	                  & over (_ResecDeal . mapped . uDealFutureCf . _Just) consolePoolFlowFn
-			  & over (_MultiPool . mapped . P.poolFutureCf . _Just . _2 . _Just) rmAssetLevelFn 
-	}
-
-
--- ^ emtpy deal's pool cashflow
-removePoolCf :: Ast.Asset a => TestDeal a -> TestDeal a
-removePoolCf t@TestDeal{pool=pt} =
-  let 
-    newPt = case pt of 
-              MultiPool pm -> MultiPool $ set (mapped . P.poolFutureCf) Nothing pm 
-              ResecDeal uds -> ResecDeal uds
-  in
-    t {pool = newPt}
+         ,pool = poolType & over (_MultiPool . mapped . P.poolFutureCf . _Just ._1) consolePoolFlowFn 
+                          & over (_ResecDeal . mapped . uDealFutureCf . _Just) consolePoolFlowFn
+                          & over (_MultiPool . mapped . P.poolFutureCf . _Just . _2 . _Just) rmAssetLevelFn 
+    }
 
 runPoolType :: Ast.Asset a => Bool -> PoolType a -> Maybe AP.ApplyAssumptionType 
             -> Maybe AP.NonPerfAssumption -> Either String (Map.Map PoolId CF.PoolCashflow)
@@ -365,7 +354,7 @@ runPoolType :: Ast.Asset a => Bool -> PoolType a -> Maybe AP.ApplyAssumptionType
 runPoolType flag (MultiPool pm) (Just poolAssumpType) mNonPerfAssump
   = let 
       rateAssump = AP.interest =<< mNonPerfAssump
-      calcPoolCashflow (AP.ByName assumpMap) pid v = P.runPool v (AP.PoolLevel <$> Map.lookup pid assumpMap) rateAssump 	
+      calcPoolCashflow (AP.ByName assumpMap) pid v = P.runPool v (AP.PoolLevel <$> Map.lookup pid assumpMap) rateAssump     
       calcPoolCashflow (AP.ByPoolId assumpMap) pid v = P.runPool v (Map.lookup pid assumpMap) rateAssump
       calcPoolCashflow poolAssump pid v = P.runPool v (Just poolAssump) rateAssump
     in
@@ -375,25 +364,25 @@ runPoolType flag (MultiPool pm) (Just poolAssumpType) mNonPerfAssump
             let 
               poolBegStats = P.issuanceStat v
             in
-	      do 
+          do 
                 assetCfs <- calcPoolCashflow poolAssumpType k v
                 let (poolCf,_) = P.aggPool poolBegStats assetCfs
                 return (poolCf, if flag then 
-				   Just $ fst <$> assetCfs
-		                 else
-		                   Nothing))
-  	  pm
+                   Just $ fst <$> assetCfs
+                         else
+                           Nothing))
+        pm
 
 runPoolType flag (MultiPool pm) mAssumps mNonPerfAssump
   = sequenceA $ 
       Map.map (\p -> 
-		do
-		  assetFlows <- P.runPool p mAssumps (AP.interest =<< mNonPerfAssump)
-		  let (poolCf, poolStatMap) = P.aggPool (P.issuanceStat p) assetFlows
-		  return (poolCf, if flag then 
-				     Just $ fst <$> assetFlows
-	    		           else
-		                     Nothing))
+        do
+          assetFlows <- P.runPool p mAssumps (AP.interest =<< mNonPerfAssump)
+          let (poolCf, poolStatMap) = P.aggPool (P.issuanceStat p) assetFlows
+          return (poolCf, if flag then 
+                     Just $ fst <$> assetFlows
+                           else
+                             Nothing))
               pm
 
 runPoolType flag (ResecDeal dm) mAssumps mNonPerfAssump
@@ -430,8 +419,8 @@ patchIssuanceBalance :: Ast.Asset a => DealStatus -> Map.Map PoolId Balance -> P
 patchIssuanceBalance (PreClosing _ ) balM pt =
   case pt of 
     MultiPool pM -> MultiPool $ Map.mapWithKey 
-    				  (\k v -> over P.poolIssuanceStat (Map.insert IssuanceBalance (Map.findWithDefault 0.0 k balM)) v)
-				  pM
+                      (\k v -> over P.poolIssuanceStat (Map.insert IssuanceBalance (Map.findWithDefault 0.0 k balM)) v)
+                  pM
     ResecDeal pM -> ResecDeal pM  --TODO patch balance for resec deal
     
 patchIssuanceBalance _ bal p = p -- `debug` ("NO patching ?")
@@ -454,8 +443,6 @@ patchRuntimeBal balMap (MultiPool pM)
 
 patchRuntimeBal balMap pt = pt
 
-
-   
 
 getInits :: Ast.Asset a => S.Set ExpectReturn -> TestDeal a -> Maybe AP.ApplyAssumptionType -> Maybe AP.NonPerfAssumption 
          -> Either String (TestDeal a,[ActionOnDate], Map.Map PoolId CF.PoolCashflow, Map.Map PoolId CF.PoolCashflow)
@@ -574,13 +561,13 @@ getInits er t@TestDeal{fees=feeMap,pool=thePool,status=status,bonds=bndMap,stats
     -- extractTestDates (AP.CallOptions opts) = concat [ extractTestDates opt | opt <- opts ]
     -- call test dates 
       let callDates = case mNonPerfAssump of
-                    Just AP.NonPerfAssumption{AP.callWhen = Just callOpts}
-                      -> concat [ extractTestDates callOpt | callOpt <- callOpts ]
-                    _ -> []
+                        Just AP.NonPerfAssumption{AP.callWhen = Just callOpts}
+                          -> concat [ extractTestDates callOpt | callOpt <- callOpts ]
+                        _ -> []
       let stopTestDates = case mNonPerfAssump of
-		    	    Just AP.NonPerfAssumption{AP.stopRunBy = Just (AP.StopByPre dp pres)} 
-			    	-> [StopRunTest d pres | d <- genSerialDatesTill2 EI startDate dp endDate]
-		    	    _ -> []
+                            Just AP.NonPerfAssumption{AP.stopRunBy = Just (AP.StopByPre dp pres)} 
+                              -> [StopRunTest d pres | d <- genSerialDatesTill2 EI startDate dp endDate]
+                            _ -> []
       let allActionDates = let 
                          __actionDates = let 
                                           a = concat [bActionDates,pActionDates,custWdates,iAccIntDates,makeWholeDate
@@ -608,30 +595,30 @@ getInits er t@TestDeal{fees=feeMap,pool=thePool,status=status,bonds=bndMap,stats
       let aggDates = getDates pActionDates
       let pCollectionCfAfterCutoff = Map.map 
                                        (\(pCf, mAssetFlow) -> 
-					let 
-                                          pCf' = CF.cutoffCashflow startDate aggDates pCf
-					in
-					  (pCf' ,(\xs -> [ CF.cutoffCashflow startDate aggDates x | x <- xs ] ) <$> mAssetFlow))
+                                         let 
+                                                               pCf' = CF.cutoffCashflow startDate aggDates pCf
+                                         in
+                                           (pCf' ,(\xs -> [ CF.cutoffCashflow startDate aggDates x | x <- xs ] ) <$> mAssetFlow))
                                        pCfM
 
       let pUnstressedAfterCutoff = Map.map 
                                        (\(pCf, mAssetFlow) -> 
-					let 
-					  pCf' = CF.cutoffCashflow startDate aggDates pCf
-					in 
-				          (pCf'
-					   ,(\xs -> [ CF.cutoffCashflow startDate aggDates x | x <- xs ]) <$> mAssetFlow)
-	                               )
+                                         let 
+                                           pCf' = CF.cutoffCashflow startDate aggDates pCf
+                                         in 
+                                           (pCf'
+                                            ,(\xs -> [ CF.cutoffCashflow startDate aggDates x | x <- xs ]) <$> mAssetFlow)
+                                                        )
                                        pScheduleCfM
 
       let poolWithSchedule = patchScheduleFlow pUnstressedAfterCutoff thePool -- `debug` ("D")
       let poolWithIssuanceBalance = patchIssuanceBalance 
                                       status 
-				      ((\(_pflow,_) -> CF.getBegBalCashFlowFrame _pflow) <$> pCollectionCfAfterCutoff)
+                      ((\(_pflow,_) -> CF.getBegBalCashFlowFrame _pflow) <$> pCollectionCfAfterCutoff)
                                       poolWithSchedule
       let poolWithRunPoolBalance = patchRuntimeBal 
                                      (Map.map (\(CF.CashFlowFrame (b,_,_) _,_) -> b) pCollectionCfAfterCutoff) 
-				     poolWithIssuanceBalance
+                                     poolWithIssuanceBalance
 
       let newStat = if (isPreClosing t) then 
                       _stats & (over _4) (`Map.union` (Map.fromList [(BondPaidPeriod,0),(PoolCollectedPeriod,0)]))

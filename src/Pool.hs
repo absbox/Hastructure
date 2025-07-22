@@ -200,13 +200,6 @@ pricingPoolFlow d pool@Pool{ futureCf = Just (mCollectedCf,_), issuanceStat = mS
  -- | run a pool of assets ,use asOfDate of Pool to cutoff cashflow yields from assets with assumptions supplied
 runPool :: Asset a => Pool a -> Maybe A.ApplyAssumptionType -> Maybe [RateAssumption] 
         -> Either String [(CF.CashFlowFrame, Map.Map CutoffFields Balance)]
--- schedule cashflow just ignores the interest rate assumption
-runPool (Pool [] (Just (cf,_)) _ asof _ _ ) Nothing _ = Right [(cf, Map.empty)]
--- schedule cashflow with stress assumption
-runPool (Pool []  (Just (CF.CashFlowFrame _ txn,_)) _ asof _ (Just dp)) (Just (A.PoolLevel assumps)) mRates 
-  = sequenceA [ projCashflow (ACM.ScheduleMortgageFlow asof txn dp) asof assumps mRates ]
-
--- project contractual cashflow if nothing found in pool perf assumption
 -- use interest rate assumption
 runPool (Pool as _ _ asof _ _) Nothing mRates 
   = do 
