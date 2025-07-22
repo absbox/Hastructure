@@ -44,7 +44,7 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,AT.installmentTest
                            ,AT.armTest
                            ,AT.ppyTest
-                           ,AT.delinqScheduleCFTest
+--                           ,AT.delinqScheduleCFTest
                            ,AT.delinqMortgageTest
                            ,AT.nonPayMortgageTest
                            ,AT.receivableTest

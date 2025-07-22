@@ -4,9 +4,7 @@
 {-# LANGUAGE TupleSections #-}
 
 module Pool (Pool(..),aggPool
-       ,getIssuanceField
-       ,poolFutureCf,poolIssuanceStat
-       ,poolFutureScheduleCf
+       ,getIssuanceField ,poolIssuanceStat ,poolFutureScheduleCf
        ,poolBegStats,calcLiquidationAmount,pricingPoolFlow
        ,futureScheduleCfLens,futureCfLens, poolFutureCf
        ,runPool
