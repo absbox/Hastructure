@@ -161,11 +161,11 @@ priceBondIrr (AP.HoldingBond historyCash _ _) []
         irr <- Analytics.calcIRR ds vs
         return (irr, txns')
 -- Projected transaction and hold to maturity
-priceBondIrr (AP.HoldingBond historyCash holding Nothing) txns
+priceBondIrr (AP.HoldingBond historyCash holding Nothing) (txn:txns)
   = let 
-      begBal = (getTxnBegBalance . head) txns
+      begBal = getTxnBegBalance txn
       holdingPct = divideBB holding begBal
-      bProjectedTxn = scaleTxn holdingPct <$> txns -- `debug` ("holding pct"++ show holding ++"/" ++ show begBal ++" : " ++ show holdingPct)
+      bProjectedTxn = scaleTxn holdingPct <$> (txn:txns) 
       (ds,vs) = unzip historyCash
       (ds2,vs2) = (getDate <$> bProjectedTxn, getTxnAmt <$> bProjectedTxn) -- `debug` ("projected txn position"++ show bProjectedTxn)
       
@@ -177,16 +177,16 @@ priceBondIrr (AP.HoldingBond historyCash holding Nothing) txns
 
 -- TODO: need to use DC from bond
 -- Projected transaction and sell at a Date
-priceBondIrr (AP.HoldingBond historyCash holding (Just (sellDate, sellPricingMethod))) txns
+priceBondIrr (AP.HoldingBond historyCash holding (Just (sellDate, sellPricingMethod))) (txn:txns)
   = let 
       -- history cash
       (ds,vs) = unzip historyCash
       txns' = [ BondTxn d 0 0 0 0 v 0 0 Nothing Types.Empty | (d,v) <- historyCash ]
       
-      begBal = (getTxnBegBalance . head) txns
+      begBal = getTxnBegBalance txn
       holdingPct = toRational $ holding / begBal
       -- assume cashflow of sell date belongs to seller(owner)
-      (bProjectedTxn',futureFlow') = splitByDate txns sellDate EqToLeft
+      (bProjectedTxn',futureFlow') = splitByDate (txn:txns) sellDate EqToLeft
       (bProjectedTxn,futureFlow) = ((scaleTxn holdingPct) <$> bProjectedTxn',(scaleTxn holdingPct) <$> futureFlow')
       -- projected cash
       (ds2,vs2) = (getDate <$> bProjectedTxn, getTxnAmt <$> bProjectedTxn)
