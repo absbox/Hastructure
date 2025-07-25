@@ -145,8 +145,8 @@ makeLensesFor [("accBalance","accBalLens") ,("accName","accNameLens")
 
 
 instance IR.UseRate Account where 
-  isAdjustbleRate (Account _ an (Just (InvestmentAccount _ _ _ _ _ _)) _ _) = True
-  isAdjustbleRate _ = False
+  isAdjustableRate (Account _ an (Just (InvestmentAccount _ _ _ _ _ _)) _ _) = True
+  isAdjustableRate _ = False
 
   getIndex (Account _ an (Just (InvestmentAccount idx _ _ _ _ _)) _ _) = Just idx
   getIndex _ = Nothing 

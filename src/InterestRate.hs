@@ -111,7 +111,7 @@ calcInt bal startDate endDate intRate dayCount =
     mulBR bal (yfactor * toRational intRate)
 
 class UseRate x where 
-  isAdjustbleRate :: x -> Bool
+  isAdjustableRate :: x -> Bool
   -- get first index available,if not found return Nothing
   getIndex :: x -> Maybe Index
   getIndexes :: x -> Maybe [Index]

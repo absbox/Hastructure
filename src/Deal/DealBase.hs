@@ -430,6 +430,7 @@ viewDealBondsByNames t@TestDeal{bonds= bndMap } bndNames
       bnds ++ bndsFromGrp
 
 -- ^ find bonds with first match
+-- TODO fix it using traversal
 findBondByNames :: Map.Map String L.Bond -> [BondName] -> Either String [L.Bond]
 findBondByNames bMap bNames
   = let 

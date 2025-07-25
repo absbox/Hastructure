@@ -142,8 +142,8 @@ pricingTests = testGroup "Pricing Tests"
 
 bndTests = testGroup "Float Bond Tests" [
     let
-       r1 = B.isAdjustble  (B.bndInterestInfo bfloat)
-       r2 = B.isAdjustble (B.bndInterestInfo bfloat)
+       r1 = B.isAdjustable  (B.bndInterestInfo bfloat)
+       r2 = B.isAdjustable (B.bndInterestInfo bfloat)
     in
       testCase "Adjust rate by Month of Year " $
       assertEqual "" [True,False] [r1,r2]
@@ -156,8 +156,8 @@ bndTests = testGroup "Float Bond Tests" [
                                                          QuarterEnd
                                                          DC_ACT_365F   
                                                          Nothing Nothing}
-       r1 = B.isAdjustble $ B.bndInterestInfo bfloatResetInterval
-       r2 = B.isAdjustble $ B.bndInterestInfo bfloatResetInterval
+       r1 = B.isAdjustable $ B.bndInterestInfo bfloatResetInterval
+       r2 = B.isAdjustable $ B.bndInterestInfo bfloatResetInterval
     in 
       testCase "Adjust rate by quarter  " $
       assertEqual "" [True,False] [r1,r2]

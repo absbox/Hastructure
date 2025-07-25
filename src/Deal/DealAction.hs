@@ -112,15 +112,15 @@ allocAmtToBonds theOrder amt bndsWithDue =
       $ paySeqLiabilitiesAmt amt orderedAmt
 
 
-calcDueFee :: Ast.Asset a => TestDeal a -> Date -> F.Fee -> Either String F.Fee
+calcDueFee :: Ast.Asset a => TestDeal a -> Date -> F.Fee -> Either ErrorRep F.Fee
 calcDueFee t calcDay f@(F.Fee fn (F.FixFee amt) fs fd fdDay fa _ _)
-  | isJust fdDay = Right f 
+  | isJust fdDay = return f 
   | calcDay >= fs && isNothing fdDay = Right f { F.feeDue = amt, F.feeDueDate = Just calcDay} -- `debug` ("DEBUG--> init with amt "++show(fd)++show amt)
-  | otherwise = Right f
+  | otherwise = return f
 
 calcDueFee t calcDay f@(F.Fee fn (F.AnnualRateFee feeBase r) fs fd Nothing fa lpd _)
   | calcDay >= fs = calcDueFee t calcDay f {F.feeDueDate = Just fs }
-  | otherwise = Right f 
+  | otherwise = return f 
 
 -- ^ annualized % fee base on pool balance amount
 calcDueFee t@TestDeal{pool = pool} calcDay f@(F.Fee fn (F.AnnualRateFee feeBase _r) fs fd (Just _fdDay) fa lpd _)
@@ -144,16 +144,15 @@ calcDueFee t calcDay f@(F.Fee fn (F.PctFee ds _r ) fs fd fdDay fa lpd _)
         return f { F.feeDue = fd + fromRational (baseBal * r), F.feeDueDate = Just calcDay }
 
 calcDueFee t calcDay f@(F.Fee fn (F.FeeFlow ts)  fs fd _ fa mflpd _)
-  = Right $
-      f{ F.feeDue = newFeeDue ,F.feeDueDate = Just calcDay ,F.feeType = F.FeeFlow futureDue} 
+  = return f{ F.feeDue = newFeeDue ,F.feeDueDate = Just calcDay ,F.feeType = F.FeeFlow futureDue} 
     where
       (currentNewDue,futureDue) = splitTsByDate ts calcDay 
       cumulativeDue = sumValTs currentNewDue
       newFeeDue =  cumulativeDue + fd  
 
 calcDueFee t calcDay f@(F.Fee fn (F.RecurFee p amt)  fs fd mLastAccDate fa _ _)
-  | periodGaps == 0 = Right f 
-  | otherwise = Right f { F.feeDue = amt * fromIntegral periodGaps + fd
+  | periodGaps == 0 = return f 
+  | otherwise = return f { F.feeDue = amt * fromIntegral periodGaps + fd
                         , F.feeDueDate = Just (T.addDays 1 calcDay) }
   where
     accDates = case mLastAccDate of 
@@ -163,11 +162,11 @@ calcDueFee t calcDay f@(F.Fee fn (F.RecurFee p amt)  fs fd mLastAccDate fa _ _)
 
 calcDueFee t calcDay f@(F.Fee fn (F.NumFee p s amt) fs fd Nothing fa lpd _)
   | calcDay >= fs = calcDueFee t calcDay f {F.feeDueDate = Just fs }
-  | otherwise = Right f 
+  | otherwise = return f 
 
 calcDueFee t calcDay f@(F.Fee fn (F.NumFee p s amt) fs fd (Just _fdDay) fa lpd _)
-  | _fdDay == calcDay = Right f 
-  | periodGap == 0 = Right f 
+  | _fdDay == calcDay = return f 
+  | periodGap == 0 = return f 
   | otherwise = do 
                   baseCount <- queryCompound t calcDay (patchDateToStats calcDay s)
                   let newFeeDueAmt = (fromRational baseCount) * amt * fromIntegral periodGap -- `debug` ("amt"++show amt++">>"++show baseCount++">>"++show periodGap)
@@ -184,7 +183,7 @@ calcDueFee t calcDay f@(F.Fee fn (F.TargetBalanceFee dsDue dsPaid) fs fd _ fa lp
       return f { F.feeDue = fromRational dueAmt, F.feeDueDate = Just calcDay}
 
 calcDueFee t@TestDeal{ pool = pool } calcDay f@(F.Fee fn (F.ByCollectPeriod amt) fs fd fdday fa lpd _)
-  = Right $ f {F.feeDue = dueAmt + fd, F.feeDueDate = Just calcDay}
+  = return $ f {F.feeDue = dueAmt + fd, F.feeDueDate = Just calcDay}
     where 
       txnsDates = getDate <$> getAllCollectedTxnsList t (Just [PoolConsol])
       pastPeriods = case fdday of 
@@ -768,7 +767,7 @@ performAction d t@TestDeal{fees=feeMap, accounts=accMap} (W.PayFeeBySeq mLimit a
   in
     do 
       paidOutAmt <- actualPaidOut
-      let (feesPaid, remainAmt) = paySequentially d paidOutAmt F.feeDue (F.payFee d) [] feesToPay
+      let (feesPaid, remainAmt) = paySequentially d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) [] feesToPay
       let accPaidOut = min availAccBal paidOutAmt
     
       let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (SeqPayFee fns)) an accMap
@@ -787,7 +786,7 @@ performAction d t@TestDeal{fees=feeMap, accounts=accMap} (W.PayFee mLimit an fns
   in
     do 
       paidOutAmt <- actualPaidOut
-      let (feesPaid, remainAmt) = payProRata d paidOutAmt F.feeDue (F.payFee d) feesToPay
+      let (feesPaid, remainAmt) = payProRata d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) feesToPay
       let accPaidOut = min availAccBal paidOutAmt
     
       let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (SeqPayFee fns)) an accMap
@@ -965,7 +964,7 @@ performAction d t@TestDeal{fees=feeMap,accounts=accMap} (W.PayFeeResidual mlimit
     do 
       paidOutAmt <- applyLimit t d availBal availBal mlimit
       let accMapAfterPay = Map.adjust (A.draw paidOutAmt d (PayFeeYield feeName)) an accMap
-      let feeMapAfterPay = Map.adjust (F.payResidualFee d paidOutAmt) feeName feeMap
+      let feeMapAfterPay = Map.adjust (pay d  DueResidual paidOutAmt) feeName feeMap
       return $ t {accounts = accMapAfterPay, fees = feeMapAfterPay}
 
 performAction d t@TestDeal{bonds=bndMap,accounts=accMap} 
@@ -1275,7 +1274,7 @@ performAction d t@TestDeal{fees=feeMap,liqProvider = Just _liqProvider} (W.LiqSu
                             Nothing -> supportAmt
                             (Just v) -> min supportAmt v
 
-        let newFeeMap = payInMap d transferAmt F.feeDue (F.payFee d) fns ByProRata feeMap
+        let newFeeMap = payInMap d transferAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) fns ByProRata feeMap
         let newLiqMap = Map.adjust (CE.draw transferAmt d) pName _liqProvider 
         return $ t { fees = newFeeMap, liqProvider = Just newLiqMap }
 

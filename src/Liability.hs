@@ -7,10 +7,10 @@
 
 module Liability
   (Bond(..),BondType(..),OriginalInfo(..)
-  ,payInt,payPrin,consolStmt,isPaidOff,getCurBalance
+  ,payInt,payPrin,consolStmt,isPaidOff
   ,priceBond,pv,InterestInfo(..),RateReset(..)
   ,getDueInt,weightAverageBalance,calcZspread,payYield,getTotalDueInt
-  ,buildRateResetDates,isAdjustble,StepUp(..),isStepUp,getDayCountFromInfo
+  ,buildRateResetDates,isAdjustable,StepUp(..),isStepUp,getDayCountFromInfo
   ,calcWalBond,patchBondFactor,fundWith,writeOff,InterestOverInterestType(..)
   ,getCurBalance,setBondOrigDate
   ,bndOriginInfoLens,bndIntLens,getBeginRate,_Bond,_BondGroup
@@ -21,6 +21,7 @@ module Liability
   ,getAccrueBegDate,getTxnInt,adjInterestInfoByRate,adjInterestInfoBySpread
   ,interestInfoTraversal,getOriginBalance,curRatesTraversal
   ,backoutAccruedInt,extractIrrResult,adjustBalance
+  ,_Bond,_MultiIntBond,_BondGroup
   )
   where
 
@@ -57,14 +58,14 @@ import Numeric.RootFinding
 debug = flip trace
 
 -- | test if a bond may changes its interest rate
-isAdjustble :: InterestInfo -> Bool 
-isAdjustble Floater {} = True
-isAdjustble RefRate {} = True
-isAdjustble Fix {} = False
-isAdjustble (CapRate r _ ) = isAdjustble r
-isAdjustble (FloorRate r _ ) = isAdjustble r
-isAdjustble (WithIoI r _) = isAdjustble r
-isAdjustble (RefBal _ r) = isAdjustble r
+isAdjustable :: InterestInfo -> Bool 
+isAdjustable Floater {} = True
+isAdjustable RefRate {} = True
+isAdjustable Fix {} = False
+isAdjustable (CapRate r _ ) = isAdjustable r
+isAdjustable (FloorRate r _ ) = isAdjustable r
+isAdjustable (WithIoI r _) = isAdjustable r
+isAdjustable (RefBal _ r) = isAdjustable r
 
 
 isStepUp :: Bond -> Bool
@@ -229,6 +230,7 @@ data Bond = Bond {
             }
             | BondGroup (Map.Map String Bond) (Maybe BondType)      -- ^ bond group
             deriving (Show, Eq, Generic, Ord, Read)            
+
 
 interestInfoTraversal :: Traversal' Bond InterestInfo
 interestInfoTraversal f (Bond bn bt oi ii su bal r dp di dioi did lip lpp stmt) 
@@ -712,8 +714,8 @@ instance Liable Bond where
   getOutstandingAmount b = getTotalDueInt b + getCurBalance b
 
 instance IR.UseRate Bond where 
-  isAdjustbleRate :: Bond -> Bool
-  isAdjustbleRate Bond{bndInterestInfo = iinfo} = isAdjustble iinfo
+  isAdjustableRate :: Bond -> Bool
+  isAdjustableRate Bond{bndInterestInfo = iinfo} = isAdjustable iinfo
   -- getIndex Bond{bndInterestInfo = iinfo }
   getIndexes Bond{bndInterestInfo = iinfo}  = getIndexFromInfo iinfo
   getIndexes (BondGroup bMap _)  = if Data.List.null combined then Nothing else Just combined

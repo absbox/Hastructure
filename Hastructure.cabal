@@ -7,10 +7,10 @@ cabal-version: 3.0
 name:           Hastructure
 version: 0.50.3
 synopsis:       Cashflow modeling library for structured finance
-description:    Please see the README on GitHub at <https://github.com/yellowbean/Hastructure#readme>
+description:    Please see the README on GitHub at <https://github.com/absbox/Hastructure#readme>
 category:       StructuredFinance,Securitisation,Cashflow
-homepage:       https://github.com/yellowbean/Hastructure#readme
-bug-reports:    https://github.com/yellowbean/Hastructure/issues
+homepage:       https://github.com/absbox/Hastructure#readme
+bug-reports:    https://github.com/absbox/Hastructure/issues
 author:         Xiaoyu
 maintainer:     always.zhang@gmail.com
 copyright:      2025 Xiaoyu, Zhang
@@ -23,7 +23,7 @@ extra-doc-files:
     CHANGELOG.md
 source-repository head
   type: git
-  location: https://github.com/yellowbean/Hastructure
+  location: https://github.com/absbox/Hastructure
 
 library
   exposed-modules:

@@ -192,7 +192,7 @@ poolSourceToIssuanceField a = error ("Failed to match pool source when mapping t
 
 
 
-eval :: (P.Asset a, Num b) => TestDeal a -> Date -> (EvalExpr b) -> Either ErrorMsg b
+eval :: (P.Asset a, Num b) => TestDeal a -> Date -> (EvalExpr b) -> Either ErrorRep b
 eval t d exp =
   let 
     eval' = eval t d
@@ -203,7 +203,7 @@ eval t d exp =
 -- eval t d (EvalSubtract (x:xs)) = (eval t d x) - sum ((eval t d) <$> xs)
 -- eval (EvalAvg xs) =  (sum (eval <$> xs)) / (length xs)
 
-queryCompound :: P.Asset a => TestDeal a -> Date -> DealStats -> Either ErrorMsg Rational 
+queryCompound :: P.Asset a => TestDeal a -> Date -> DealStats -> Either ErrorRep Rational 
 queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=feeMap, pool=pt}
               d s =
   case s of

@@ -3,8 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module Expense (Fee(..),FeeType(..),payFee,payResidualFee
-               ,buildFeeAccrueAction
+module Expense (Fee(..),FeeType(..) ,buildFeeAccrueAction
                ,feeNameLens,feeDueLens,feeTypeLens,feeStmtLens)
   where
 
@@ -45,7 +44,7 @@ data FeeType = AnnualRateFee DealStats FormulaRate                       -- ^ an
              | FeeFlowByPoolPeriod (PerCurve Balance)                    -- ^ a pool index series based fee
              | FeeFlowByBondPeriod (PerCurve Balance)                    -- ^ a bond index series based fee
              | ByCollectPeriod Amount                                    -- ^ fix amount per collection period
-             deriving (Show,Eq, Generic,Ord)
+             deriving (Show, Eq, Generic, Ord)
 
 data Fee = Fee {
   feeName :: String              -- ^ fee name
@@ -56,44 +55,37 @@ data Fee = Fee {
   ,feeArrears :: Balance         -- ^ not paid oustanding amout
   ,feeLastPaidDay :: Maybe Date  -- ^ last paid date
   ,feeStmt :: Maybe Statement    -- ^ transaction history
-} deriving (Show,Ord, Eq, Generic)
+} deriving (Show, Ord, Eq, Generic)
 
-payFee :: Date   -- ^ When pay action happen
-       -> Amount -- ^ Amount paid to fee
-       -> Fee    -- ^ Fee before being paid
-       -> Fee    -- ^ Fee after paid
-payFee d amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) =
-   f {feeLastPaidDay = Just d ,feeDue = dueRemain ,feeArrears = arrearRemain ,feeStmt = newStmt}
-   where
-    [(r0,arrearRemain),(r1,dueRemain)] = paySeqLiabilities amt [fa,fd]
-    paid = fa + fd - arrearRemain - dueRemain 
-    newStmt = appendStmt (ExpTxn d dueRemain paid arrearRemain (PayFee fn)) fstmt
 
--- | pay amount of fee regardless the due amount
-payResidualFee :: Date -> Amount -> Fee -> Fee
-payResidualFee d amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) =
-   f {feeLastPaidDay = Just d ,feeDue = dueRemain ,feeArrears = arrearRemain ,feeStmt = newStmt}
-   where
-    [(r0,arrearRemain),(r1,dueRemain)] = paySeqLiabilities amt [fa,fd] 
-    newStmt = appendStmt (ExpTxn d dueRemain amt arrearRemain (PayFee fn)) fstmt  
+instance Payable Fee where
+  pay d (DueTotalOf [DueArrears,DueFee]) amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) = 
+    let 
+      [(r0,arrearRemain),(r1,dueRemain)] = paySeqLiabilities amt [fa,fd]
+      paid = fa + fd - arrearRemain - dueRemain 
+      newStmt = appendStmt (ExpTxn d dueRemain paid arrearRemain (PayFee fn)) fstmt
+    in 
+      f {feeLastPaidDay = Just d ,feeDue = dueRemain ,feeArrears = arrearRemain ,feeStmt = newStmt}
+  
+  pay d DueResidual amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) =
+    let 
+      [(r0,arrearRemain),(r1,dueRemain)] = paySeqLiabilities amt [fa,fd] 
+      newStmt = appendStmt (ExpTxn d dueRemain amt arrearRemain (PayFee fn)) fstmt  
+    in 
+      f {feeLastPaidDay = Just d ,feeDue = dueRemain ,feeArrears = arrearRemain ,feeStmt = newStmt}
+
+  
+  getDueBal d t fee@(Fee fn ft fs fd fdDay fa flpd fstmt) 
+    = case t of 
+	Nothing -> fa + fd
+	Just DueFee -> fd
+	Just DueArrears -> fa
 
 -- | build accure dates for a fee
 buildFeeAccrueAction :: [Fee] -> Date -> [(String,Dates)] -> [(String,Dates)]
 buildFeeAccrueAction [] ed r = r
-buildFeeAccrueAction (fee:fees) ed r = 
-  case fee of 
-    (Fee fn (RecurFee dp _) fs _ _ _ _ _)
-      -> buildFeeAccrueAction fees ed [(fn, projDatesByPattern dp fs ed)]++r    
-    (Fee fn (FixFee _) fs _ _ _ _ _)
-      -> buildFeeAccrueAction fees ed [(fn, [fs])]++r    
-    (Fee fn (FeeFlow _ts) _ _ _ _ _ _)
-      -> buildFeeAccrueAction fees ed [(fn, getTsDates _ts)]++r    
-    (Fee fn (NumFee dp _ _) fs _ _ _ _ _)
-      -> buildFeeAccrueAction fees ed [(fn, projDatesByPattern dp fs ed)]++r    
-    (Fee fn (AmtByTbl dp _ _) fs _ _ _ _ _)
-      -> buildFeeAccrueAction fees ed [(fn, projDatesByPattern dp fs ed)]++r    
-    _
-      -> buildFeeAccrueAction fees ed r
+buildFeeAccrueAction (fee@Fee{feeName = fn }:fees) ed r
+  = buildFeeAccrueAction fees ed ((fn, getAccrualDates ed fee):r)
 
 instance S.QueryByComment Fee where 
     queryStmt Fee{feeStmt = Nothing} tc = []
@@ -107,8 +99,22 @@ instance Liable Fee where
     
   getOutstandingAmount Fee{feeDue=bal,feeArrears=fa} = bal + fa
 
+instance Accruable Fee where
+  getAccrualDates ed Fee{feeStart=fs,feeDueDate=fdDay,feeType=RecurFee dp _}
+    = projDatesByPattern dp fs ed
+  getAccrualDates ed Fee{feeStart=fs,feeDueDate=fdDay,feeType=FixFee _}
+    = [fs]
+  getAccrualDates ed Fee{feeStart=fs,feeDueDate=fdDay,feeType=FeeFlow ts}
+    = getTsDates ts
+  getAccrualDates ed Fee{feeStart=fs,feeDueDate=fdDay,feeType=NumFee dp _ _}
+    = projDatesByPattern dp fs ed
+  getAccrualDates ed Fee{feeStart=fs,feeDueDate=fdDay,feeType=AmtByTbl dp _ _}
+    = projDatesByPattern dp fs ed
+  getAccrualDates ed Fee{}
+    = []
+
 instance IR.UseRate Fee where
-  isAdjustbleRate x = False
+  isAdjustableRate x = False
   getIndex x = Nothing 
 
 makeLensesFor [("feeName","feeNameLens"),("feeType","feeTypeLens") ,("feeDue","feeDueLens") ,("feeDueDate","feeDueDateLens") ,("feeStmt","feeStmtLens")] ''Fee

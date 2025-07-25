@@ -45,8 +45,8 @@ module Types
   ,getDealStatType,getPriceValue,preHasTrigger
   ,DealStatRtn,Queryable(..) 
   ,MyRatio,HowToPay(..),BondPricingMethod(..),InvestorAction(..)
-  ,_BondTxn ,_InspectBal, _IrrResult
-  ,EvalExpr(..),ErrorMsg
+  ,_BondTxn ,_InspectBal, _IrrResult,DueType(..)
+  ,EvalExpr(..),ErrorRep,Accruable(..),Payable(..)
   )
   where
 
@@ -152,7 +152,7 @@ type RemainTerms = Int
 type BorrowerNum = Int
 type Lag = Int
 
-type ErrorMsg = String
+type ErrorRep = String
 
 
 data Index = LPR5Y
@@ -896,25 +896,23 @@ class Liable lb where
   getOutstandingAmount :: lb -> Balance
 
 
-
-data DueType = DueInterest
-             | DuePrincipal
-             | DueFee
-             | DuePremium
-             | DueFine
-             | DueTotalOf [DueType]
+data DueType = DueInterest          -- ^ interest due
+             | DuePrincipal         -- ^ principal due
+             | DueFee               -- ^ fee due
+             | DueResidual          -- ^ residual 
+             | DueArrears           -- ^ something that is not paid in the past
+             | DueTotalOf [DueType] -- ^ a combination of above with sequence
              deriving (Show, Eq, Generic)
 
 
 class Accruable ac where 
-  calcAccrual :: Date -> ac -> Balance
-  bookAccrual :: Date -> ac -> ac
+  bookAccrual :: Date -> Balance -> ac -> ac
   getAccrualDates :: Date -> ac -> [Date]
 
 
 class Payable pa where
-  pay :: Date -> Maybe Balance -> pa -> pa
-  getDueBal :: Date -> pa -> Maybe DueType -> Balance
+  pay :: Date -> DueType -> Balance -> pa -> pa
+  getDueBal :: Date -> Maybe DueType -> pa -> Balance
 
 
 class RateResettable rs where
@@ -1312,6 +1310,6 @@ $(deriveJSON defaultOptions ''RateAssumption)
 $(deriveJSON defaultOptions ''Direction)
 -- $(deriveJSON defaultOptions ''(EvalExpr Balance))
 
-$(deriveJSONGADT ''EvalExpr)
+-- $(deriveJSONGADT ''EvalExpr)
 makePrisms ''Txn
 $(concat <$> traverse (deriveJSON defaultOptions) [''Limit] )

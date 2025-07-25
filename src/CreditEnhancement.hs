@@ -248,7 +248,7 @@ instance IR.UseRate LiqFacility where
         (Just (IR.Floater _ idx1 _ _ _ _ _ _), Just (IR.Floater _ idx2 _ _ _ _ _ _)) -> Just [idx1,idx2]
         _ -> Nothing
 
-  isAdjustbleRate liq@LiqFacility{liqRateType = mRt,liqPremiumRateType = mPrt} 
+  isAdjustableRate liq@LiqFacility{liqRateType = mRt,liqPremiumRateType = mPrt} 
     = case (mRt,mPrt) of 
         (Just (IR.Floater {}), _ ) -> True
         (_, Just (IR.Floater {})) -> True

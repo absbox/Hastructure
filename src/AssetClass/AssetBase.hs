@@ -292,6 +292,8 @@ instance IR.UseRate ProjectedCashFlow where
   getIndex (ProjectedByFactor cf _ _ (f:fs)) = Just $ (\(_,a,b,c) -> c) f 
   getIndexes (ProjectedByFactor cf _ _ fs ) 
     = Just $ (\(a,_,b,c) -> c) <$> fs
+  isAdjustableRate (ProjectedByFactor _ _ _ []) = False
+  isAdjustableRate (ProjectedByFactor _ _ _ _) = True
 
 
 $(concat <$> traverse (deriveJSON defaultOptions) [''Obligor, ''OriginalInfo, ''FixedAsset, ''AmortPlan, ''PrepayPenaltyType
