@@ -6,7 +6,7 @@
 
 module Accounts (Account(..),ReserveAmount(..),draw,deposit
                 ,transfer,depositInt ,InterestInfo(..),buildEarnIntAction
-                ,accBalLens,tryDraw,buildRateResetDates,accrueInt,accTypeLens)
+                ,accBalLens,buildRateResetDates,accrueInt,accTypeLens)
     where
 import qualified Data.Time as T
 import Stmt (Statement(..),appendStmt,getTxnBegBalance,getDate
@@ -109,23 +109,23 @@ transfer (sourceAcc@(Account sBal san _ _ sStmt), targetAcc@(Account tBal tan _ 
 
 -- | deposit cash to account with a comment
 deposit :: Amount -> Date -> TxnComment -> Account -> Account
-deposit amount d source acc@(Account bal _ _ _ maybeStmt)  =
-    acc {accBalance = newBal, accStmt = newStmt}
-  where
-    newBal = bal + amount
-    newStmt = appendStmt (AccTxn d newBal amount source) maybeStmt 
+deposit amount d source acc@(Account bal _ _ _ maybeStmt) 
+  = let
+      newBal = bal + amount
+    in
+      acc {accBalance = newBal , accStmt = appendStmt (AccTxn d newBal amount source) maybeStmt }
 
 -- | draw cash from account with a comment
-draw :: Amount -> Date -> TxnComment -> Account -> Account
-draw amount d txn acc@Account{ accBalance = bal ,accName = an} 
-  | bal >= amount = deposit (- amount) d txn acc  
-  | otherwise = error  $ "Date:"++ show d ++" Failed to draw "++ show amount ++" from account" ++ an
+-- draw :: Amount -> Date -> TxnComment -> Account -> Account
+-- draw amount d txn acc@Account{ accBalance = bal ,accName = an} 
+--   | bal >= amount = deposit (- amount) d txn acc  
+--   | otherwise = error  $ "Date:"++ show d ++" Failed to draw "++ show amount ++" from account" ++ an
 
--- | draw cash from account with a comment,return shortfall and acccount 
-tryDraw :: Amount -> Date -> TxnComment -> Account -> ((Amount,Amount),Account)
-tryDraw amt d tc acc@(Account bal _ _ _ maybeStmt) 
-  | amt > bal = ((amt - bal, bal), acc {accBalance = 0})
-  | otherwise = ((0, amt), draw amt d tc acc)
+instance Drawable Account where 
+  availForDraw d (Account bal _ _ _ _) = bal
+  draw d amt txn acc@(Account bal _ _ _ maybeStmt) 
+    | availForDraw d acc >= amt = return $ deposit (- amt) d txn acc  
+    | otherwise = Left  $ "Date:"++ show d ++" Failed to draw "++ show amt ++" from account" ++ accName acc
 
 
 instance QueryByComment Account where 

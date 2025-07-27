@@ -53,6 +53,7 @@ runEffects (t@TestDeal{accounts = accMap, fees = feeMap ,status=st, bonds = bond
                            newFeeList <- sequenceA $ calcDueFee t d  <$> (feeMap Map.!) <$> fns
                            let newFeeMap = Map.fromList (zip fns newFeeList) <> feeMap
                            return (t {fees = newFeeMap}, rc, actions, logs)
+
       ChangeReserveBalance accName rAmt ->
           return (t {accounts = Map.adjust (set A.accTypeLens (Just rAmt)) accName accMap }
                     , rc, actions, logs)
@@ -478,24 +479,21 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                 let accName = A.accName acc
                 case (settleAmt <0, accBal < abs settleAmt) of 
                   (True, True) ->
-                    let
-                      newAcc = Map.adjust (A.draw accBal d (SwapOutSettle sn)) accName accMap
-                      newRsMap = Just $ Map.adjust (HE.payoutIRS d accBal) sn rSwap 
-                    in 
-                      run (t{accounts = newAcc, rateSwap = newRsMap}) poolFlowMap (Just ads) rates calls rAssump
-                      $ DL.snoc log (WarningMsg $ "Settle Rate Swap Error: "++ show d ++" Insufficient balance to settle "++ sn)
+                    do
+                      newAcc <- adjustM (A.draw d accBal (SwapOutSettle sn)) accName accMap
+		      let newRsMap = Just $ Map.adjust (HE.payoutIRS d accBal) sn rSwap 
+                      run (t{accounts = newAcc, rateSwap = newRsMap}) poolFlowMap (Just ads) rates calls rAssump $ DL.snoc log (WarningMsg $ "Settle Rate Swap Error: "++ show d ++" Insufficient balance to settle "++ sn)
                     -- Left $ "Settle Rate Swap Error: "++ show d ++" Insufficient balance to settle "++ sn
                   (True, False) -> 
-                    let
-                      newAcc = Map.adjust (A.draw (abs settleAmt) d (SwapOutSettle sn)) accName  accMap
-                      newRsMap = Just $ Map.adjust (HE.payoutIRS d settleAmt) sn rSwap 
-                    in 
+                    do
+                      newAcc <- adjustM (A.draw d (abs settleAmt) (SwapOutSettle sn)) accName  accMap
+		      let newRsMap = Just $ Map.adjust (HE.payoutIRS d settleAmt) sn rSwap 
                       run (t{accounts = newAcc, rateSwap = newRsMap}) poolFlowMap (Just ads) rates calls rAssump log
                   (False, _) -> 
                     let 
                       newAcc = Map.adjust (A.deposit settleAmt d (SwapInSettle sn)) accName accMap
-                      newRsMap = Just $ Map.adjust (HE.receiveIRS d) sn rSwap 
-                    in
+		      newRsMap = Just $ Map.adjust (HE.receiveIRS d) sn rSwap 
+		    in 
                       run (t{accounts = newAcc, rateSwap = newRsMap}) poolFlowMap (Just ads) rates calls rAssump log
 
         AccrueCapRate d cn -> 
@@ -512,7 +510,7 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
         InspectDS d dss -> 
           do
             newlog <- inspectListVars t d dss 
-            run t poolFlowMap (Just ads) rates calls rAssump $ DL.append log (DL.fromList newlog) -- `debug` ("Add log"++show newlog)
+            run t poolFlowMap (Just ads) rates calls rAssump $ DL.append log (DL.fromList newlog)
         
         ResetBondRate d bn  -> 
           let 
@@ -525,7 +523,7 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
         
         StepUpBondRate d bn -> 
           let 
-            bnd = bndMap Map.! bn -- `debug` ("StepUpBondRate--------------"++ show bn)
+            bnd = bndMap Map.! bn
           in 
             do 
               newBndMap <- adjustM (setBondStepUpRate d (fromMaybe [] rates)) bn bndMap
@@ -672,8 +670,6 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                              run t{bonds = newBonds, accounts = newAcc} poolFlowMap (Just ads) rates calls rAssump log
         RefiBondRate d accName bName iInfo ->
            let
-             -- settle accrued interest 
-             -- TODO rebuild bond rate reset actions
              lstDate = getDate (last ads)
              isResetActionEvent (ResetBondRate _ bName ) = False 
              isResetActionEvent _ = True
@@ -683,13 +679,12 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
              do 
                nBnd <- calcDueInt t d $ bndMap Map.! bName
                let dueIntToPay = L.getTotalDueInt nBnd
-               let ((shortfall,drawAmt),newAcc) = A.tryDraw dueIntToPay d (PayInt [bName]) (accMap Map.! accName)
-               let newBnd = set L.bndIntLens iInfo $ L.payInt d drawAmt nBnd
+	       let acc = (accMap Map.! accName)
+	       let actualPayout = min (A.accBalance acc) dueIntToPay
+               let newBnd = set L.bndIntLens iInfo $ L.payInt d actualPayout nBnd
                let resetDates = L.buildRateResetDates newBnd d lstDate 
-               -- let bResetActions = [ ResetBondRate d bName 0 | d <- resetDates ]
-               -- TODO tobe fix
-               let bResetActions = []
-               let newAccMap = Map.insert accName newAcc accMap
+               let bResetActions = [ ResetBondRate d' bName | d' <- resetDates ]
+	       newAccMap <- adjustM (draw d actualPayout (PayInt [bName])) accName accMap
                let newBndMap = Map.insert bName (newBnd {L.bndRate = newRate, L.bndDueIntDate = Just d ,L.bndLastIntPay = Just d}) bndMap
                let newAds = sortBy sortActionOnDate $ filteredAds ++ bResetActions
                run t{bonds = newBndMap, accounts = newAccMap} poolFlowMap (Just newAds) rates calls rAssump log
@@ -706,10 +701,9 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                 True -> 
                   let 
                      runContext = RunContext poolFlowMap rAssump rates
-                     newStLogs = if null cleanUpActions then 
-                                   DL.fromList [DealStatusChangeTo d dStatus Called "by Date-Based Call"]
-                                 else 
-                                   DL.fromList [DealStatusChangeTo d dStatus Called "by Date-Based Call", RunningWaterfall d W.CleanUp]
+                     newStLogs 
+		       | null cleanUpActions = DL.fromList [DealStatusChangeTo d dStatus Called "by Date-Based Call"]
+                       | otherwise = DL.fromList [DealStatusChangeTo d dStatus Called "by Date-Based Call", RunningWaterfall d W.CleanUp]
                   in  
                      do 
                        (dealAfterCleanUp, rc_, newLogWaterfall_ ) <- foldM (performActionWrap d) (t, runContext, log) cleanUpActions

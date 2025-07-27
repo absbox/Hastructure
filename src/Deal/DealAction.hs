@@ -402,16 +402,16 @@ evalExtraSupportBalance d t (W.MultiSupport supports)
 
 
 -- ^ draw support from a deal , return updated deal,and remaining oustanding amount
-drawExtraSupport :: Date -> Amount -> W.ExtraSupport -> TestDeal a -> (TestDeal a, Amount)
+drawExtraSupport :: Date -> Amount -> W.ExtraSupport -> TestDeal a -> Either ErrorRep (TestDeal a, Amount)
 -- ^ draw account support and book ledger
 drawExtraSupport d amt (W.SupportAccount an (Just (dr, ln))) t@TestDeal{accounts=accMap, ledgers= Just ledgerMap}
   = let 
       drawAmt = min (A.accBalance (accMap Map.! an)) amt
       oustandingAmt = amt - drawAmt
     in 
-      (t {accounts = Map.adjust (A.draw drawAmt d Types.SupportDraw) an accMap
-         ,ledgers = Just $ Map.adjust (LD.entryLog drawAmt d (TxnDirection dr)) ln ledgerMap}
-      , oustandingAmt)
+      do 
+	newAccMap <- adjustM (A.draw d drawAmt Types.SupportDraw) an accMap
+        return (t {accounts = newAccMap ,ledgers = Just $ Map.adjust (LD.entryLog drawAmt d (TxnDirection dr)) ln ledgerMap} , oustandingAmt)
 
 -- ^ draw account support
 drawExtraSupport d amt (W.SupportAccount an Nothing) t@TestDeal{accounts=accMap} 
@@ -419,8 +419,9 @@ drawExtraSupport d amt (W.SupportAccount an Nothing) t@TestDeal{accounts=accMap}
       drawAmt = min (A.accBalance (accMap Map.! an)) amt
       oustandingAmt = amt - drawAmt
     in 
-      (t {accounts = Map.adjust (A.draw drawAmt d Types.SupportDraw) an accMap }
-      , oustandingAmt) 
+      do
+	newAccMap <- adjustM (A.draw d drawAmt Types.SupportDraw) an accMap
+	return (t {accounts = newAccMap } , oustandingAmt) 
 
 -- ^ draw support from liquidity facility
 drawExtraSupport d amt (W.SupportLiqFacility liqName) t@TestDeal{liqProvider= Just liqMap}
@@ -431,13 +432,14 @@ drawExtraSupport d amt (W.SupportLiqFacility liqName) t@TestDeal{liqProvider= Ju
                   Just b -> min amt b -- `debug` ("From Just"++ show b++">>"++show amt)
       oustandingAmt = amt - drawAmt -- `debug` ("Draw Amt"++show drawAmt++">>"++ show amt ++">>>")
     in 
-      (t {liqProvider = Just (Map.adjust (CE.draw drawAmt d) liqName liqMap)}
-      , oustandingAmt)
+      do
+        newLiqMap <- adjustM (CE.draw d drawAmt SupportDraw) liqName liqMap
+        return (t {liqProvider = Just newLiqMap} , oustandingAmt)
 
 -- ^ draw multiple supports by sequence
 drawExtraSupport d amt (W.MultiSupport supports) t
-  = foldr 
-      (\support (deal,remainAmt) -> drawExtraSupport d remainAmt support deal) 
+  = foldM
+      (\(deal,remainAmt) support -> drawExtraSupport d remainAmt support deal) 
       (t, amt) 
       supports
 
@@ -508,9 +510,13 @@ calcAvailAfterLimit t d acc mSupport dueAmt mLimit
           return r
 
 
-updateSupport :: Ast.Asset a => Date -> Maybe W.ExtraSupport -> Balance -> TestDeal a -> TestDeal a
-updateSupport _ Nothing _ t = t
-updateSupport d (Just support) bal t = fst $ drawExtraSupport d bal support t
+updateSupport :: Ast.Asset a => Date -> Maybe W.ExtraSupport -> Balance
+	         -> TestDeal a -> Either ErrorRep (TestDeal a)
+updateSupport _ Nothing _ t = return t
+updateSupport d (Just support) bal t = 
+  do 
+    (deal,amt) <- drawExtraSupport d bal support t
+    return deal
 
 performActionWrap :: Ast.Asset a => Date -> (TestDeal a, RunContext a, DL.DList ResultComponent) 
                   -> W.Action -> Either String (TestDeal a, RunContext a, DL.DList ResultComponent)
@@ -560,7 +566,7 @@ performActionWrap d
                                                     pm
                       ResecDeal _ -> error "Not implement on buy resec deal"
 
-        let newAccMap = Map.adjust (A.draw purchaseAmt d (PurchaseAsset revolvingPoolName boughtAssetBal)) accName accsMap -- `debug` ("Asset bought total bal"++ show boughtAssetBal)
+        newAccMap <- adjustM (A.draw d purchaseAmt (PurchaseAsset revolvingPoolName boughtAssetBal)) accName accsMap -- `debug` ("Asset bought total bal"++ show boughtAssetBal)
         (cfBought ,_)<- projAssetUnionList [updateOriginDate2 d ast | ast <- assetBought ] d perfAssumps mRates  -- `debug` ("Date: " ++ show d ++ "Asset bought"++ show [updateOriginDate2 d ast | ast <- assetBought ])
         let newPcf = Map.adjust (\(cfOrigin@(CF.CashFlowFrame st trs), mAflow) -> 
                                 let 
@@ -650,7 +656,7 @@ performActionWrap d
      newPfInRc = foldr (Map.adjust (set (_1 . CF.cashflowTxn) [])) pcf  (Map.keys poolMapToLiq)
      -- Update current balance to zero 
    in
-     Right (t {accounts = accMapAfterLiq , pool = newPt} , rc {runPoolFlow = newPfInRc}, logs)
+     return (t {accounts = accMapAfterLiq , pool = newPt} , rc {runPoolFlow = newPfInRc}, logs)
 
 
 performActionWrap d (t, rc, logs) (W.WatchVal ms dss)
@@ -702,7 +708,7 @@ performAction d t@TestDeal{accounts=accMap, ledgers = Just ledgerM}
     in 
       do 
         transferAmt <- actualPaidOut
-        let accMapAfterDraw = Map.adjust (A.draw transferAmt d (TxnComments [Transfer an1 an2,(BookLedgerBy dr lName)])) an1 accMap -- `debug` (">>PDL >>Ledger bal"++show d ++ show targetAmt)
+        accMapAfterDraw <- adjustM (A.draw d transferAmt (TxnComments [Transfer an1 an2,(BookLedgerBy dr lName)])) an1 accMap
         let accMapAfterDeposit = Map.adjust (A.deposit transferAmt d (TxnComments [Transfer an1 an2,(BookLedgerBy dr lName)])) an2 accMapAfterDraw
         let newLedgerM = Map.adjust (LD.entryLog transferAmt d (TxnDirection dr)) lName ledgerM
         return t {accounts = accMapAfterDeposit, ledgers = Just newLedgerM}  
@@ -715,8 +721,8 @@ performAction d t@TestDeal{accounts=accMap} (W.Transfer mLimit an1 an2 mComment)
     in 
       do 
         transferAmt <- actualPaidOut
-        let accMapAfterDraw = Map.adjust (A.draw transferAmt d (Transfer an1 an2)) an1 accMap -- `debug` (">>PDL >>Ledger bal"++show d ++ show targetAmt)
-        let accMapAfterDeposit = Map.adjust (A.deposit transferAmt d (Transfer an1 an2)) an2 accMapAfterDraw
+	newAccMap <- adjustM (A.draw d transferAmt (Transfer an1 an2)) an1 accMap 
+        let accMapAfterDeposit = Map.adjust (A.deposit transferAmt d (Transfer an1 an2)) an2 newAccMap
         return t {accounts = accMapAfterDeposit}  
 
 performAction d t@TestDeal{accounts=accMap} (W.TransferMultiple sourceAccList targetAcc mComment)
@@ -769,12 +775,12 @@ performAction d t@TestDeal{fees=feeMap, accounts=accMap} (W.PayFeeBySeq mLimit a
       paidOutAmt <- actualPaidOut
       let (feesPaid, remainAmt) = paySequentially d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) [] feesToPay
       let accPaidOut = min availAccBal paidOutAmt
-    
-      let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (SeqPayFee fns)) an accMap
+      newAccMap <- adjustM (A.draw d accPaidOut (SeqPayFee fns)) an accMap 
+      let dealAfterAcc = t {accounts = newAccMap
                            ,fees = Map.fromList (zip fns feesPaid) <> feeMap}
 
       let supportPaidOut = paidOutAmt - accPaidOut
-      return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+      updateSupport d mSupport supportPaidOut dealAfterAcc
     
 -- ^ pay out fee in pro-rata fashion
 performAction d t@TestDeal{fees=feeMap, accounts=accMap} (W.PayFee mLimit an fns mSupport) =
@@ -788,12 +794,12 @@ performAction d t@TestDeal{fees=feeMap, accounts=accMap} (W.PayFee mLimit an fns
       paidOutAmt <- actualPaidOut
       let (feesPaid, remainAmt) = payProRata d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) feesToPay
       let accPaidOut = min availAccBal paidOutAmt
-    
-      let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (SeqPayFee fns)) an accMap
+      newAccMap <- adjustM (A.draw d accPaidOut (SeqPayFee fns)) an accMap 
+      let dealAfterAcc = t {accounts = newAccMap
                            ,fees = Map.fromList (zip fns feesPaid) <> feeMap}
 
       let supportPaidOut = paidOutAmt - accPaidOut
-      return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+      updateSupport d mSupport supportPaidOut dealAfterAcc
 
 
 performAction d t (W.AccrueAndPayIntBySeq mLimit an bnds mSupport)
@@ -814,12 +820,12 @@ performAction d t@TestDeal{bonds=bndMap, accounts=accMap, liqProvider=liqMap}
         paidOutAmt <- actualPaidOut
         let (bondsPaid, remainAmt) = paySequentially d paidOutAmt L.getDueIntOverInt (L.payInt d) [] bndsList
         let accPaidOut = min availAccBal paidOutAmt
-      
-        let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (PayInt bnds)) an accMap
+        newAccMap <- adjustM (A.draw d accPaidOut (PayInt bnds)) an accMap 
+        let dealAfterAcc = t {accounts = newAccMap
                              ,bonds = Map.fromList (zip bnds bondsPaid) <> bndMap}
 
         let supportPaidOut = paidOutAmt - accPaidOut
-        return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+        updateSupport d mSupport supportPaidOut dealAfterAcc
 
 
 performAction d t@TestDeal{bonds=bndMap, accounts=accMap, liqProvider=liqMap} 
@@ -835,12 +841,12 @@ performAction d t@TestDeal{bonds=bndMap, accounts=accMap, liqProvider=liqMap}
         paidOutAmt <- actualPaidOut
         let (bondsPaid, remainAmt) = paySequentially d paidOutAmt L.getTotalDueInt (L.payInt d) [] bndsList
         let accPaidOut = min availAccBal paidOutAmt
-      
-        let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (PayInt bnds)) an accMap
+        newAccMap <- adjustM (A.draw d accPaidOut (PayInt bnds)) an accMap 
+        let dealAfterAcc = t {accounts = newAccMap
                              ,bonds = Map.fromList (zip bnds bondsPaid) <> bndMap}
 
         let supportPaidOut = paidOutAmt - accPaidOut
-        return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+        updateSupport d mSupport supportPaidOut dealAfterAcc
 
 
 performAction d t@TestDeal{bonds=bndMap,accounts=accMap} 
@@ -856,12 +862,12 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap}
          paidOutAmt <- actualPaidOut
          let (bondsPaid, remainAmt) = payProRata d paidOutAmt L.getDueIntOverInt (L.payInt d) bndsList
          let accPaidOut = min availAccBal paidOutAmt
-       
-         let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (PayInt bnds)) an accMap
+         newAccMap <- adjustM (A.draw d accPaidOut (PayInt bnds)) an accMap
+         let dealAfterAcc = t {accounts = newAccMap
                               ,bonds = Map.fromList (zip bnds bondsPaid) <> bndMap}
 
          let supportPaidOut = paidOutAmt - accPaidOut
-         return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+         updateSupport d mSupport supportPaidOut dealAfterAcc
 
 performAction d t@TestDeal{bonds=bndMap,accounts=accMap} 
               (W.PayInt mLimit an bnds mSupport)
@@ -876,12 +882,12 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap}
        paidOutAmt <- actualPaidOut
        let (bondsPaid, remainAmt) = payProRata d paidOutAmt L.getTotalDueInt (L.payInt d) bndsList
        let accPaidOut = (min availAccBal paidOutAmt)
-     
-       let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (PayInt bnds)) an accMap
+       newAccMap <- adjustM (A.draw d accPaidOut (PayInt bnds)) an accMap    
+       let dealAfterAcc = t {accounts = newAccMap
                             ,bonds = Map.fromList (zip bnds bondsPaid) <> bndMap}
 
        let supportPaidOut = paidOutAmt - accPaidOut
-       return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+       updateSupport d mSupport supportPaidOut dealAfterAcc
 
 performAction d t@TestDeal{bonds=bndMap,accounts=accMap,ledgers= Just ledgerM} 
                 (W.PayIntAndBook mLimit an bnds mSupport (dr, lName))
@@ -897,13 +903,14 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap,ledgers= Just ledgerM}
        let (bondsPaid, remainAmt) = payProRata d paidOutAmt L.getTotalDueInt (L.payInt d) bndsList
        let accPaidOut = min availAccBal paidOutAmt
        let newLedgerM = Map.adjust (LD.entryLogByDr dr paidOutAmt d Nothing) lName ledgerM
+       newAccMap <- adjustM (A.draw d accPaidOut (PayInt bnds)) an accMap
      
-       let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (PayInt bnds)) an accMap
+       let dealAfterAcc = t {accounts = newAccMap
                             ,bonds = Map.fromList (zip bnds bondsPaid) <> bndMap
                             ,ledgers = Just newLedgerM}
 
        let supportPaidOut = paidOutAmt - accPaidOut
-       return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+       updateSupport d mSupport supportPaidOut dealAfterAcc
 
 
 
@@ -923,7 +930,8 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap} (W.PayIntResidual mLimi
   in
     do 
       limitAmt <- applyLimit t d availBal availBal mLimit
-      return $ t {accounts = Map.adjust (A.draw limitAmt d (PayYield bndName)) an accMap
+      newAccMap <- adjustM (A.draw d limitAmt (PayYield bndName)) an accMap
+      return $ t {accounts = newAccMap
                  , bonds = Map.adjust (L.payYield d limitAmt) bndName bndMap}
 
 
@@ -939,7 +947,8 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap} (W.PayIntByRateIndex mL
         actualPaidOut <- calcAvailAfterLimit t d (accMap Map.! an) mSupport (fromRational totalDue) mLimit -- `debug` ("Date "++ show d ++" total due"++show (fromRational totalDue))
         let (paidBonds, _) = payProRata d actualPaidOut (`L.getTotalDueIntAt` idx) (L.payIntByIndex d idx) bndsList -- `debug` ("Date"++show d++" paid out amt"++show (L.bndDueInts (paidBonds!!0)))
         let accMap1 = accMap -- `debug` ("Date"++show d++" paid out amt"++show (L.bndDueInts (paidBonds!!0)))
-        return $ t {accounts = Map.adjust (A.draw actualPaidOut d (PayInt bndNames_)) an accMap1
+	newAccMap <- adjustM (A.draw d actualPaidOut (PayInt bndNames_)) an accMap1
+        return $ t {accounts = newAccMap
                    , bonds =  Map.fromList (zip bndNames_ paidBonds) <> bndMap}
 
 
@@ -953,7 +962,8 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap} (W.PayIntByRateIndexByS
         totalDue <- queryCompound t d (CurrentDueBondIntAt idx bndNames_)
         actualPaidOut <- calcAvailAfterLimit t d (accMap Map.! an) mSupport (fromRational totalDue) mLimit
         let (paidBonds, _) = paySequentially d actualPaidOut (`L.getTotalDueIntAt` idx) (L.payIntByIndex d idx) [] bndsList
-        return $ t {accounts = Map.adjust (A.draw actualPaidOut d (PayInt bndNames_)) an accMap
+	newAccMap <- adjustM (A.draw d actualPaidOut (PayInt bndNames_)) an accMap
+        return $ t {accounts = newAccMap
                     , bonds =  Map.fromList (zip bndNames_ paidBonds) <> bndMap}
 
 
@@ -963,9 +973,9 @@ performAction d t@TestDeal{fees=feeMap,accounts=accMap} (W.PayFeeResidual mlimit
   in 
     do 
       paidOutAmt <- applyLimit t d availBal availBal mlimit
-      let accMapAfterPay = Map.adjust (A.draw paidOutAmt d (PayFeeYield feeName)) an accMap
+      newAccMap <- adjustM (A.draw d paidOutAmt (PayFeeYield feeName)) an accMap
       let feeMapAfterPay = Map.adjust (pay d  DueResidual paidOutAmt) feeName feeMap
-      return $ t {accounts = accMapAfterPay, fees = feeMapAfterPay}
+      return $ t {accounts = newAccMap, fees = feeMapAfterPay}
 
 performAction d t@TestDeal{bonds=bndMap,accounts=accMap} 
                 (W.PayPrinBySeq mLimit an bnds mSupport) 
@@ -983,12 +993,12 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap}
        paidOutAmt <- actualPaidOut -- `debug` ("Date"++show d++" paid out amt"++show actualPaidOut)
        let (bondsPaid, remainAmt) = paySequentially d paidOutAmt L.bndDuePrin (L.payPrin d) [] bndsWithDue
        let accPaidOut = min availAccBal paidOutAmt
-     
-       let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (PayPrin bndsToPayNames)) an accMap
+       newAccMap <- adjustM (A.draw d accPaidOut (PayPrin bndsToPayNames)) an accMap 
+       let dealAfterAcc = t {accounts = newAccMap
                             ,bonds = Map.fromList (zip bndsToPayNames bondsPaid) <> bndMap}
 
        let supportPaidOut = paidOutAmt - accPaidOut
-       return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+       updateSupport d mSupport supportPaidOut dealAfterAcc
 
 performAction d t@TestDeal{bonds=bndMap,accounts=accMap} 
                 (W.PayPrinGroup mLimit an bndGrpName by mSupport) 
@@ -1013,12 +1023,13 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap}
                               bndsMap
                               payOutPlanWithBondName -- `debug` (">date"++show d++"payoutPlan"++ show payOutPlanWithBondName)
        let accPaidOut = min availAccBal paidOutAmt
+       newAccMap <- adjustM (A.draw d accPaidOut (PayGroupPrin bndsToPayNames)) an accMap
      
-       let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (PayGroupPrin bndsToPayNames)) an accMap
+       let dealAfterAcc = t {accounts = newAccMap
                             ,bonds = Map.insert bndGrpName (L.BondGroup bndMapAfterPay pt) bndMap}
 
        let supportPaidOut = paidOutAmt - accPaidOut
-       return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+       updateSupport d mSupport supportPaidOut dealAfterAcc
 
 
 -- ^ accure interest and payout interest to a bond group with sequence input "by"
@@ -1057,17 +1068,17 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap} (W.PayIntGroup mLimit a
                               bndsMap
                               payOutPlanWithBondName -- `debug` (">date"++show d++"payoutPlan"++ show payOutPlanWithBondName)
        let accPaidOut = min availAccBal paidOutAmt
-     
-       let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (PayGroupInt bndsToPayNames)) an accMap
+
+       newAccMap <- adjustM (A.draw d accPaidOut (PayGroupInt bndsToPayNames)) an accMap 
+       let dealAfterAcc = t {accounts = newAccMap
                             ,bonds = Map.insert bndGrpName (L.BondGroup bndMapAfterPay pt) bndMap}
 
        let supportPaidOut = paidOutAmt - accPaidOut
-       return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+       updateSupport d mSupport supportPaidOut dealAfterAcc
 
 
 performAction d t@TestDeal{bonds=bndMap,accounts=accMap} (W.PayPrinWithDue an bnds Nothing) 
-  = Right $ t {accounts = accMapAfterPay, bonds = bndMapUpdated}
-    where
+  = let
       acc = accMap Map.! an
       availBal = A.accBalance acc
       bndsToPay = getActiveBonds t bnds
@@ -1078,34 +1089,36 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap} (W.PayPrinWithDue an bn
       (bndsPaid, remainAmt) = payProRata d actualPaidOut L.bndDuePrin (L.payPrin d) bndsToPay
       
       bndMapUpdated = (Map.fromList $ zip bndsToPayNames bndsPaid) <> bndMap
-      accMapAfterPay = Map.adjust (A.draw actualPaidOut d (PayPrin bnds)) an accMap
+    in 
+      do
+	accMapAfterPay <- adjustM (A.draw d actualPaidOut (PayPrin bnds)) an accMap
+        return $ t {accounts = accMapAfterPay, bonds = bndMapUpdated}
 
 
 performAction d t@TestDeal{bonds=bndMap,accounts=accMap} (W.PayPrin mLimit an bnds mSupport)
   = let 
-     availAccBal = A.accBalance (accMap Map.! an)
-     bndsToPay = getActiveBonds t bnds
-  in
-     do
-       bndsWithDue <- sequenceA $ calcDuePrin t d <$> bndsToPay
-       let bndsDueAmts = L.bndDuePrin <$> bndsWithDue
-       let bndsToPayNames = L.bndName <$> bndsWithDue
-       let totalDue = sum bndsDueAmts
-       let actualPaidOut = calcAvailAfterLimit t d (accMap Map.! an) mSupport totalDue mLimit
-       paidOutAmt <- actualPaidOut
-       let (bondsPaid, remainAmt) = payProRata d paidOutAmt L.bndDuePrin (L.payPrin d) bndsWithDue
-       let accPaidOut = min availAccBal paidOutAmt
-     
-       let dealAfterAcc = t {accounts = Map.adjust (A.draw accPaidOut d (PayPrin bndsToPayNames)) an accMap
-                            ,bonds = Map.fromList (zip bndsToPayNames bondsPaid) <> bndMap}
+      availAccBal = A.accBalance (accMap Map.! an)
+      bndsToPay = getActiveBonds t bnds
+    in
+      do
+        bndsWithDue <- sequenceA $ calcDuePrin t d <$> bndsToPay
+        let bndsDueAmts = L.bndDuePrin <$> bndsWithDue
+        let bndsToPayNames = L.bndName <$> bndsWithDue
+        let totalDue = sum bndsDueAmts
+        let actualPaidOut = calcAvailAfterLimit t d (accMap Map.! an) mSupport totalDue mLimit
+        paidOutAmt <- actualPaidOut
+        let (bondsPaid, remainAmt) = payProRata d paidOutAmt L.bndDuePrin (L.payPrin d) bndsWithDue
+        let accPaidOut = min availAccBal paidOutAmt
+        newAccMap <- adjustM (A.draw d accPaidOut (PayPrin bndsToPayNames)) an accMap 
+        let dealAfterAcc = t {accounts = newAccMap
+                             ,bonds = Map.fromList (zip bndsToPayNames bondsPaid) <> bndMap}
 
-       let supportPaidOut = paidOutAmt - accPaidOut
-       return $ updateSupport d mSupport supportPaidOut dealAfterAcc
+        let supportPaidOut = paidOutAmt - accPaidOut
+        updateSupport d mSupport supportPaidOut dealAfterAcc
 
 -- ^ pay principal without any limit
 performAction d t@TestDeal{accounts=accMap, bonds=bndMap} (W.PayPrinResidual an bnds) = 
-  Right $ t {accounts = accMapAfterPay, bonds = bndMapUpdated} -- `debug` ("Bond Prin Pay Result"++show(bndMapUpdated))
-  where
+  let
     acc = accMap Map.! an
 
     bndsToPay = getActiveBonds t bnds
@@ -1118,7 +1131,10 @@ performAction d t@TestDeal{accounts=accMap, bonds=bndMap} (W.PayPrinResidual an 
     bndsPaid = map (\(l,amt) -> L.payPrin d amt l) bndsAmountToBePaid  -- `debug` ("pay bonds "++show bnds ++"pay prin->>>To"++show(prorataFactors bndsDueAmts availBal))
 
     bndMapUpdated =  (Map.fromList $ zip bndsToPayNames bndsPaid) <> bndMap
-    accMapAfterPay = Map.adjust (A.draw actualPaidOut d (PayPrin bnds)) an accMap
+  in 
+    do 
+      accMapAfterPay <- adjustM (A.draw d actualPaidOut (PayPrin bnds)) an accMap
+      return $ t {accounts = accMapAfterPay, bonds = bndMapUpdated} -- `debug` ("Bond Prin Pay Result"++show(bndMapUpdated))
 
 performAction d t@TestDeal{accounts=accMap, bonds=bndMap} (W.FundWith mlimit an bnd) = 
   do
@@ -1256,8 +1272,9 @@ performAction d t@TestDeal{accounts=accs, liqProvider = Just _liqProvider} (W.Li
                              (Just av, Just (DS ds)) -> (min (toRational av)) <$> queryCompound t d (patchDateToStats d ds) 
                              (_ , Just _x) -> Left $ "Date:"++show d ++"Not support limit in LiqSupport(Account)"++ show _x 
             let dAmt = fromRational transferAmt
+	    newLiqMap <- adjustM (draw d dAmt LiquidationDraw) pName _liqProvider
             return t { accounts = Map.adjust (A.deposit dAmt d (LiquidationSupport pName)) an accs
-                     , liqProvider = Just $ Map.adjust (CE.draw dAmt d) pName _liqProvider }
+                     , liqProvider = Just newLiqMap }
   | otherwise = Left $ "Date:"++show d ++"There should only one account for LiqToAcc of LiqSupport"
 
 
@@ -1275,7 +1292,7 @@ performAction d t@TestDeal{fees=feeMap,liqProvider = Just _liqProvider} (W.LiqSu
                             (Just v) -> min supportAmt v
 
         let newFeeMap = payInMap d transferAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) fns ByProRata feeMap
-        let newLiqMap = Map.adjust (CE.draw transferAmt d) pName _liqProvider 
+        newLiqMap <- adjustM (draw d transferAmt LiquidationDraw) pName _liqProvider 
         return $ t { fees = newFeeMap, liqProvider = Just newLiqMap }
 
 -- TODO : add pay int by sequence
@@ -1294,7 +1311,7 @@ performAction d t@TestDeal{bonds=bndMap,liqProvider = Just _liqProvider}
                             (Just v) -> min supportAmt v
 
         let newBondMap = payInMap d transferAmt L.getTotalDueInt (L.payInt d) bns ByProRata bndMap
-        let newLiqMap = Map.adjust (CE.draw transferAmt d) pName _liqProvider 
+        newLiqMap <- adjustM (draw  d transferAmt  LiquidationDraw) pName _liqProvider 
         return $ t { bonds = newBondMap, liqProvider = Just newLiqMap }
 
 
@@ -1330,7 +1347,7 @@ performAction d t@TestDeal{accounts=accs,liqProvider = Just _liqProvider} (W.Liq
               | otherwise = zip rptsToPair paidOutsToLiq -- `debug` ("rpts To pair"++ show rptsToPair)
 
 
-        let newAccMap = Map.adjust (A.draw transferAmt d (LiquidationSupport pName)) an accs -- `debug` ("repay liq amt"++ show transferAmt)
+        newAccMap <- adjustM (A.draw d transferAmt (LiquidationSupport pName)) an accs -- `debug` ("repay liq amt"++ show transferAmt)
         let newLiqMap = foldl
                           (\acc (_rpt,_amt) -> Map.adjust (CE.repay _amt d _rpt ) pName acc)
                           _liqProvider
@@ -1347,7 +1364,7 @@ performAction d t@TestDeal{accounts=accs,liqProvider = Just _liqProvider} (W.Liq
                         Just (DS ds) -> (min (toRational cap)) <$> (queryCompound t d (patchDateToStats d ds)) 
                         _ -> Left $ "Date:"++show d ++"Not implement the limit"++ show limit++"For Pay Yield to liqProvider"
       
-        let newAccMap = Map.adjust (A.draw (fromRational transferAmt) d (LiquidationSupport pName)) an accs
+        newAccMap <- adjustM (A.draw d (fromRational transferAmt) (LiquidationSupport pName)) an accs
         let newLiqMap = Map.adjust (CE.repay (fromRational transferAmt) d CE.LiqResidual) pName _liqProvider 
         return t { accounts = newAccMap, liqProvider = Just newLiqMap }
 
@@ -1401,9 +1418,11 @@ performAction d t@TestDeal{rateSwap = Just rtSwap, accounts = accsMap } (W.SwapP
                 availBal = A.accBalance $ accsMap Map.! accName
                 amtToPay = min payoutAmt availBal
                 newRtSwap = Map.adjust (HE.payoutIRS d amtToPay) sName rtSwap
-                newAccMap = Map.adjust (A.draw amtToPay d (SwapOutSettle sName)) accName accsMap
-              in
-                Right $ t { rateSwap = Just newRtSwap, accounts = newAccMap }
+                -- newAccMap <- adjustM Map.adjust (A.draw d amtToPay (SwapOutSettle sName)) accName accsMap
+	     in 
+	       do 
+                newAccMap <- adjustM (A.draw d amtToPay (SwapOutSettle sName)) accName accsMap
+                return $ t { rateSwap = Just newRtSwap, accounts = newAccMap }
             else
               Right t
 

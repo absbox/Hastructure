@@ -4,6 +4,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE DataKinds #-}
+
 
 module Liability
   (Bond(..),BondType(..),OriginalInfo(..)
@@ -630,8 +632,6 @@ buildRateResetDates b@MultiIntBond{bndInterestInfos = iis} sd ed
       -- TODO: perf: sort and distinct
       concat $ (floaterRateResetDates . getDpFromIntInfo) <$> iis
 
-
-
 buildStepUpDates :: Bond -> StartDate -> EndDate -> [Date]
 buildStepUpDates (BondGroup bMap _) sd ed  =  concat $ (\x -> buildStepUpDates x sd ed) <$> Map.elems bMap
 buildStepUpDates b@Bond{bndStepUp = mSt } sd ed 
@@ -723,15 +723,13 @@ instance IR.UseRate Bond where
   getIndexes MultiIntBond{bndInterestInfos = iis} 
     = Just $ concat $ concat <$> getIndexFromInfo <$> iis
 
--- txnsLens :: Lens' Bond [Txn]
--- txnsLens = bndStmtLens . _Just . S.statementTxns
 instance S.HasStmt Bond where 
   
   getAllTxns Bond{bndStmt = Nothing} = []
   getAllTxns Bond{bndStmt = Just (S.Statement txns)} = DL.toList txns
   getAllTxns MultiIntBond{bndStmt = Nothing} = []
   getAllTxns MultiIntBond{bndStmt = Just (S.Statement txns)} = DL.toList txns
-  getAllTxns (BondGroup bMap _) = concat $ S.getAllTxns <$> Map.elems bMap
+  getAllTxns (BondGroup bMap _) = concatMap S.getAllTxns $ Map.elems bMap
 
   hasEmptyTxn Bond{bndStmt = Nothing} = True
   hasEmptyTxn Bond{bndStmt = Just (S.Statement txn)} = txn == DL.empty

@@ -46,7 +46,7 @@ module Types
   ,DealStatRtn,Queryable(..) 
   ,MyRatio,HowToPay(..),BondPricingMethod(..),InvestorAction(..)
   ,_BondTxn ,_InspectBal, _IrrResult,DueType(..)
-  ,EvalExpr(..),ErrorRep,Accruable(..),Payable(..)
+  ,EvalExpr(..),ErrorRep,Accruable(..),Payable(..),Drawable(..)
   )
   where
 
@@ -913,11 +913,15 @@ class Accruable ac where
 class Payable pa where
   pay :: Date -> DueType -> Balance -> pa -> pa
   getDueBal :: Date -> Maybe DueType -> pa -> Balance
-
+  -- writeOff :: Date -> DueType -> Balance -> pa -> Either ErrorRep pa
 
 class RateResettable rs where
   getResetDates :: Date -> rs -> [Dates]
   reset :: Date -> rs -> rs
+
+class Drawable dr where
+  draw :: Date -> Balance -> TxnComment -> dr -> Either ErrorRep dr
+  availForDraw :: Date -> dr -> Balance
 
   -- buildAccrualAction :: ac -> Date -> Date -> [ActionOnDate]
 
@@ -1124,6 +1128,9 @@ parseTxn t = case tagName of
       tagName =  head sr!!1::String
       contents = head sr!!2::String
 
+
+mapKVTraversal :: Traversal' (Map.Map k a) (k, a)
+mapKVTraversal = itraversed . withIndex
 
 data DealStatType = RtnBalance 
                   | RtnRate 

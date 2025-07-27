@@ -127,20 +127,17 @@ buildLiqRateResetAction (liq:liqProviders) ed r =
     _ -> buildLiqRateResetAction liqProviders ed r
 
 
--- | draw cash from liquidity provider
-draw :: Amount -> Date -> LiqFacility -> LiqFacility
-draw  amt d liq@LiqFacility{ liqBalance = liqBal
-                            ,liqStmt = mStmt
-                            ,liqCredit = mCredit
-                            ,liqDueInt = dueInt 
-                            ,liqDuePremium = duePremium} 
-  | isJust mCredit && (fromMaybe 0 mCredit) <= 0 = 
-    liq { liqStmt = appendStmt (SupportTxn d mCredit liqBal dueInt duePremium 0 LiquidationDraw) mStmt }
-  | otherwise = liq { liqBalance = newBal,liqCredit = newCredit,liqStmt = newStmt}
+instance Drawable LiqFacility where
+  draw d amt txn liq@LiqFacility{ liqBalance = liqBal ,liqStmt = mStmt 
+                                 ,liqCredit = mCredit ,liqDueInt = dueInt 
+                                 ,liqDuePremium = duePremium}
+    | isJust mCredit && (fromMaybe 0 mCredit) <= 0 
+      = return $ liq { liqStmt = appendStmt (SupportTxn d mCredit liqBal dueInt duePremium 0 txn) mStmt }
+    | otherwise = return $ liq { liqBalance = newBal,liqCredit = newCredit,liqStmt = newStmt}
     where 
-        newCredit = (\x -> x - amt) <$> mCredit 
-        newBal = liqBal + amt 
-        newStmt = appendStmt (SupportTxn d newCredit  newBal dueInt duePremium (negate amt) LiquidationDraw) mStmt
+      newCredit = (subtract amt) <$> mCredit 
+      newBal = liqBal + amt 
+      newStmt = appendStmt (SupportTxn d newCredit newBal dueInt duePremium (negate amt) txn) mStmt
 
 
 repay :: Amount -> Date -> LiqRepayType -> LiqFacility -> LiqFacility

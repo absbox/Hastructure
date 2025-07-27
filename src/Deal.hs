@@ -116,14 +116,12 @@ testCall t d opt =
     case opt of 
        C.PoolBalance x -> (< x) . fromRational <$> queryCompound t d (FutureCurrentPoolBalance Nothing)
        C.BondBalance x -> (< x) . fromRational <$> queryCompound t d CurrentBondBalance
-       C.PoolFactor x ->  (< x) <$> queryCompound t d (FutureCurrentPoolFactor d Nothing)  -- `debug` ("D "++show d++ "Pool Factor query ->" ++ show (queryDealRate t (FutureCurrentPoolFactor d)))
+       C.PoolFactor x ->  (< x) <$> queryCompound t d (FutureCurrentPoolFactor d Nothing)
        C.BondFactor x ->  (< x) <$> queryCompound t d BondFactor
        C.OnDate x -> Right $ x == d 
        C.AfterDate x -> Right $ d > x
        C.And xs -> allM (testCall t d) xs
        C.Or xs -> anyM (testCall t d) xs
-       -- C.And xs -> (all id) <$> sequenceA $ [testCall t d x | x <- xs]
-       -- C.Or xs -> (any id) <$> sequenceA $ [testCall t d x | x <- xs]
        C.Pre pre -> testPre d t pre
        _ -> Left ("failed to find call options"++ show opt)
 
@@ -148,7 +146,6 @@ data ExpectReturn = DealLogs
                   deriving (Show,Generic,Ord,Eq)
 
 
--- priceBondIrr :: AP.IrrType -> [Txn] -> Either String (Rate, [(Date,Balance)])
 priceBondIrr :: AP.IrrType -> [Txn] -> Either String (Rate, [Txn])
 -- No projected transaction, use history cashflow only
 priceBondIrr AP.BuyBond {} [] = Left "No transaction to buy the bond" 
@@ -201,7 +198,7 @@ priceBondIrr (AP.HoldingBond historyCash holding (Just (sellDate, sellPricingMet
       (ds4,vs4) = (sellDate,  sellPrice)  -- `debug` ("sale price, date"++ show (sellPrice,sellDate))
     in 
       do 
-        irr <- Analytics.calcIRR (ds++ds2++[ds3]++[ds4]) (vs++vs2++[vs3]++[vs4]) -- `debug` ("vs:"++ show vs++ "vs2:"++ show vs2++ "vs3:"++ show vs3++ "vs4:"++ show vs4 ++">>> ds "++ show ds++ "ds2"++ show ds2++ "ds3"++ show ds3++ "ds4"++ show ds4)
+        irr <- Analytics.calcIRR (ds++ds2++[ds3]++[ds4]) (vs++vs2++[vs3]++[vs4])
         return (irr, txns'++ bProjectedTxn++ [BondTxn sellDate 0 vs3 sellPrice 0 (sellPrice+vs3) 0 0 Nothing Types.Empty]) 
 
 -- Buy and hold to maturity
@@ -220,12 +217,12 @@ priceBondIrr (AP.BuyBond dateToBuy bPricingMethod (AP.ByCash cash) Nothing) txns
       -- buy price (including accrued interest)
 
       accuredInt = let
-                    --TODO what about interest over interest
-                    accruedInt' = calcInt balAsBuyDate dateToBuy (getDate nextTxn) (getTxnRate nextTxn) DC_ACT_365F
-                    x = nextTxn
-                    totalInt' = (fromMaybe 0) <$> [(preview (_BondTxn . _3 ) x), (preview (_BondTxn . _7 ) x), (preview (_BondTxn . _8 ) x)]
+                     --TODO what about interest over interest
+                     accruedInt' = calcInt balAsBuyDate dateToBuy (getDate nextTxn) (getTxnRate nextTxn) DC_ACT_365F
+                     x = nextTxn
+                     totalInt' = (fromMaybe 0) <$> [(preview (_BondTxn . _3 ) x), (preview (_BondTxn . _7 ) x), (preview (_BondTxn . _8 ) x)]
                    in
-                    sum(totalInt') - accruedInt'
+                     sum(totalInt') - accruedInt'
 
       (ds1, vs1) = (dateToBuy, negate (buyPaidOut + accuredInt))
       (ds2, vs2) = (getDate <$> futureFlow', getTxnAmt <$> boughtTxns)
@@ -269,7 +266,6 @@ priceBonds t@TestDeal {bonds = bndMap} (AP.IrrInput bMapInput)
 
 
 -- <Legacy Test>, <Test on dates>
-
 runDeal :: Ast.Asset a => TestDeal a -> S.Set ExpectReturn -> Maybe AP.ApplyAssumptionType-> AP.NonPerfAssumption
         -> Either String (TestDeal a
                          , Map.Map PoolId CF.CashFlowFrame
@@ -302,9 +298,9 @@ runDeal t er perfAssumps nonPerfAssumps@AP.NonPerfAssumption{AP.callWhen = opts 
         return (finalDeal
                  , poolFlowUsedNoEmpty
                  , getRunResult finalDeal ++ V.validateRun finalDeal ++ DL.toList (DL.append logs (unCollectedPoolFlowWarning poolFlowUnUsed))
-         , bndPricing
-             , poolFlowUnUsed
-           ) -- `debug` ("run deal done with pool" ++ show poolFlowUsedNoEmpty)
+                 , bndPricing
+                 , poolFlowUnUsed
+               )
     where
       (runFlag, valLogs) = V.validateReq t nonPerfAssumps 
       -- getinits() will get (new deal snapshot, actions, pool cashflows, unstressed pool cashflow)
@@ -325,11 +321,12 @@ runDeal t er perfAssumps nonPerfAssumps@AP.NonPerfAssumption{AP.callWhen = opts 
       
 -- | get bond principal and interest shortfalls from a deal
 getRunResult :: Ast.Asset a => TestDeal a -> [ResultComponent]
-getRunResult t = os_bn_i ++ os_bn_b -- `debug` ("Done with get result")
-  where 
-    bs = viewDealAllBonds t  
-    os_bn_b = [ BondOutstanding (L.bndName _b) (L.getCurBalance _b) (getBondBegBal t (L.bndName _b)) | _b <- bs ] -- `debug` ("B"++ show bs)
-    os_bn_i = [ BondOutstandingInt (L.bndName _b) (L.getTotalDueInt _b) (getBondBegBal t (L.bndName _b)) | _b <- bs ] -- `debug` ("C"++ show bs)
+getRunResult t = let 
+                   bs = viewDealAllBonds t  
+                   os_bn_b = [ BondOutstanding (L.bndName _b) (L.getCurBalance _b) (getBondBegBal t (L.bndName _b)) | _b <- bs ] 
+                   os_bn_i = [ BondOutstandingInt (L.bndName _b) (L.getTotalDueInt _b) (getBondBegBal t (L.bndName _b)) | _b <- bs ]
+                 in 
+                   os_bn_i ++ os_bn_b 
 
 
 -- | consolidate pool cashflow 
@@ -364,25 +361,25 @@ runPoolType flag (MultiPool pm) (Just poolAssumpType) mNonPerfAssump
             let 
               poolBegStats = P.issuanceStat v
             in
-          do 
+              do 
                 assetCfs <- calcPoolCashflow poolAssumpType k v
                 let (poolCf,_) = P.aggPool poolBegStats assetCfs
                 return (poolCf, if flag then 
-                   Just $ fst <$> assetCfs
-                         else
-                           Nothing))
+                                  Just $ fst <$> assetCfs
+                                else
+                                  Nothing))
         pm
 
 runPoolType flag (MultiPool pm) mAssumps mNonPerfAssump
   = sequenceA $ 
       Map.map (\p -> 
-        do
-          assetFlows <- P.runPool p mAssumps (AP.interest =<< mNonPerfAssump)
-          let (poolCf, poolStatMap) = P.aggPool (P.issuanceStat p) assetFlows
-          return (poolCf, if flag then 
-                     Just $ fst <$> assetFlows
-                           else
-                             Nothing))
+                do
+                  assetFlows <- P.runPool p mAssumps (AP.interest =<< mNonPerfAssump)
+                  let (poolCf, poolStatMap) = P.aggPool (P.issuanceStat p) assetFlows
+                  return (poolCf, if flag then 
+                                    Just $ fst <$> assetFlows
+                                  else
+                                    Nothing))
               pm
 
 runPoolType flag (ResecDeal dm) mAssumps mNonPerfAssump
@@ -464,72 +461,70 @@ getInits er t@TestDeal{fees=feeMap,pool=thePool,status=status,bonds=bndMap,stats
       let feeAccrueDates = [ AccrueFee _d _feeName | (_feeName,feeAccureDates) <- _feeAccrueDates , _d <- feeAccureDates ]
     --liquidation facility
       let liqResetDates = case liqProvider t of 
-                        Nothing -> []
-                        Just mLiqProvider -> 
-                            let 
-                              _liqResetDates = CE.buildLiqResetAction (Map.elems mLiqProvider) endDate []
-                              _liqRateResetDates = CE.buildLiqRateResetAction (Map.elems mLiqProvider) endDate []
-                            in 
-                              [ ResetLiqProvider _d _liqName |(_liqName,__liqResetDates) <- _liqResetDates , _d <- __liqResetDates ]
-                              ++ 
-                              [ ResetLiqProviderRate _d _liqName |(_liqName,__liqResetDates) <- _liqRateResetDates , _d <- __liqResetDates ]                            
+                            Nothing -> []
+                            Just mLiqProvider -> 
+                                let 
+                                  _liqResetDates = CE.buildLiqResetAction (Map.elems mLiqProvider) endDate []
+                                  _liqRateResetDates = CE.buildLiqRateResetAction (Map.elems mLiqProvider) endDate []
+                                in 
+                                  [ ResetLiqProvider _d _liqName |(_liqName,__liqResetDates) <- _liqResetDates , _d <- __liqResetDates ]
+                                  ++ 
+                                  [ ResetLiqProviderRate _d _liqName |(_liqName,__liqResetDates) <- _liqRateResetDates , _d <- __liqResetDates ]                            
     --inspect dates 
       let inspectDates = case mNonPerfAssump of
                           Just AP.NonPerfAssumption{AP.inspectOn = Just inspectList } -> concatMap  (expandInspect startDate endDate) inspectList
                           _ -> []
     
       let financialRptDates = case mNonPerfAssump of 
-                            Just AP.NonPerfAssumption{AP.buildFinancialReport= Just dp } 
-                              -> let 
-                                   (s:_ds) = genSerialDatesTill2 II startDate dp endDate 
-                                 in 
-                                   [ BuildReport _sd _ed  | (_sd,_ed) <- zip (s:_ds) _ds ] -- `debug` ("ds"++ show _ds)
-                            _ -> []
+                                Just AP.NonPerfAssumption{AP.buildFinancialReport= Just dp } 
+                                  -> case genSerialDatesTill2 II startDate dp endDate of
+				       (s:_ds) -> [ BuildReport _sd _ed  | (_sd,_ed) <- zip (s:_ds) _ds ]
+				       [] -> []
+                                _ -> []
 
       let irUpdateSwapDates = case rateSwap t of
-                          Nothing -> []
-                          Just rsm -> Map.elems $ Map.mapWithKey 
-                                                   (\k x -> let 
-                                                             resetDs = genSerialDatesTill2 EE (HE.rsStartDate x) (HE.rsUpdateDates x) endDate
-                                                            in 
-                                                             flip CalcIRSwap k <$> resetDs)
-                                                   rsm
+                                Nothing -> []
+                                Just rsm -> Map.elems $ Map.mapWithKey 
+                                                         (\k x -> let 
+                                                                   resetDs = genSerialDatesTill2 EE (HE.rsStartDate x) (HE.rsUpdateDates x) endDate
+                                                                  in 
+                                                                   flip CalcIRSwap k <$> resetDs)
+                                                         rsm
       let irSettleSwapDates = case rateSwap t of
-                          Nothing -> []
-                          Just rsm -> Map.elems $ Map.mapWithKey 
-                                                    (\k x@HE.RateSwap{ HE.rsSettleDates = sDates} ->
-                                                      case sDates of 
-                                                        Nothing -> []
-                                                        Just (sdp,_) ->
-                                                          let 
-                                                            resetDs = genSerialDatesTill2 EE (HE.rsStartDate x) sdp endDate
-                                                          in 
-                                                            flip SettleIRSwap k <$> resetDs)
-                                                    rsm
-      let rateCapSettleDates = case rateCap t of 
-                             Nothing -> []
-                             Just rcM -> Map.elems $ Map.mapWithKey 
-                                                       (\k x -> let 
-                                                                  resetDs = genSerialDatesTill2 EE (HE.rcStartDate x) (HE.rcSettleDates x) endDate
+                                Nothing -> []
+                                Just rsm -> Map.elems $ Map.mapWithKey 
+                                                          (\k x@HE.RateSwap{ HE.rsSettleDates = sDates} ->
+                                                            case sDates of 
+                                                              Nothing -> []
+                                                              Just (sdp,_) ->
+                                                                let 
+                                                                  resetDs = genSerialDatesTill2 EE (HE.rsStartDate x) sdp endDate
                                                                 in 
-                                                                  flip AccrueCapRate k <$> resetDs)
-                                                       rcM
+                                                                  flip SettleIRSwap k <$> resetDs)
+                                                          rsm
+      let rateCapSettleDates = case rateCap t of 
+                                 Nothing -> []
+                                 Just rcM -> Map.elems $ Map.mapWithKey 
+                                                           (\k x -> let 
+                                                                      resetDs = genSerialDatesTill2 EE (HE.rcStartDate x) (HE.rcSettleDates x) endDate
+                                                                    in 
+                                                                      flip AccrueCapRate k <$> resetDs)
+                                                           rcM
     -- bond rate resets 
       let bndRateResets = let 
-                        bndWithDate = Map.toList $ Map.map 
-                                                  (\b -> L.buildRateResetDates b closingDate endDate) 
-                                                  bndMap
-                      in 
-                        [ ResetBondRate bdate bn | (bn, bdates) <- bndWithDate
-                                                    , bdate <- bdates ] 
+                            bndWithDate = Map.toList $ Map.map 
+                                                      (\b -> L.buildRateResetDates b closingDate endDate) 
+                                                      bndMap
+                          in 
+                            [ ResetBondRate bdate bn | (bn, bdates) <- bndWithDate , bdate <- bdates ] 
 
     -- bond step ups events
       let bndStepUpDates = let 
-                        bndWithDate = Map.toList $ Map.map 
-                                                  (\b -> L.buildStepUpDates b closingDate endDate) 
-                                                  bndMap
-                      in
-                        [ StepUpBondRate bdate bn  | (bn, bdates) <- bndWithDate , bdate <- bdates ] 
+                             bndWithDate = Map.toList $ Map.map 
+                                                       (\b -> L.buildStepUpDates b closingDate endDate) 
+                                                       bndMap
+                           in
+                             [ StepUpBondRate bdate bn  | (bn, bdates) <- bndWithDate , bdate <- bdates ] 
 
     -- mannual triggers 
       let mannualTrigger = case mNonPerfAssump of 
@@ -595,35 +590,31 @@ getInits er t@TestDeal{fees=feeMap,pool=thePool,status=status,bonds=bndMap,stats
       let aggDates = getDates pActionDates
       let pCollectionCfAfterCutoff = Map.map 
                                        (\(pCf, mAssetFlow) -> 
-                                         let 
-                                                               pCf' = CF.cutoffCashflow startDate aggDates pCf
-                                         in
-                                           (pCf' ,(\xs -> [ CF.cutoffCashflow startDate aggDates x | x <- xs ] ) <$> mAssetFlow))
+                                           (CF.cutoffCashflow startDate aggDates pCf
+	                                   ,(\xs -> [ CF.cutoffCashflow startDate aggDates x | x <- xs ] ) <$> mAssetFlow)
+	                               )
                                        pCfM
 
       let pUnstressedAfterCutoff = Map.map 
                                        (\(pCf, mAssetFlow) -> 
-                                         let 
-                                           pCf' = CF.cutoffCashflow startDate aggDates pCf
-                                         in 
-                                           (pCf'
-                                            ,(\xs -> [ CF.cutoffCashflow startDate aggDates x | x <- xs ]) <$> mAssetFlow)
-                                                        )
+                                           (CF.cutoffCashflow startDate aggDates pCf
+                                           ,(\xs -> [ CF.cutoffCashflow startDate aggDates x | x <- xs ]) <$> mAssetFlow)
+                                       )
                                        pScheduleCfM
 
-      let poolWithSchedule = patchScheduleFlow pUnstressedAfterCutoff thePool -- `debug` ("D")
+      let poolWithSchedule = patchScheduleFlow pUnstressedAfterCutoff thePool
       let poolWithIssuanceBalance = patchIssuanceBalance 
                                       status 
-                      ((\(_pflow,_) -> CF.getBegBalCashFlowFrame _pflow) <$> pCollectionCfAfterCutoff)
+                                      ((\(_pflow,_) -> CF.getBegBalCashFlowFrame _pflow) <$> pCollectionCfAfterCutoff)
                                       poolWithSchedule
       let poolWithRunPoolBalance = patchRuntimeBal 
                                      (Map.map (\(CF.CashFlowFrame (b,_,_) _,_) -> b) pCollectionCfAfterCutoff) 
                                      poolWithIssuanceBalance
 
-      let newStat = if (isPreClosing t) then 
-                      _stats & (over _4) (`Map.union` (Map.fromList [(BondPaidPeriod,0),(PoolCollectedPeriod,0)]))
-                    else 
-                      _stats
+      let newStat 
+            | (isPreClosing t) =  _stats & (over _4) (`Map.union` (Map.fromList [(BondPaidPeriod,0),(PoolCollectedPeriod,0)]))
+            | otherwise = _stats
+
       return (t {fees = newFeeMap , pool = poolWithRunPoolBalance , stats = newStat}
              , allActionDates
              , pCollectionCfAfterCutoff
