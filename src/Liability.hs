@@ -402,8 +402,8 @@ writeOff d amt _bnd
 -- TODO: should increase the original balance of the bond?
 fundWith :: Date -> Amount -> Bond -> Bond
 fundWith d 0 b = b
-fundWith d amt _bnd = bnd {bndBalance = newBal, bndStmt=newStmt } 
-  where
+fundWith d amt _bnd = 
+  let 
     bnd = accrueInt d _bnd
     dueIoI = getDueIntOverInt bnd
     dueInt = getDueInt bnd
@@ -411,6 +411,22 @@ fundWith d amt _bnd = bnd {bndBalance = newBal, bndStmt=newStmt }
     stmt = bndStmt bnd
     newBal = bndBalance bnd + amt
     newStmt = S.appendStmt (BondTxn d newBal 0 (negate amt) 0 0 dueInt dueIoI Nothing (S.FundWith bn amt )) stmt 
+  in 
+    bnd {bndBalance = newBal, bndStmt=newStmt } 
+
+instance Drawable Bond where
+  draw d amt txn bond 
+    | amt == 0 = return bond
+    | otherwise = let 
+                    bnd = accrueInt d bond
+                    dueIoI = getDueIntOverInt bond
+                    dueInt = getDueInt bond
+                    bn = bndName bond
+                    stmt = bndStmt bond
+                    newBal = bndBalance bond + amt
+                    newStmt = S.appendStmt (BondTxn d newBal 0 (negate amt) 0 0 dueInt dueIoI Nothing (S.FundWith bn amt )) stmt 
+                  in 
+                    return $ bnd {bndBalance = newBal, bndStmt=newStmt } 
 
 
 -- ^ get interest rate for due interest

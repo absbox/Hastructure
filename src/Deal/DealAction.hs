@@ -708,10 +708,10 @@ performAction d t@TestDeal{accounts=accMap, ledgers = Just ledgerM}
     in 
       do 
         transferAmt <- actualPaidOut
-        accMapAfterDraw <- adjustM (A.draw d transferAmt (TxnComments [Transfer an1 an2,(BookLedgerBy dr lName)])) an1 accMap
-        let accMapAfterDeposit = Map.adjust (A.deposit transferAmt d (TxnComments [Transfer an1 an2,(BookLedgerBy dr lName)])) an2 accMapAfterDraw
+	(sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt 
         let newLedgerM = Map.adjust (LD.entryLog transferAmt d (TxnDirection dr)) lName ledgerM
-        return t {accounts = accMapAfterDeposit, ledgers = Just newLedgerM}  
+        return t {accounts = Map.insert an1 sourceAcc' (Map.insert an2 targetAcc' accMap)
+                 , ledgers = Just newLedgerM}  
 
 performAction d t@TestDeal{accounts=accMap} (W.Transfer mLimit an1 an2 mComment)
   = let
@@ -721,15 +721,14 @@ performAction d t@TestDeal{accounts=accMap} (W.Transfer mLimit an1 an2 mComment)
     in 
       do 
         transferAmt <- actualPaidOut
-	newAccMap <- adjustM (A.draw d transferAmt (Transfer an1 an2)) an1 accMap 
-        let accMapAfterDeposit = Map.adjust (A.deposit transferAmt d (Transfer an1 an2)) an2 newAccMap
-        return t {accounts = accMapAfterDeposit}  
+	(sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt 
+	return t {accounts = Map.insert an1 sourceAcc' (Map.insert an2 targetAcc' accMap)}  
 
 performAction d t@TestDeal{accounts=accMap} (W.TransferMultiple sourceAccList targetAcc mComment)
   = foldM (\acc (mLimit, sourceAccName) -> 
             performAction d acc (W.Transfer mLimit sourceAccName targetAcc mComment))
           t
-          sourceAccList  
+          sourceAccList
 
 -- ^ book ledger 
 performAction d t@TestDeal{ledgers= Just ledgerM} (W.BookBy (W.Till ledger dr ds)) =
@@ -946,8 +945,7 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap} (W.PayIntByRateIndex mL
         totalDue <- queryCompound t d (CurrentDueBondIntTotalAt idx bndNames_)
         actualPaidOut <- calcAvailAfterLimit t d (accMap Map.! an) mSupport (fromRational totalDue) mLimit -- `debug` ("Date "++ show d ++" total due"++show (fromRational totalDue))
         let (paidBonds, _) = payProRata d actualPaidOut (`L.getTotalDueIntAt` idx) (L.payIntByIndex d idx) bndsList -- `debug` ("Date"++show d++" paid out amt"++show (L.bndDueInts (paidBonds!!0)))
-        let accMap1 = accMap -- `debug` ("Date"++show d++" paid out amt"++show (L.bndDueInts (paidBonds!!0)))
-	newAccMap <- adjustM (A.draw d actualPaidOut (PayInt bndNames_)) an accMap1
+	newAccMap <- adjustM (A.draw d actualPaidOut (PayInt bndNames_)) an accMap
         return $ t {accounts = newAccMap
                    , bonds =  Map.fromList (zip bndNames_ paidBonds) <> bndMap}
 
@@ -1014,10 +1012,8 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap}
        let bndsDueAmtsMap = Map.map (\x -> (x, L.bndDuePrin x)) bndsWithDueMap
        let actualPaidOut = calcAvailAfterLimit t d (accMap Map.! an) mSupport (fromRational bgGap) mLimit
        paidOutAmt <- actualPaidOut
-
        let payOutPlan = allocAmtToBonds by paidOutAmt (Map.elems bndsDueAmtsMap) -- `debug` (">date"++ show payAmount)
        let payOutPlanWithBondName = [ (L.bndName bnd,amt) | (bnd,amt) <- payOutPlan] -- `debug` (">date"++show d++"payOutPlan"++ show payOutPlan)
-
        let bndMapAfterPay = foldr 
                               (\(bndName, _amt) acc -> Map.adjust (L.payPrin d _amt) bndName acc)
                               bndsMap
@@ -1035,7 +1031,7 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap}
 -- ^ accure interest and payout interest to a bond group with sequence input "by"
 performAction d t@TestDeal{bonds=bndMap} (W.AccrueAndPayIntGroup mLimit an bndName by mSupport)
   = do 
-      dAfterAcc <- performAction d t (W.AccrueIntGroup [bndName])-- `debug` ("Acc due int grp"++ show (getDueInt (bndMap Map.! bndName)))
+      dAfterAcc <- performAction d t (W.AccrueIntGroup [bndName])
       performAction d dAfterAcc (W.PayIntGroup mLimit an bndName by mSupport)
 
 -- ^ accrue interest for a group of bonds

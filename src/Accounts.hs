@@ -95,17 +95,11 @@ depositInt ed a@(Account bal _ (Just intType) _ stmt)
     newTxn = AccTxn ed newBal accruedInt BankInt
 
 -- | move cash from account A to account B
-transfer :: (Account,Account) -> Date -> Amount -> (Account, Account)
-transfer (sourceAcc@(Account sBal san _ _ sStmt), targetAcc@(Account tBal tan _ _ tStmt))
-          d
-          amount
-  = (sourceAcc {accBalance = newSBal, accStmt = sourceNewStmt}
-    ,targetAcc {accBalance = newTBal, accStmt = targetNewStmt})
-  where
-    newSBal = sBal - amount
-    newTBal = tBal + amount
-    sourceNewStmt = appendStmt (AccTxn d newSBal (- amount) (Transfer san tan)) sStmt 
-    targetNewStmt = appendStmt (AccTxn d newTBal amount (Transfer san tan)) tStmt 
+transfer :: (Account,Account) -> Date -> Amount -> Either ErrorRep (Account, Account)
+transfer (sourceAcc@(Account sBal san _ _ sStmt), targetAcc@(Account tBal tan _ _ tStmt)) d amount
+  = do 
+      sourceAcc' <- draw d amount (Transfer san tan) sourceAcc
+      return (sourceAcc', deposit amount d (Transfer san tan) targetAcc)
 
 -- | deposit cash to account with a comment
 deposit :: Amount -> Date -> TxnComment -> Account -> Account
@@ -115,17 +109,11 @@ deposit amount d source acc@(Account bal _ _ _ maybeStmt)
     in
       acc {accBalance = newBal , accStmt = appendStmt (AccTxn d newBal amount source) maybeStmt }
 
--- | draw cash from account with a comment
--- draw :: Amount -> Date -> TxnComment -> Account -> Account
--- draw amount d txn acc@Account{ accBalance = bal ,accName = an} 
---   | bal >= amount = deposit (- amount) d txn acc  
---   | otherwise = error  $ "Date:"++ show d ++" Failed to draw "++ show amount ++" from account" ++ an
-
 instance Drawable Account where 
   availForDraw d (Account bal _ _ _ _) = bal
   draw d amt txn acc@(Account bal _ _ _ maybeStmt) 
     | availForDraw d acc >= amt = return $ deposit (- amt) d txn acc  
-    | otherwise = Left  $ "Date:"++ show d ++" Failed to draw "++ show amt ++" from account" ++ accName acc
+    | otherwise = Left  $ "Date:"++ show d ++" Failed to draw "++ show amt ++" from account" ++ accName acc ++ " with balance " ++ show bal
 
 
 instance QueryByComment Account where 
