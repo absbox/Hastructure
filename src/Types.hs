@@ -754,9 +754,9 @@ data DealStats = CurrentBondBalance
 
 
 data EvalExpr a where
-     EvalSum :: (Num a, Read a, Generic a, Ord a, Eq a, Show a) => [EvalExpr a] -> EvalExpr a
+     EvalSum :: (Num a, Read a, Generic a, Ord a, Eq a, Show a) => [EvalExpr a] -> EvalExpr a 
      CurrentBondBalance' :: Balance -> EvalExpr Balance
-     -- EvalSubtract :: (Num a) => [EvalExpr a] -> EvalExpr a
+     EvalSubtract :: (Num a) => [EvalExpr a] -> EvalExpr a
      -- EvalAvg :: (Num a) => [EvalExpr a] -> EvalExpr a
      -- EvalMax :: (Num a) => [EvalExpr a] -> EvalExpr a
      -- EvalMin :: (Num a) => [EvalExpr a] -> EvalExpr a
@@ -786,8 +786,8 @@ data EvalExpr a where
      
 preHasTrigger :: Pre -> [(DealCycle,String)]
 preHasTrigger (IfBool (TriggersStatus dc tName) _) = [(dc,tName)]
-preHasTrigger (Any ps) = concat $ preHasTrigger <$> ps
-preHasTrigger (All ps) = concat $ preHasTrigger <$> ps
+preHasTrigger (Any ps) = concatMap preHasTrigger ps
+preHasTrigger (All ps) = concatMap preHasTrigger ps
 preHasTrigger _ = []
 
 

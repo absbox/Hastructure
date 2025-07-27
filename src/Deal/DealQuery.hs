@@ -2,6 +2,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Deal.DealQuery (queryDealBool ,patchDateToStats,patchDatesToStats,testPre
@@ -51,7 +53,7 @@ import qualified Cashflow as P
 debug = flip trace
 
 -- | calcuate target balance for a reserve account, 0 for a non-reserve account
-calcTargetAmount :: P.Asset a => TestDeal a -> Date -> A.Account -> Either String Balance
+calcTargetAmount :: P.Asset a => TestDeal a -> Date -> A.Account -> Either ErrorRep Balance
 calcTargetAmount t d (A.Account _ _ _ Nothing _ ) = Right 0
 calcTargetAmount t d (A.Account _ _ _ (Just r) _ ) =
    eval r 
@@ -68,22 +70,22 @@ calcTargetAmount t d (A.Account _ _ _ (Just r) _ ) =
                                  eval ra1
                                else 
                                  eval ra2 
-       A.Max ras -> maximum' <$> sequenceA (eval <$> ras)
-       A.Min ras -> minimum' <$> sequenceA (eval <$> ras)
+       A.Max ras -> maximum' <$> traverse eval ras
+       A.Min ras -> minimum' <$> traverse eval ras
 
 -- | calculate target bond balance for a bond 
-calcBondTargetBalance :: P.Asset a => TestDeal a -> Date -> L.Bond -> Either String Balance
+calcBondTargetBalance :: P.Asset a => TestDeal a -> Date -> L.Bond -> Either ErrorRep Balance
 calcBondTargetBalance t d (L.BondGroup bMap mPt) = 
   case mPt of 
     Nothing -> do 
-                vs <- sequenceA $ calcBondTargetBalance t d <$> Map.elems bMap
+                vs <- traverse  (calcBondTargetBalance t d) $ Map.elems bMap
                 return $ sum vs 
 
-    Just (L.PAC _target) -> Right $ getValOnByDate _target d
+    Just (L.PAC _target) -> return $ getValOnByDate _target d
     Just (L.PacAnchor _target _bnds)
       | queryDealBool t (IsPaidOff _bnds) d == Right True -> 
           do
-            subBondTargets <- sequenceA $ calcBondTargetBalance t d <$> Map.elems bMap
+            subBondTargets <- traverse (calcBondTargetBalance t d) $ Map.elems bMap
             return $ sum subBondTargets
       | queryDealBool t (IsPaidOff _bnds) d == Right False -> Right $ getValOnByDate _target d
       | otherwise -> Left $ "Calculate paid off bonds failed"++ show _bnds ++" in calc target balance"
@@ -192,15 +194,15 @@ poolSourceToIssuanceField a = error ("Failed to match pool source when mapping t
 
 
 
-eval :: (P.Asset a, Num b) => TestDeal a -> Date -> (EvalExpr b) -> Either ErrorRep b
+eval :: (P.Asset a, Num b) => TestDeal a -> Date -> EvalExpr b -> Either ErrorRep b
 eval t d exp =
   let 
     eval' = eval t d
   in 
     case exp of 
-      -- (EvalSum xs) -> liftA sum $ sequenceA $ eval' <$> xs
+      (EvalSum xs) -> sum <$> traverse eval' xs
       CurrentBondBalance' b -> return b
--- eval t d (EvalSubtract (x:xs)) = (eval t d x) - sum ((eval t d) <$> xs)
+      -- (EvalSubtract x:xs) -> (eval' x) - liftA sum $ sequenceA (eval' <$> xs)
 -- eval (EvalAvg xs) =  (sum (eval <$> xs)) / (length xs)
 
 queryCompound :: P.Asset a => TestDeal a -> Date -> DealStats -> Either ErrorRep Rational 
