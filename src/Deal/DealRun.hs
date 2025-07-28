@@ -50,7 +50,7 @@ runEffects (t@TestDeal{accounts = accMap, fees = feeMap ,status=st, bonds = bond
   = case te of 
       DealStatusTo _ds -> return (t {status = _ds}, rc, actions, logs)
       DoAccrueFee fns -> do
-                           newFeeList <- sequenceA $ calcDueFee t d  <$> (feeMap Map.!) <$> fns
+                           newFeeList <- traverse (calcDueFee t d)  $ (feeMap Map.!) <$> fns
                            let newFeeMap = Map.fromList (zip fns newFeeList) <> feeMap
                            return (t {fees = newFeeMap}, rc, actions, logs)
 
@@ -185,29 +185,29 @@ updateRateSwapRate t (Just rAssumps) d rs@HE.RateSwap{ HE.rsType = rt }
     in
       do  
         (pRate,rRate) <- case rt of 
-                              HE.FloatingToFloating flter1 flter2 ->
-                                do 
-                                  r1 <- getRate flter1
-                                  r2 <- getRate flter2
-                                  return (r1, r2)
-                              HE.FloatingToFixed flter r -> 
-                                do 
-                                  _r <- getRate flter
-                                  return (_r, r)
-                              HE.FixedToFloating r flter -> 
-                                do 
-                                  _r <- getRate flter
-                                  return (r, _r)
-                              HE.FormulaToFloating ds flter -> 
-                                do 
-                                  _r <- queryCompound t d (patchDateToStats d ds)
-                                  r <- getRate flter
-                                  return (fromRational _r, r)
-                              HE.FloatingToFormula flter ds -> 
-                                do 
-                                  r <- getRate flter
-                                  _r <- queryCompound t d (patchDateToStats d ds)
-                                  return (r, fromRational _r)
+                           HE.FloatingToFloating flter1 flter2 ->
+                             do 
+                               r1 <- getRate flter1
+                               r2 <- getRate flter2
+                               return (r1, r2)
+                           HE.FloatingToFixed flter r -> 
+                             do 
+                               _r <- getRate flter
+                               return (_r, r)
+                           HE.FixedToFloating r flter -> 
+                             do 
+                               _r <- getRate flter
+                               return (r, _r)
+                           HE.FormulaToFloating ds flter -> 
+                             do 
+                               _r <- queryCompound t d (patchDateToStats d ds)
+                               r <- getRate flter
+                               return (fromRational _r, r)
+                           HE.FloatingToFormula flter ds -> 
+                             do 
+                               r <- getRate flter
+                               _r <- queryCompound t d (patchDateToStats d ds)
+                               return (r, fromRational _r)
         return rs {HE.rsPayingRate = pRate, HE.rsReceivingRate = rRate }
 
 updateLiqProviderRate :: Ast.Asset a => TestDeal a -> Date -> [RateAssumption] -> CE.LiqFacility -> CE.LiqFacility
@@ -241,61 +241,61 @@ runTriggers (t@TestDeal{status=oldStatus, triggers = Just trgM},rc, actions) d d
 
 appendCollectedCF :: Ast.Asset a => Date -> TestDeal a -> Map.Map PoolId CF.PoolCashflow -> TestDeal a
 -- ^ append cashflow frame (consolidate by a date) into deals collected pool
-appendCollectedCF d t@TestDeal { pool = pt } poolInflowMap
+appendCollectedCF d t@TestDeal { pool = MultiPool poolM } poolInflowMap
   = let
-      newPt = case pt of
-                MultiPool poolM -> 
-                  MultiPool $
-                    Map.foldrWithKey
-                      (\k (CF.CashFlowFrame st txnCollected, mAssetFlow) acc ->
-                        let 
-                          currentStats = case view (P.poolFutureCf . _Just . _1 . CF.cashflowTxn) (acc Map.! k) of
-                                          [] -> P.poolBegStats (acc Map.! k)
-                                          txns -> fromMaybe (0,0,0,0,0,0) $ view CF.txnCumulativeStats (last txns)
-                          balInCollected = case length txnCollected of 
-                                             0 -> 0 
-                                             _ ->  view CF.tsRowBalance $ last txnCollected
-                          txnToAppend = CF.patchCumulative currentStats [] txnCollected
-                          accUpdated =  Map.adjust
-                                          (\_v -> case (P.futureCf _v) of
-                                                    Nothing -> set P.poolFutureCf (Just (CF.CashFlowFrame st txnCollected , Nothing)) _v
-                                                    Just _ -> over (P.poolFutureCf . _Just . _1 . CF.cashflowTxn) (++ txnToAppend) _v
-                                          )
-        				  k
-       					  acc 
-       			  -- insert breakdown asset flow
-       			  accUpdated' = case mAssetFlow of 
-       					  Nothing -> accUpdated
-       					  Just collectedAssetFlow -> 
-       					    let 
-       					      appendFn Nothing = Just collectedAssetFlow   
-       					      appendFn (Just cfs) 
-       					        | length cfs == length collectedAssetFlow 
-       	                                            = Just $ [ origin & over CF.cashflowTxn (++ (view CF.cashflowTxn new)) | (origin,new) <- zip cfs  collectedAssetFlow ] 
-       						| length collectedAssetFlow  > length cfs 
-                                                           = let 
-                                                               dummyCashFrames = replicate (length collectedAssetFlow - length cfs) CF.emptyCashflow 
-       						      in 
-       						        Just $ [ origin & over (CF.cashflowTxn) (++ (view CF.cashflowTxn new)) | (origin,new) <- zip (cfs++dummyCashFrames) collectedAssetFlow ]
-       						| otherwise = error "incomping cashflow number shall greater than existing cashflow number"
-       					    in 
-       					      accUpdated & ix k %~ (over (P.poolFutureCf . _Just . _2) appendFn)
-                        in 
-                          Map.adjust 
-                            (over P.poolIssuanceStat (Map.insert RuntimeCurrentPoolBalance balInCollected))
-                            k accUpdated') 
-                      poolM 
-                      poolInflowMap
-                ResecDeal uds -> 
-                  ResecDeal $ 
-                    Map.foldrWithKey
-                      (\k (CF.CashFlowFrame _ newTxns, _) acc->
-                        Map.adjust (over uDealFutureCf (`CF.appendMCashFlow` newTxns)) k acc)
-                      uds
-		      poolInflowMap
+      newPt = MultiPool $
+                   Map.foldrWithKey
+                     (\k (CF.CashFlowFrame st txnCollected, mAssetFlow) acc ->
+                       let 
+                         currentStats = case view (P.poolFutureCf . _Just . _1 . CF.cashflowTxn) (acc Map.! k) of
+                                         [] -> P.poolBegStats (acc Map.! k)
+                                         txns -> fromMaybe (0,0,0,0,0,0) $ view CF.txnCumulativeStats (last txns)
+                         balInCollected = case length txnCollected of 
+                                            0 -> 0 
+                                            _ ->  view CF.tsRowBalance $ last txnCollected
+                         txnToAppend = CF.patchCumulative currentStats [] txnCollected
+                         accUpdated =  Map.adjust
+                                         (\_v -> case (P.futureCf _v) of
+                                                   Nothing -> set P.poolFutureCf (Just (CF.CashFlowFrame st txnCollected , Nothing)) _v
+                                                   Just _ -> over (P.poolFutureCf . _Just . _1 . CF.cashflowTxn) (++ txnToAppend) _v
+                                         )
+        		   	                     k
+       			   	                     acc 
+       			 -- insert breakdown asset flow
+       			 accUpdated' = case mAssetFlow of 
+       			   	  Nothing -> accUpdated
+       			   	  Just collectedAssetFlow -> 
+       			   	    let 
+       			   	      appendFn Nothing = Just collectedAssetFlow   
+       			   	      appendFn (Just cfs) 
+       			   	        | length cfs == length collectedAssetFlow 
+       	                                           = Just $ [ origin & over CF.cashflowTxn (++ (view CF.cashflowTxn new)) | (origin,new) <- zip cfs  collectedAssetFlow ] 
+       			   		| length collectedAssetFlow  > length cfs 
+                                                          = let 
+                                                              dummyCashFrames = replicate (length collectedAssetFlow - length cfs) CF.emptyCashflow 
+       			   		      in 
+       			   		        Just $ [ origin & over (CF.cashflowTxn) (++ (view CF.cashflowTxn new)) | (origin,new) <- zip (cfs++dummyCashFrames) collectedAssetFlow ]
+       			   		| otherwise = error "incomping cashflow number shall greater than existing cashflow number"
+       			   	    in 
+       			   	      accUpdated & ix k %~ (over (P.poolFutureCf . _Just . _2) appendFn)
+                       in 
+                         Map.adjust 
+                           (over P.poolIssuanceStat (Map.insert RuntimeCurrentPoolBalance balInCollected))
+                           k accUpdated') 
+                     poolM 
+                     poolInflowMap
     in 
-      t {pool = newPt}  --  `debug` ("after insert bal"++ show newPt)
+      t {pool = newPt} 
 
+appendCollectedCF d t@TestDeal { pool = ResecDeal uds } poolInflowMap
+ = let 
+     newPt =  ResecDeal $ 
+                Map.foldrWithKey
+                  (\k (CF.CashFlowFrame _ newTxns, _) acc-> Map.adjust (over uDealFutureCf (`CF.appendMCashFlow` newTxns)) k acc)
+                  uds
+		          poolInflowMap
+   in 
+     t {pool = newPt} 
 
 run :: Ast.Asset a => TestDeal a -> Map.Map PoolId CF.PoolCashflow -> Maybe [ActionOnDate] -> Maybe [RateAssumption] -> Maybe ([Pre],[Pre])
         -> Maybe (Map.Map String (RevolvingPool,AP.ApplyAssumptionType)) -> DL.DList ResultComponent 
@@ -679,12 +679,12 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
              do 
                nBnd <- calcDueInt t d $ bndMap Map.! bName
                let dueIntToPay = L.getTotalDueInt nBnd
-	       let acc = (accMap Map.! accName)
-	       let actualPayout = min (A.accBalance acc) dueIntToPay
+               let acc = (accMap Map.! accName)
+               let actualPayout = min (A.accBalance acc) dueIntToPay
                let newBnd = set L.bndIntLens iInfo $ L.payInt d actualPayout nBnd
                let resetDates = L.buildRateResetDates newBnd d lstDate 
                let bResetActions = [ ResetBondRate d' bName | d' <- resetDates ]
-	       newAccMap <- adjustM (draw d actualPayout (PayInt [bName])) accName accMap
+               newAccMap <- adjustM (draw d actualPayout (PayInt [bName])) accName accMap
                let newBndMap = Map.insert bName (newBnd {L.bndRate = newRate, L.bndDueIntDate = Just d ,L.bndLastIntPay = Just d}) bndMap
                let newAds = sortBy sortActionOnDate $ filteredAds ++ bResetActions
                run t{bonds = newBndMap, accounts = newAccMap} poolFlowMap (Just newAds) rates calls rAssump log
