@@ -117,8 +117,8 @@ instance Drawable Account where
 
 
 instance QueryByComment Account where 
-    queryStmt (Account _ _ _ _ Nothing) tc = []
-    queryStmt (Account _ _ _ _ (Just (Statement txns))) tc = filter (\x -> getTxnComment x == tc) (DL.toList txns)
+  queryStmt (Account _ _ _ _ Nothing) tc = []
+  queryStmt (Account _ _ _ _ (Just (Statement txns))) tc = filter (\x -> getTxnComment x == tc) (DL.toList txns)
 
 
 -- InvestmentAccount Types.Index Spread DatePattern DatePattern Date IRate 

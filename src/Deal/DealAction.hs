@@ -69,9 +69,9 @@ import Data.OpenApi (HasPatch(patch))
 debug = flip trace
 
 -- ^ Test triggers
-testTrigger :: Ast.Asset a => TestDeal a -> Date -> Trigger -> Either String Trigger
+testTrigger :: Ast.Asset a => TestDeal a -> Date -> Trigger -> Either ErrorRep Trigger
 testTrigger t d trigger@Trigger{trgStatus=st,trgCurable=curable,trgCondition=cond,trgStmt = tStmt} 
-  | not curable && st = Right trigger
+  | not curable && st = return trigger
   | otherwise = let 
                   (memo, newStM) = testPre2 d t cond
                 in 
@@ -84,10 +84,7 @@ testTrigger t d trigger@Trigger{trgStatus=st,trgCurable=curable,trgCondition=con
 pricingAssets :: PricingMethod -> [(ACM.AssetUnion,AP.AssetPerf)] -> Maybe [RateAssumption] -> Date 
               -> Either String [PriceResult]
 pricingAssets pm assetsAndAssump ras d 
- = let 
-    pricingResults = (\(ast,perf) -> priceAssetUnion ast d pm perf ras) <$> assetsAndAssump
-   in
-    sequenceA pricingResults
+ = traverse (\(ast,perf) -> priceAssetUnion ast d pm perf ras) assetsAndAssump
 
 
 -- actual payout amount to bond with due mounts
@@ -114,7 +111,7 @@ allocAmtToBonds theOrder amt bndsWithDue =
 calcDueFee :: Ast.Asset a => TestDeal a -> Date -> F.Fee -> Either ErrorRep F.Fee
 calcDueFee t calcDay f@(F.Fee fn (F.FixFee amt) fs fd fdDay fa _ _)
   | isJust fdDay = return f 
-  | calcDay >= fs && isNothing fdDay = Right f { F.feeDue = amt, F.feeDueDate = Just calcDay} -- `debug` ("DEBUG--> init with amt "++show(fd)++show amt)
+  | calcDay >= fs && isNothing fdDay = Right f { F.feeDue = amt, F.feeDueDate = Just calcDay} 
   | otherwise = return f
 
 calcDueFee t calcDay f@(F.Fee fn (F.AnnualRateFee feeBase r) fs fd Nothing fa lpd _)
@@ -261,11 +258,11 @@ calcDueInt t d b@(L.Bond _ L.IO oi (L.RefBal refBal ii) _ bal r dp dInt dioi (Ju
 
 -- Z bond
 calcDueInt t d b@(L.Bond bn L.Z bo bi _ bond_bal bond_rate _ _ _ _ lstIntPay _ _) 
-  = Right $ b {L.bndDueInt = 0 }
+  = return $ b {L.bndDueInt = 0 }
 
 -- Won't accrue interest for Equity bond
 calcDueInt t d b@(L.Bond _ L.Equity _ _ _ _ _ _ _ _ _ _ _ _)
-  = Right b 
+  = return b 
 
 -- accrued with interest over interest
 calcDueInt t d b@(L.Bond bn bt bo (L.WithIoI intInfo ioiIntInfo) _ bond_bal bond_rate _ intDue ioiIntDue (Just int_due_date) lstIntPay _ _ )
@@ -700,11 +697,10 @@ performAction d t@TestDeal{accounts=accMap, ledgers = Just ledgerM}
   = let
       sourceAcc = accMap Map.! an1
       targetAcc = accMap Map.! an2 
-      actualPaidOut = calcAvailAfterLimit t d (accMap Map.! an1) Nothing (A.accBalance sourceAcc) mLimit
     in 
       do 
-        transferAmt <- actualPaidOut
-	(sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt 
+        transferAmt <- calcAvailAfterLimit t d (accMap Map.! an1) Nothing (A.accBalance sourceAcc) mLimit
+        (sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt 
         let newLedgerM = Map.adjust (LD.entryLog transferAmt d (TxnDirection dr)) lName ledgerM
         return t {accounts = Map.insert an1 sourceAcc' (Map.insert an2 targetAcc' accMap)
                  , ledgers = Just newLedgerM}  
@@ -713,12 +709,11 @@ performAction d t@TestDeal{accounts=accMap} (W.Transfer mLimit an1 an2 mComment)
   = let
       sourceAcc = accMap Map.! an1
       targetAcc = accMap Map.! an2 
-      actualPaidOut = calcAvailAfterLimit t d (accMap Map.! an1) Nothing (A.accBalance sourceAcc) mLimit
     in 
       do 
-        transferAmt <- actualPaidOut
-	(sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt 
-	return t {accounts = Map.insert an1 sourceAcc' (Map.insert an2 targetAcc' accMap)}  
+        transferAmt <- calcAvailAfterLimit t d (accMap Map.! an1) Nothing (A.accBalance sourceAcc) mLimit
+        (sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt
+        return t {accounts = Map.insert an1 sourceAcc' (Map.insert an2 targetAcc' accMap)}  
 
 performAction d t@TestDeal{accounts=accMap} (W.TransferMultiple sourceAccList targetAcc mComment)
   = foldM (\acc (mLimit, sourceAccName) -> 

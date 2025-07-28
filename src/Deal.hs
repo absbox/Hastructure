@@ -63,6 +63,7 @@ import Data.Fixed
 import Data.Time.Clock
 import Data.Maybe
 import Data.Either
+import Data.Bifunctor (bimap)
 import Data.Aeson hiding (json)
 -- import qualified Data.Aeson.Encode.Pretty as Pretty
 import Language.Haskell.TH
@@ -111,15 +112,15 @@ accrueSrt t d srt@HE.SRT{ HE.srtDuePremium = duePrem, HE.srtRefBalance = bal, HE
 
 
 -- ^ test if a clean up call should be fired
-testCall :: Ast.Asset a => TestDeal a -> Date -> C.CallOption -> Either String Bool 
+testCall :: Ast.Asset a => TestDeal a -> Date -> C.CallOption -> Either ErrorRep Bool 
 testCall t d opt = 
     case opt of 
        C.PoolBalance x -> (< x) . fromRational <$> queryCompound t d (FutureCurrentPoolBalance Nothing)
        C.BondBalance x -> (< x) . fromRational <$> queryCompound t d CurrentBondBalance
        C.PoolFactor x ->  (< x) <$> queryCompound t d (FutureCurrentPoolFactor d Nothing)
        C.BondFactor x ->  (< x) <$> queryCompound t d BondFactor
-       C.OnDate x -> Right $ x == d 
-       C.AfterDate x -> Right $ d > x
+       C.OnDate x -> return $ x == d 
+       C.AfterDate x -> return $ d > x
        C.And xs -> allM (testCall t d) xs
        C.Or xs -> anyM (testCall t d) xs
        C.Pre pre -> testPre d t pre
@@ -291,7 +292,7 @@ runDeal t er perfAssumps nonPerfAssumps@AP.NonPerfAssumption{AP.callWhen = opts 
                                 (over CF.cashflowTxn CF.dropTailEmptyTxns) 
                                 (getAllCollectedFrame finalDeal Nothing)
         let poolFlowUnUsed = osPoolFlow & mapped . _1 . CF.cashflowTxn %~ CF.dropTailEmptyTxns
-                                & mapped . _2 . _Just . each . CF.cashflowTxn %~ CF.dropTailEmptyTxns
+                                        & mapped . _2 . _Just . each . CF.cashflowTxn %~ CF.dropTailEmptyTxns
         bndPricing <- case mPricing of 
                         (Just p) -> priceBonds finalDeal p 
                         Nothing -> Right Map.empty
@@ -346,7 +347,7 @@ prepareDeal er t@TestDeal {bonds = bndMap ,pool = poolType }
     }
 
 runPoolType :: Ast.Asset a => Bool -> PoolType a -> Maybe AP.ApplyAssumptionType 
-            -> Maybe AP.NonPerfAssumption -> Either String (Map.Map PoolId CF.PoolCashflow)
+            -> Maybe AP.NonPerfAssumption -> Either ErrorRep (Map.Map PoolId CF.PoolCashflow)
 
 runPoolType flag (MultiPool pm) (Just poolAssumpType) mNonPerfAssump
   = let 
@@ -387,7 +388,7 @@ runPoolType flag (ResecDeal dm) mAssumps mNonPerfAssump
     let 
       assumpMap =  Map.mapWithKey (\_ (UnderlyingDeal uDeal _ _ _) -> 
                               let 
-                                 dName = name uDeal -- `debug` ("Getting name of underlying deal:"++ (name uDeal))
+                                 dName = name uDeal
                                  mAssump = case mAssumps of 
                                              Just (AP.ByDealName assumpMap) -> Map.lookup dName assumpMap
                                              _ -> Nothing
@@ -588,19 +589,14 @@ getInits er t@TestDeal{fees=feeMap,pool=thePool,status=status,bonds=bndMap,stats
       pCfM <- runPoolType True thePool mAssumps mNonPerfAssump
       pScheduleCfM <- runPoolType True thePool Nothing mNonPerfAssump
       let aggDates = getDates pActionDates
+      let cutoffFun = CF.cutoffCashflow startDate aggDates
       let pCollectionCfAfterCutoff = Map.map 
-                                       (\(pCf, mAssetFlow) -> 
-                                           (CF.cutoffCashflow startDate aggDates pCf
-	                                   ,(\xs -> [ CF.cutoffCashflow startDate aggDates x | x <- xs ] ) <$> mAssetFlow)
-	                               )
+                                       (bimap cutoffFun ((\xs -> [ cutoffFun x | x <- xs ]) <$>))
                                        pCfM
 
       let pUnstressedAfterCutoff = Map.map 
-                                       (\(pCf, mAssetFlow) -> 
-                                           (CF.cutoffCashflow startDate aggDates pCf
-                                           ,(\xs -> [ CF.cutoffCashflow startDate aggDates x | x <- xs ]) <$> mAssetFlow)
-                                       )
-                                       pScheduleCfM
+                                     (bimap cutoffFun ((\xs -> [ cutoffFun x | x <- xs ]) <$>))
+                                     pScheduleCfM
 
       let poolWithSchedule = patchScheduleFlow pUnstressedAfterCutoff thePool
       let poolWithIssuanceBalance = patchIssuanceBalance 
