@@ -10,7 +10,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 {-# LANGUAGE DataKinds #-}
@@ -872,10 +871,10 @@ getPriceValue (PriceResult v _ _ _ _ _ _) = v
 getPriceValue x = error  $ "failed to match with type when geting price value" ++ show x
 
 
-getValuation :: PriceResult -> PerFace
-getValuation (PriceResult _ val _ _ _ _ _) = val
-getValuation (OASResult pr _ _) = getValuation pr
-getValuation pr =  error $ "not support for pricing result"++ show pr
+-- getValuation :: PriceResult -> PerFace
+-- getValuation (PriceResult _ val _ _ _ _ _) = val
+-- getValuation (OASResult pr _ _) = getValuation pr
+-- getValuation pr =  error $ "not support for pricing result"++ show pr
 
 
 class Liable lb where 
@@ -896,12 +895,12 @@ class Liable lb where
   getOutstandingAmount :: lb -> Balance
 
 
-data DueType = DueInterest          -- ^ interest due
-             | DuePrincipal         -- ^ principal due
-             | DueFee               -- ^ fee due
-             | DueResidual          -- ^ residual 
-             | DueArrears           -- ^ something that is not paid in the past
-             | DueTotalOf [DueType] -- ^ a combination of above with sequence
+data DueType = DueInterest (Maybe Int) -- ^ interest due
+             | DuePrincipal            -- ^ principal due
+             | DueFee                  -- ^ fee due
+             | DueResidual             -- ^ residual 
+             | DueArrears              -- ^ something that is not paid in the past
+             | DueTotalOf [DueType]    -- ^ a combination of above with sequence
              deriving (Show, Eq, Generic)
 
 
