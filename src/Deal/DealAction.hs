@@ -377,11 +377,14 @@ updateOriginDate2 d (ACM.RE m) = ACM.RE $ updateOriginDate m (Ast.calcAlignDate 
 
 data SupportAvailType = ByAvailAmount Balance 
                       | Unlimit
+                      deriving (Show, Eq, Ord)
                       
 sumSupport :: [SupportAvailType] -> SupportAvailType
 sumSupport [] = ByAvailAmount 0
+sumSupport [ByAvailAmount b1] = ByAvailAmount b1
 sumSupport (ByAvailAmount b1 : ByAvailAmount b2 : xs) = sumSupport (ByAvailAmount (b1 + b2) : xs)
 sumSupport (Unlimit : xs) = Unlimit
+sumSupport x = error $ "sumSupport: unsupported type " ++ show x
 
 
 -- ^ get available supports in balance

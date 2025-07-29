@@ -250,6 +250,16 @@ curRatesTraversal f (MultiIntBond bn bt oi iis sus bal rs dp dis diois did lips 
 curRatesTraversal f (BondGroup bMap x)
   = BondGroup <$> traverse (curRatesTraversal f) bMap <*> pure x
 
+
+-- bondsTraversal :: Traversal' (Map.Map String Bond) Bond
+-- bondsTraversal = traverse go
+--   where
+--     go :: Applicative f => (Bond -> f Bond) -> (Map.Map String Bond) -> f (Map.Map String Bond)
+--     go f bMap = adjustM 
+
+
+
+
 adjustBalance :: Balance -> Bond -> Bond
 adjustBalance bal b@Bond{bndBalance = _, bndOriginInfo = oi } 
   = b {bndBalance = bal, bndOriginInfo = oi {originBalance = bal}}

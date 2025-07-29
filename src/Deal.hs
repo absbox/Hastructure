@@ -65,7 +65,6 @@ import Data.Maybe
 import Data.Either
 import Data.Bifunctor (bimap)
 import Data.Aeson hiding (json)
--- import qualified Data.Aeson.Encode.Pretty as Pretty
 import Language.Haskell.TH
 import Data.Aeson.TH
 import Data.Aeson.Types
@@ -444,7 +443,7 @@ patchRuntimeBal balMap pt = pt
 
 getInits :: Ast.Asset a => S.Set ExpectReturn -> TestDeal a -> Maybe AP.ApplyAssumptionType -> Maybe AP.NonPerfAssumption 
          -> Either String (TestDeal a,[ActionOnDate], Map.Map PoolId CF.PoolCashflow, Map.Map PoolId CF.PoolCashflow)
-getInits er t@TestDeal{fees=feeMap,pool=thePool,status=status,bonds=bndMap,stats=_stats} mAssumps mNonPerfAssump =
+getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status,bonds=bndMap,stats=_stats} mAssumps mNonPerfAssump =
   let 
     expandInspect sd ed (AP.InspectPt dp ds) = [ InspectDS _d [ds] | _d <- genSerialDatesTill2 II sd dp ed ]
     expandInspect sd ed (AP.InspectRpt dp dss) = [ InspectDS _d dss | _d <- genSerialDatesTill2 II sd dp ed ] 
@@ -611,7 +610,8 @@ getInits er t@TestDeal{fees=feeMap,pool=thePool,status=status,bonds=bndMap,stats
             | (isPreClosing t) =  _stats & (over _4) (`Map.union` (Map.fromList [(BondPaidPeriod,0),(PoolCollectedPeriod,0)]))
             | otherwise = _stats
 
-      return (t {fees = newFeeMap , pool = poolWithRunPoolBalance , stats = newStat}
+      return (t {fees = newFeeMap , pool = poolWithRunPoolBalance 
+                 , stats = newStat }
              , allActionDates
              , pCollectionCfAfterCutoff
              , pUnstressedAfterCutoff)

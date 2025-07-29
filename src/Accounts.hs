@@ -30,10 +30,8 @@ import qualified Data.DList as DL
 import Debug.Trace
 debug = flip trace
 
-data InterestInfo = BankAccount IRate DatePattern Date                
-                    -- ^ fix reinvest return rate
-                  | InvestmentAccount Types.Index Spread DatePattern DatePattern Date IRate 
-                    -- ^ float type: index, spread, sweep dates, rate reset , last accrue day, last reset rate
+data InterestInfo = BankAccount IRate DatePattern Date                                      -- ^ fix reinvest return rate
+                  | InvestmentAccount Types.Index Spread DatePattern DatePattern Date IRate -- ^ float type: index, spread, sweep dates, rate reset , last accrue day, last reset rate
                   deriving (Show, Generic,Eq,Ord)
 
 data ReserveAmount = PctReserve DealStats Rate               -- ^ target amount with reference to % of formula
@@ -111,6 +109,7 @@ deposit amount d source acc@(Account bal _ _ _ maybeStmt)
 
 instance Drawable Account where 
   availForDraw d (Account bal _ _ _ _) = bal
+  draw d 0 txn acc@(Account bal _ _ _ maybeStmt) = return acc 
   draw d amt txn acc@(Account bal _ _ _ maybeStmt) 
     | availForDraw d acc >= amt = return $ deposit (- amt) d txn acc  
     | otherwise = Left  $ "Date:"++ show d ++" Failed to draw "++ show amt ++" from account" ++ accName acc ++ " with balance " ++ show bal
