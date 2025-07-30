@@ -51,6 +51,7 @@ import Data.Fixed
 import Data.Time.Clock
 import Data.Maybe
 import Data.Either
+import Data.Either.Utils
 import Data.Aeson hiding (json)
 import Language.Haskell.TH
 import Data.Aeson.TH
@@ -63,8 +64,6 @@ import Control.Lens hiding (element)
 import Control.Lens.TH
 import Control.Lens.Extras (is)
 import Control.Monad
-import GHC.Real (infinity)
-import Data.OpenApi (HasPatch(patch))
 
 debug = flip trace
 
@@ -716,26 +715,22 @@ performActionWrap d (t, rc, logs) a
 performAction :: Ast.Asset a => Date -> TestDeal a -> W.Action -> Either String (TestDeal a)
 performAction d t@TestDeal{accounts=accMap, ledgers = Just ledgerM} 
                 (W.TransferAndBook mLimit an1 an2 (dr, lName) mComment)
-  = let
-      sourceAcc = accMap Map.! an1
-      targetAcc = accMap Map.! an2 
-    in 
-      do 
-        transferAmt <- calcAvailAfterLimit t d (accMap Map.! an1) Nothing (A.accBalance sourceAcc) mLimit
-        (sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt 
-        let newLedgerM = Map.adjust (LD.entryLog transferAmt d (TxnDirection dr)) lName ledgerM
-        return t {accounts = Map.insert an1 sourceAcc' (Map.insert an2 targetAcc' accMap)
-                 , ledgers = Just newLedgerM}  
+  = do 
+      sourceAcc <- maybeToEither ("Failed to find account"++an1) $ Map.lookup an1 accMap
+      targetAcc <- maybeToEither ("Failed to find account"++an2) $ Map.lookup an2 accMap
+      transferAmt <- calcAvailAfterLimit t d (accMap Map.! an1) Nothing (A.accBalance sourceAcc) mLimit
+      (sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt 
+      let newLedgerM = Map.adjust (LD.entryLog transferAmt d (TxnDirection dr)) lName ledgerM
+      return t {accounts = Map.insert an1 sourceAcc' (Map.insert an2 targetAcc' accMap)
+               , ledgers = Just newLedgerM}  
 
 performAction d t@TestDeal{accounts=accMap} (W.Transfer mLimit an1 an2 mComment)
-  = let
-      sourceAcc = accMap Map.! an1
-      targetAcc = accMap Map.! an2 
-    in 
-      do 
-        transferAmt <- calcAvailAfterLimit t d (accMap Map.! an1) Nothing (A.accBalance sourceAcc) mLimit
-        (sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt
-        return t {accounts = Map.insert an1 sourceAcc' (Map.insert an2 targetAcc' accMap)}  
+  = do 
+      sourceAcc <- maybeToEither ("Failed to find account"++an1) $ Map.lookup an1 accMap
+      targetAcc <- maybeToEither ("Failed to find account"++an2) $ Map.lookup an2 accMap
+      transferAmt <- calcAvailAfterLimit t d (accMap Map.! an1) Nothing (A.accBalance sourceAcc) mLimit
+      (sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt
+      return t {accounts = Map.insert an1 sourceAcc' (Map.insert an2 targetAcc' accMap)}  
 
 performAction d t@TestDeal{accounts=accMap} (W.TransferMultiple sourceAccList targetAcc mComment)
   = foldM (\acc (mLimit, sourceAccName) -> 
@@ -892,7 +887,7 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap}
      do
        paidOutAmt <- actualPaidOut
        let (bondsPaid, remainAmt) = payProRata d paidOutAmt L.getTotalDueInt (L.payInt d) bndsList
-       let accPaidOut = (min availAccBal paidOutAmt)
+       let accPaidOut = min availAccBal paidOutAmt
        newAccMap <- adjustM (A.draw d accPaidOut (PayInt bnds)) an accMap    
        let dealAfterAcc = t {accounts = newAccMap
                             ,bonds = Map.fromList (zip bnds bondsPaid) <> bndMap}
@@ -1171,8 +1166,8 @@ performAction d t@TestDeal{bonds=bndMap} (W.WriteOff mlimit bnd)
   = do 
       writeAmt <- case mlimit of
                     Just (DS ds) -> queryCompound t d (patchDateToStats d ds)
-                    Just (DueCapAmt amt) -> Right $ toRational amt
-                    Nothing -> Right $ toRational . L.bndBalance $ bndMap Map.! bnd
+                    Just (DueCapAmt amt) -> return $ toRational amt
+                    Nothing -> return $ toRational . L.bndBalance $ bndMap Map.! bnd
                     x -> Left $ "Date:"++show d ++"not supported type to determine the amount to write off"++ show x
 
       let writeAmtCapped = min (fromRational writeAmt) $ L.bndBalance $ bndMap Map.! bnd
@@ -1256,7 +1251,7 @@ performAction d t@TestDeal{bonds=bndMap, accounts = accMap} (W.CalcBondPrin mLim
         payAmount <- calcAvailAfterLimit t d (accMap Map.! accName) mSupport (sum bndsDueAmts) mLimit 
         let bndsAmountToBePaid = zip bndsToPayNames $ prorataFactors bndsDueAmts payAmount  -- (bond, amt-allocated)
         let newBndMap = foldr 
-                          (\(bn,amt) acc -> Map.adjust (\b -> b {L.bndDuePrin = amt})  bn acc) 
+                          (\(bn,amt) acc -> Map.adjust (\b -> b {L.bndDuePrin = amt}) bn acc) 
                           bndMap 
                           bndsAmountToBePaid -- `debug` ("Calc Bond Prin"++ show bndsAmountToBePaid)
         return $ t {bonds = newBndMap}

@@ -254,12 +254,12 @@ priceBonds t@TestDeal {bonds = bndMap} (AP.IrrInput bMapInput)
       -- (Maybe Bond,IrrType)
       bndMap' = Map.mapWithKey (\k v -> (getBondByName t True k, v)) bMapInput
       -- (Rate, [(date, cash)])
-      bndMap'' = Map.mapWithKey (\bName (Just b, v) -> 
-                                  do 
-                                    let _irrTxns = projectedTxns (getAllTxns b)
-                                    (_irr, flows) <- priceBondIrr v _irrTxns
-                                    return (IrrResult (fromRational _irr) flows))
-                                bndMap'
+      bndMap'' = Map.map (\(Just b, v) -> 
+                              do 
+                                let _irrTxns = projectedTxns (getAllTxns b)
+                                (_irr, flows) <- priceBondIrr v _irrTxns
+                                return (IrrResult (fromRational _irr) flows))
+                         bndMap'
     in 
       sequenceA bndMap''
 
@@ -309,13 +309,11 @@ runDeal t er perfAssumps nonPerfAssumps@AP.NonPerfAssumption{AP.callWhen = opts 
                         Nothing -> Nothing
                         Just (AP.AvailableAssets rp rperf) -> Just (Map.fromList [("Consol", (rp, rperf))])
                         Just (AP.AvailableAssetsBy rMap) -> Just rMap
-      unCollectedPoolFlowWarning pMap = let
-                                           countMap = Map.map (CF.sizeCashFlowFrame . view _1) pMap 
-                                        in 
-                      if sum (Map.elems countMap) > 0 then 
-                                          DL.singleton $ WarningMsg $ "Oustanding pool cashflow hasn't been collected yet"++ show countMap
-                                        else
-                      DL.empty
+      unCollectedPoolFlowWarning pMap
+        | sum (Map.elems countMap) > 0 = DL.singleton $ WarningMsg $ "Outstanding pool cashflow hasn't been collected yet"++ show countMap
+        | otherwise = DL.empty
+        where
+          countMap = Map.map (CF.sizeCashFlowFrame . view _1) pMap 
 
       -- run() is a recusive function loop over all actions till deal end conditions are met
       
@@ -607,7 +605,7 @@ getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status
                                      poolWithIssuanceBalance
 
       let newStat 
-            | (isPreClosing t) =  _stats & (over _4) (`Map.union` (Map.fromList [(BondPaidPeriod,0),(PoolCollectedPeriod,0)]))
+            | isPreClosing t =  _stats & (over _4) (`Map.union` (Map.fromList [(BondPaidPeriod,0),(PoolCollectedPeriod,0)]))
             | otherwise = _stats
 
       return (t {fees = newFeeMap , pool = poolWithRunPoolBalance 
