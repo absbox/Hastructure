@@ -316,6 +316,7 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                 , poolFlowMap)
   | otherwise
     = case ad of 
+        -- TODO : need to seperate waterfall execution in pool collection
         PoolCollection d _ ->
           if any (> 0) remainCollectionNum then
             let 
@@ -323,18 +324,15 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                                             (CF.splitCashFlowFrameByDate pflow d EqToLeft
                                               ,(\xs -> [ CF.splitCashFlowFrameByDate x d EqToLeft | x <- xs ]) <$> mAssetFlow))
                                           poolFlowMap 
-              -- collectedFlow =  Map.map (\(p,mAstFlow) -> (fst p, (\xs -> [ fst x | x <- xs ]) <$> mAstFlow)) cutOffPoolFlowMap  
               collectedFlow =  Map.map (bimap fst ((\xs -> [ fst x | x <- xs ]) <$>)) cutOffPoolFlowMap  
-              -- outstandingFlow = Map.map (CF.insertBegTsRow d . snd) cutOffPoolFlowMap
-              -- outstandingFlow = Map.map (\(p,mAstFlow) -> (snd p, (\xs -> [ snd x | x <- xs ]) <$> mAstFlow)) cutOffPoolFlowMap  
               outstandingFlow = Map.map (bimap snd ((\xs -> [ snd x | x <- xs ]) <$>)) cutOffPoolFlowMap  
 
               -- deposit cashflow to SPV from external pool cf               
             in 
               do 
-                accs <- depositPoolFlow (collects t) d collectedFlow accMap -- `debug` ("PoolCollection: deposit >>"++ show d++">>>"++ show collectedFlow++"\n")
+                accs <- depositPoolFlow (collects t) d collectedFlow accMap 
                 let dAfterDeposit = (appendCollectedCF d t collectedFlow) {accounts=accs}
-                -- newScheduleFlowMap = Map.map (over CF.cashflowTxn (cutBy Exc Future d)) (fromMaybe Map.empty (getScheduledCashflow t Nothing))
+                -- nScheduleFlowMap = Map.map (over CF.cashflowTxn (cutBy Exc Future d)) (fromMaybe Map.empty (getScheduledCashflow t Nothing))
                 let newPt = case pool dAfterDeposit of 
 	  		      MultiPool pm -> MultiPool $ (over (mapped . P.poolFutureScheduleCf . _Just . _1 . CF.cashflowTxn) (cutBy Exc Future d)) pm 
 			      ResecDeal dMap -> ResecDeal $ (over (mapped . uDealFutureScheduleCf . _Just . CF.cashflowTxn) (cutBy Exc Future d)) dMap
@@ -365,13 +363,15 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
             callTest = fst $ fromMaybe ([]::[Pre],[]::[Pre]) calls
           in 
             do 
+              -- Run triggers before waterfall distribution
               (dRunWithTrigger0, rc1, ads1, newLogs0) <- runTriggers (t, runContext, ads) d BeginDistributionWF 
-              let logsBeforeDist  = if Map.notMember waterfallKey waterfallM then 
-                                      DL.snoc newLogs0 (WarningMsg (" No waterfall distribution found on date "++show d++" with waterfall key "++show waterfallKey))
-                                    else 
-                                      newLogs0
+              let logsBeforeDist
+                    | Map.notMember waterfallKey waterfallM 
+                        = DL.snoc newLogs0 (WarningMsg (" No waterfall distribution found on date "++show d++" with waterfall key "++show waterfallKey))
+                    | otherwise = newLogs0
               flag <- anyM (testPre d dRunWithTrigger0) callTest 
               if flag then
+                -- Clean Up Waterfall Actions
                 do
                   let newStLogs
                         | null cleanUpActions = [DealStatusChangeTo d dStatus Called "Call by triggers before waterfall distribution"]
@@ -380,18 +380,20 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                   endingLogs <- Rpt.patchFinancialReports dealAfterCleanUp d newLogWaterfall_
                   return (dealAfterCleanUp
                          , DL.concat [logsBeforeDist,endingLogs,DL.fromList (newStLogs++[EndRun (Just d) "Clean Up"])]
-                         , poolFlowMap)
+                         , runPoolFlow rc_
+                         )
               else
+                -- Non-Clean Up Waterfall Actions
                 do
                   (dAfterWaterfall, rc2, newLogsWaterfall) <- foldM (performActionWrap d) (dRunWithTrigger0,rc1,log) waterfallToExe 
-                  (dRunWithTrigger1, rc3, ads2, newLogs2) <- runTriggers (dAfterWaterfall,rc2,ads1) d EndDistributionWF  
+                  (dRunWithTrigger1, rc3, ads2, newLogs2) <- runTriggers (dAfterWaterfall,rc2,ads1) d EndDistributionWF
                   run (increaseBondPaidPeriod dRunWithTrigger1)
                       (runPoolFlow rc3) 
                       (Just ads2) 
                       rates 
                       calls 
                       rAssump 
-                      (DL.concat [newLogsWaterfall, newLogs2 ,logsBeforeDist,DL.fromList [RunningWaterfall d waterfallKey]]) -- `debug` ("In RunWaterfall Date"++show d++"after run waterfall 3>>"++ show (pool dRunWithTrigger1)++" status>>"++ show (status dRunWithTrigger1))
+                      (DL.concat [newLogsWaterfall, newLogs2 ,logsBeforeDist,DL.fromList [RunningWaterfall d waterfallKey]])
 
         -- Custom waterfall execution action from custom dates
         RunWaterfall d wName -> 
@@ -404,7 +406,7 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                                   ("No waterfall distribution found on date "++show d++" with waterfall key "++show waterfallKey) $
                                   Map.lookup waterfallKey waterfallM
               let logsBeforeDist =[ WarningMsg (" No waterfall distribution found on date "++show d++" with waterfall key "++show waterfallKey) 
-                                        | Map.notMember waterfallKey waterfallM ]  
+                                    | Map.notMember waterfallKey waterfallM ]  
               (dAfterWaterfall, rc2, newLogsWaterfall) <- foldM (performActionWrap d) (t,runContext,log) waterfallToExe 
               run dAfterWaterfall (runPoolFlow rc2) (Just ads) rates calls rAssump 
                   (DL.concat [newLogsWaterfall,DL.fromList (logsBeforeDist ++ [RunningWaterfall d waterfallKey])]) 
@@ -702,7 +704,7 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
             timeBasedTests::[Pre] = snd (fromMaybe ([],[]) calls)
           in
             do 
-              flags::[Bool] <- sequenceA $ [ (testPre d t pre) | pre <- timeBasedTests ]
+              flags::[Bool] <- traverse (testPre d t) timeBasedTests
               case any id flags of
                 True -> 
                   let 
@@ -714,7 +716,9 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                     do 
                       (dealAfterCleanUp, rc_, newLogWaterfall_ ) <- foldM (performActionWrap d) (t, runContext, log) cleanUpActions
                       endingLogs <- Rpt.patchFinancialReports dealAfterCleanUp d newLogWaterfall_
-                      return (dealAfterCleanUp, DL.snoc (endingLogs `DL.append` newStLogs) (EndRun (Just d) "Clean Up"), poolFlowMap) -- `debug` ("Called ! "++ show d)
+                      return (dealAfterCleanUp
+                              , DL.snoc (endingLogs `DL.append` newStLogs) (EndRun (Just d) "Clean Up")
+                              , (runPoolFlow rc_))
                 _ -> run t poolFlowMap (Just ads) rates calls rAssump log
 
         StopRunTest d pres -> 
