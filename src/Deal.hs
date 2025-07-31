@@ -181,12 +181,12 @@ priceBondIrr (AP.HoldingBond historyCash holding (Just (sellDate, sellPricingMet
       txns' = [ BondTxn d 0 0 0 0 v 0 0 Nothing Types.Empty | (d,v) <- historyCash ]
       
       begBal = getTxnBegBalance txn
-      holdingPct = toRational $ holding / begBal
+      holdingPct = divideBB holding begBal
       -- assume cashflow of sell date belongs to seller(owner)
       (bProjectedTxn',futureFlow') = splitByDate (txn:txns) sellDate EqToLeft
       (bProjectedTxn,futureFlow) = ((scaleTxn holdingPct) <$> bProjectedTxn',(scaleTxn holdingPct) <$> futureFlow')
       -- projected cash
-      (ds2,vs2) = (getDate <$> bProjectedTxn, getTxnAmt <$> bProjectedTxn)
+      (ds2,vs2) = (getDate <$> bProjectedTxn, getTxnAmt <$> bProjectedTxn) 
       -- accrued interest
       accruedInt = L.backoutAccruedInt sellDate epocDate (bProjectedTxn++futureFlow)
       (ds3,vs3) = (sellDate, accruedInt)  -- `debug` ("accrued interest"++ show (accruedInt,sellDate))
@@ -194,8 +194,8 @@ priceBondIrr (AP.HoldingBond historyCash holding (Just (sellDate, sellPricingMet
       sellPrice = case sellPricingMethod of 
                     BondBalanceFactor f -> case bProjectedTxn of 
                                             [] -> mulBR begBal (f * holdingPct) 
-                                            _txns -> mulBR (getTxnBalance (last _txns)) f
-      (ds4,vs4) = (sellDate,  sellPrice)  -- `debug` ("sale price, date"++ show (sellPrice,sellDate))
+                                            _txns -> mulBR (getTxnBalance (last _txns)) f 
+      (ds4,vs4) = (sellDate,  sellPrice)  
     in 
       do 
         irr <- Analytics.calcIRR (ds++ds2++[ds3]++[ds4]) (vs++vs2++[vs3]++[vs4])

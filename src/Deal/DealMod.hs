@@ -86,7 +86,7 @@ modDeal (AddSpreadToBonds bnd) sprd d
                   [bnd]
                   bndMap
     in 
-      d {DB.bonds = bndMap'}
+      d {DB.bonds = bndMap'} 
 
 modDeal (SlideBalances bn1 bn2) r d@DB.TestDeal {DB.bonds = bndMap}
   = let 
