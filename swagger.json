@@ -21187,7 +21187,7 @@
             "name": "BSD 3"
         },
         "title": "Hastructure API",
-        "version": "0.50.3"
+        "version": "0.51.0"
     },
     "openapi": "3.0.0",
     "paths": {
