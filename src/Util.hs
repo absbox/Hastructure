@@ -345,9 +345,9 @@ findBox (Exc,Exc) x ((l,h):xs)
   | otherwise = findBox (Exc,Exc) x xs
 
 
-safeDivide' :: (Eq a, Fractional a, Real a) => a -> a -> Rational
-safeDivide' _ 0 = 10000000000000000000000000000000000000000000000000000
-safeDivide' x y = toRational x / toRational y
+safeDivide' :: (Eq a, Fractional a, Real a, Show a, Show b) => b -> a -> a -> Either ErrorRep Rational
+safeDivide' m x 0 = Left $ "Division by zero with: "++ show m 
+safeDivide' m x y = Right $ toRational x / toRational y
 
 
 lstToMapByFn :: (a -> String) -> [a] -> M.Map String a 

@@ -534,11 +534,11 @@ getTxnInt _ = 0.0
 
 
 -- ^ get present value of a bond
-priceBond :: Date -> Ts -> Bond -> PriceResult
-priceBond d rc b@(Bond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing ) = PriceResult 0 0 0 0 0 0 []
-priceBond d rc b@(MultiIntBond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing ) = PriceResult 0 0 0 0 0 0 []
+priceBond :: Date -> Ts -> Bond -> Either ErrorRep PriceResult
+priceBond d rc b@(Bond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing ) = return $  PriceResult 0 0 0 0 0 0 []
+priceBond d rc b@(MultiIntBond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing ) = return $ PriceResult 0 0 0 0 0 0 []
 priceBond d rc bnd
-  | all (==0) (S.getTxnAmt <$> futureCfs) = PriceResult 0 0 0 0 0 0 []
+  | all (==0) (S.getTxnAmt <$> futureCfs) = return $ PriceResult 0 0 0 0 0 0 []
   | otherwise 
       = let
           presentValue = pv3 rc d (getDate <$> futureCfs) (getTxnAmt <$> futureCfs)
@@ -551,8 +551,11 @@ priceBond d rc bnd
           wal = calcWalBond d bnd
           duration = calcDuration DC_ACT_365F d (zip futureCfDates futureCfFlow) rc
           convexity = calcConvexity DC_ACT_365F d (zip futureCfDates futureCfFlow) rc
+
         in 
-          PriceResult presentValue (fromRational (100* (safeDivide' presentValue obal))) (realToFrac wal) (realToFrac duration) (realToFrac convexity) accruedInt futureCfs -- `debug` ("Acc int"++ show accruedInt )
+          do 
+            pctFaceVal <- safeDivide' "Divide prenset value to original bond balance" presentValue obal
+            return $ PriceResult presentValue (fromRational (100* pctFaceVal)) (realToFrac wal) (realToFrac duration) (realToFrac convexity) accruedInt futureCfs
   where 
     cr = getCurRate bnd
     bal = getCurBalance bnd

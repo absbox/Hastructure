@@ -235,9 +235,9 @@ priceBondIrr (AP.BuyBond dateToBuy bPricingMethod (AP.ByCash cash) Nothing) txns
     (bProjectedTxn',futureFlow') = splitByDate txns dateToBuy EqToLeft
 
 
-priceBonds :: Ast.Asset a => TestDeal a -> AP.BondPricingInput -> Either String (Map.Map String PriceResult)
+priceBonds :: Ast.Asset a => TestDeal a -> AP.BondPricingInput -> Either ErrorRep (Map.Map String PriceResult)
 -- Price bond via discount future cashflow
-priceBonds t (AP.DiscountCurve d dc) = Right $ Map.map (L.priceBond d dc) (viewBondsInMap t)
+priceBonds t (AP.DiscountCurve d dc) = mapM (L.priceBond d dc) (viewBondsInMap t)
 -- Run Z-Spread
 priceBonds t@TestDeal {bonds = bndMap} (AP.RunZSpread curve bondPrices) 
   = sequenceA $ 

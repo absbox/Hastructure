@@ -597,9 +597,9 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                                  (\x -> (spd + (fromMaybe 0 (lookupTable walTbl Up (fromRational x >)))))
                                  bondWal 
                 let bondPricingCurve = Map.map 
-                                         (\x -> IRateCurve [ TsPoint d x,TsPoint (getDate (last ads)) x] )
+                                         (\x -> IRateCurve [ TsPoint d x,TsPoint (getDate (last ads)) x])
                                          bondSprd 
-                let bondPricingResult = Map.intersectionWithKey (\k v1 v2 -> L.priceBond d v2 v1) (bonds runDealWithSchedule) bondPricingCurve 
+                bondPricingResult <- sequenceA $ Map.intersectionWith (flip (L.priceBond d)) (bonds runDealWithSchedule) bondPricingCurve 
                 let depositBondFlow = Map.intersectionWith
                                         (\bnd (PriceResult pv _ _ _ _ _ _) -> 
                                           let 

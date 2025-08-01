@@ -109,7 +109,7 @@ allocAmtToBonds theOrder amt bndsWithDue =
 calcDueFee :: Ast.Asset a => TestDeal a -> Date -> F.Fee -> Either ErrorRep F.Fee
 calcDueFee t calcDay f@(F.Fee fn (F.FixFee amt) fs fd fdDay fa _ _)
   | isJust fdDay = return f 
-  | calcDay >= fs && isNothing fdDay = Right f { F.feeDue = amt, F.feeDueDate = Just calcDay} 
+  | calcDay >= fs && isNothing fdDay = return $ f { F.feeDue = amt, F.feeDueDate = Just calcDay} 
   | otherwise = return f
 
 calcDueFee t calcDay f@(F.Fee fn (F.AnnualRateFee feeBase r) fs fd Nothing fa lpd _)
@@ -238,7 +238,7 @@ calcDueInt t d b@(L.BondGroup bMap pt)
 -- first time to accrue interest\
 -- use default date to start to accrue
 calcDueInt t@TestDeal{ status = st} d b@(L.Bond _ bt oi io _ bal r dp _ di Nothing _ _ _ ) 
-  | bal+di == 0 && (bt /= L.IO) = Right b
+  | bal+di == 0 && (bt /= L.IO) = return b
   | otherwise = 
         do 
           sd <- getClosingDate (dates t)
@@ -558,9 +558,9 @@ performActionWrap d
         let accBal = A.accBalance acc
         limitAmt <- case ml of 
                       Just (DS ds) -> queryCompound t d (patchDateToStats d ds)
-                      Just (DueCapAmt amt) -> Right (toRational amt)
-                      Just (DuePct pct) -> Right $ toRational (mulBR accBal pct)
-                      Nothing -> Right (toRational accBal)
+                      Just (DueCapAmt amt) -> return (toRational amt)
+                      Just (DuePct pct) -> return $ toRational (mulBR accBal pct)
+                      Nothing -> return (toRational accBal)
         let availBal = min (fromRational limitAmt) accBal  -- `debug` ("Date"++ show d ++" Value on r -asset "++ show valuationOnAvailableAssets)
         valOnAvailableAssets <- priceAssetUnionList assets d pricingMethod perfAssumps mRates 
         let valuationOnAvailableAssets = sum $ getPriceValue <$> valOnAvailableAssets
@@ -1100,7 +1100,7 @@ performAction d t@TestDeal{accounts=accMap, bonds=bndMap} (W.FundWith mlimit an 
   do
     fundAmt_ <- case mlimit of 
                   Just (DS ds) -> queryCompound t d (patchDateToStats d ds)
-                  Just (DueCapAmt amt) -> Right $ toRational amt
+                  Just (DueCapAmt amt) -> return $ toRational amt
                   _ -> Left $ "Date:"++show d ++"Not valid limit for funding with bond"++ show bnd
     let fundAmt = fromRational fundAmt_
     let accMapAfterFund = Map.adjust (A.deposit fundAmt d (FundWith bnd fundAmt)) an accMap
@@ -1211,7 +1211,7 @@ performAction d t@TestDeal{bonds=bndMap, accounts = accMap} (W.CalcBondPrin mLim
         let newBndMap = foldr 
                           (\(bn,amt) acc -> Map.adjust (\b -> b {L.bndDuePrin = amt}) bn acc) 
                           bndMap 
-                          bndsAmountToBePaid -- `debug` ("Calc Bond Prin"++ show bndsAmountToBePaid)
+                          bndsAmountToBePaid
         return $ t {bonds = newBndMap}
 
       
@@ -1313,7 +1313,7 @@ performAction d t@TestDeal{accounts=accs,liqProvider = Just _liqProvider} (W.Liq
       acc <- lookupM an accs
       let cap = A.accBalance acc
       transferAmt <- case limit of 
-                      Nothing -> Right (toRational cap)
+                      Nothing -> return (toRational cap)
                       Just (DS ds) -> (min (toRational cap)) <$> (queryCompound t d (patchDateToStats d ds)) 
                       _ -> Left $ "Date:"++show d ++"Not implement the limit"++ show limit++"For Pay Yield to liqProvider"
       
@@ -1330,7 +1330,7 @@ performAction d t@TestDeal{liqProvider = Just _liqProvider} (W.LiqAccrue liqName
 performAction d t@TestDeal{rateSwap = Just rtSwap } (W.SwapAccrue sName)
   = do
       refBal <- case HE.rsNotional (rtSwap Map.! sName) of 
-                  (HE.Fixed b) -> Right b
+                  (HE.Fixed b) -> return b
                   (HE.Base ds) -> fromRational <$> queryCompound t d (patchDateToStats d ds)
                   (HE.Schedule ts) -> Right . fromRational $ getValByDate ts Inc d
 
