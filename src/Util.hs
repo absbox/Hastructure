@@ -14,7 +14,7 @@ module Util
     ,safeDivide,lstToMapByFn,paySequentially,payProRata,mapWithinMap
     ,payInMap,adjustM,lookupAndApply,lookupAndUpdate,lookupAndApplies
     ,lookupInMap,selectInMap,scaleByFstElement
-    ,lookupTuple6 ,lookupTuple7,diffNum,splitBal
+    ,lookupTuple6 ,lookupTuple7,diffNum,splitBal,lookupM,lookupVs
     -- for debug
     ,debugOnDate,paySeqM,splitByLengths,showLength
     )
@@ -423,6 +423,24 @@ mapWithinMap fn ks m = foldr (Map.adjust fn) m ks
 
 adjustM :: (Ord k, Applicative m) => (a -> m a) -> k -> Map.Map k a -> m (Map.Map k a)
 adjustM f = Map.alterF (traverse f)
+
+
+lookupM :: (Show k,Ord k) => k -> Map.Map k a -> Either String a
+lookupM key m =
+  case Map.lookup key m of
+    Nothing -> Left $ "Key not found: " ++ show key ++ " in map with keys: " ++ show (Map.keys m)
+    Just a  -> Right a
+
+lookupVs :: (Show k, Ord k) => [k] -> Map.Map k a -> Either String [a]
+lookupVs keys m = 
+  let 
+    missingKeys = filter (not . (`Map.member` m)) keys
+  in 
+    if null missingKeys then 
+      Right $ map (m Map.!) keys
+    else 
+      Left $ "Missing keys: " ++ show missingKeys ++ " in map with keys: " ++ show (Map.keys m)
+
 
 -- ^ lookup and apply a function to a single value in a map ,return a value
 lookupAndApply :: Ord k => (a -> b) -> String -> k -> Map.Map k a -> Either String b
