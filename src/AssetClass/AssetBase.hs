@@ -11,7 +11,7 @@ module AssetClass.AssetBase
   ,AmortPlan(..),Loan(..),Mortgage(..),AssetUnion(..),MixedAsset(..),FixedAsset(..)
   ,AmortRule(..),Capacity(..),AssociateExp(..),AssociateIncome(..),ReceivableFeeType(..),Receivable(..)
   ,ProjectedCashFlow(..),Obligor(..),LeaseRateCalc(..)
-  ,calcAssetPrinInt, calcPmt ,ProjectedFlow ,ScheduleCashFlow
+  ,calcAssetPrinInt, calcPmt ,ProjectedFlow ,ScheduleBalance
   )
   where
 
@@ -202,11 +202,12 @@ data Mortgage = Mortgage OriginalInfo Balance IRate RemainTerms (Maybe BorrowerN
 
 type FixRatePortion   = (Rate, IRate)
 type FloatRatePortion = (Rate, IRate, Spread, Index)
-type ScheduleCashFlow = (Date, Balance)
+type ScheduleBalance = (Date, Balance)
+type ScheduleFlow = (Date, Principal, Interest)
 type ProjectedFlow = Balance
 
-data ProjectedCashFlow = ProjectedByFactor [ScheduleCashFlow] DatePattern FixRatePortion [FloatRatePortion]
-                       | ProjectedCashflow CF.CashFlowFrame
+data ProjectedCashFlow = ProjectedByFactor [ScheduleBalance] DatePattern FixRatePortion [FloatRatePortion]
+                       | ProjectedCashflow (Balance,Date) [ScheduleFlow] DatePattern
                        deriving (Show,Generic,Eq,Ord)
 
 
@@ -290,10 +291,12 @@ instance IR.UseRate Receivable where
 instance IR.UseRate ProjectedCashFlow where 
   getIndex (ProjectedByFactor cf _ _ []) = Nothing
   getIndex (ProjectedByFactor cf _ _ (f:fs)) = Just $ (\(_,a,b,c) -> c) f 
-  getIndexes (ProjectedByFactor cf _ _ fs ) 
-    = Just $ (\(a,_,b,c) -> c) <$> fs
+  getIndex (ProjectedCashflow _ fs _) = Nothing
+  getIndexes (ProjectedByFactor cf _ _ fs ) = Just $ (\(a,_,b,c) -> c) <$> fs
+  getIndexes (ProjectedCashflow _ fs _) = Nothing
   isAdjustableRate (ProjectedByFactor _ _ _ []) = False
   isAdjustableRate (ProjectedByFactor _ _ _ _) = True
+  isAdjustableRate (ProjectedCashflow _ _ _) = False
 
 
 $(concat <$> traverse (deriveJSON defaultOptions) [''Obligor, ''OriginalInfo, ''FixedAsset, ''AmortPlan, ''PrepayPenaltyType

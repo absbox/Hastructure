@@ -169,18 +169,18 @@ cpr2smm r = toRational $ 1 - (1 - fromRational r :: Double) ** (1/12)
 normalPerfVector :: [Rate] -> [Rate]
 normalPerfVector = floorWith 0.0 . capWith 1.0
 
-buildPrepayRates :: Asset b => b -> [Date] -> Maybe A.AssetPrepayAssumption -> Either String [Rate]
-buildPrepayRates _ ds Nothing = Right $ replicate (pred (length ds)) 0.0
+buildPrepayRates :: Asset b => b -> [Date] -> Maybe A.AssetPrepayAssumption -> Either ErrorRep [Rate]
+buildPrepayRates _ ds Nothing = return $ replicate ((pred . length) ds) 0.0
 buildPrepayRates a ds mPa = 
   normalPerfVector <$>
     case mPa of
-      Just (A.PrepaymentConstant r) -> Right $ replicate size r
-      Just (A.PrepaymentCPR r) -> Right $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
-      Just (A.PrepaymentVec vs) -> Right $ zipWith 
+      Just (A.PrepaymentConstant r) -> return $ replicate (pred size) r
+      Just (A.PrepaymentCPR r) -> return $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
+      Just (A.PrepaymentVec vs) -> return $ zipWith 
                                       Util.toPeriodRateByInterval
                                       (paddingDefault 0.0 vs (pred size))
                                       (getIntervalDays ds)
-      Just (A.PrepaymentVecPadding vs) -> Right $ zipWith 
+      Just (A.PrepaymentVecPadding vs) -> return $ zipWith 
                                            Util.toPeriodRateByInterval
                                            (paddingDefault (last vs) vs (pred size))
                                            (getIntervalDays ds)
@@ -211,19 +211,19 @@ buildPrepayRates a ds mPa =
   where
     size = length ds
 
-buildDefaultRates :: Asset b => b -> [Date] -> Maybe A.AssetDefaultAssumption -> Either String [Rate]
-buildDefaultRates _ ds Nothing = Right $ replicate (pred (length ds)) 0.0
+buildDefaultRates :: Asset b => b -> [Date] -> Maybe A.AssetDefaultAssumption -> Either ErrorRep [Rate]
+buildDefaultRates _ ds Nothing = return $ replicate ((pred . length) ds) 0.0
 buildDefaultRates a [] mDa = Left "buildDefaultRates: empty date list" 
 buildDefaultRates a ds mDa = 
   normalPerfVector <$>
     case mDa of
-      Just (A.DefaultConstant r) -> Right $ replicate size r
-      Just (A.DefaultCDR r) -> Right $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
-      Just (A.DefaultVec vs) -> Right $ zipWith 
+      Just (A.DefaultConstant r) -> return $ replicate (pred size) r
+      Just (A.DefaultCDR r) -> return $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
+      Just (A.DefaultVec vs) -> return $ zipWith 
                                   Util.toPeriodRateByInterval
                                   (paddingDefault 0.0 vs (pred size))
                                   (getIntervalDays ds)
-      Just (A.DefaultVecPadding vs) -> Right $ zipWith 
+      Just (A.DefaultVecPadding vs) -> return $ zipWith 
                                         Util.toPeriodRateByInterval
                                         (paddingDefault (last vs) vs (pred size))
                                         (getIntervalDays ds)
@@ -256,7 +256,7 @@ getRecoveryLagAndRate Nothing = (0,0)
 getRecoveryLagAndRate (Just (A.Recovery (r,lag))) = (r,lag)
 
 -- | build pool assumption rate (prepayment, defaults, recovery rate , recovery lag)
-buildAssumptionPpyDefRecRate :: Asset a => a -> [Date] -> A.AssetPerfAssumption -> Either String ([Rate],[Rate],Rate,Int)
+buildAssumptionPpyDefRecRate :: Asset a => a -> [Date] -> A.AssetPerfAssumption -> Either ErrorRep ([Rate],[Rate],Rate,Int)
 buildAssumptionPpyDefRecRate a ds (A.LoanAssump mDa mPa mRa mESa) = buildAssumptionPpyDefRecRate a ds (A.MortgageAssump mDa mPa mRa mESa)
 buildAssumptionPpyDefRecRate a ds (A.MortgageAssump mDa mPa mRa mESa)
   = let  
@@ -268,7 +268,7 @@ buildAssumptionPpyDefRecRate a ds (A.MortgageAssump mDa mPa mRa mESa)
         prepayRates <- buildPrepayRates a ds mPa
         defaultRates <- buildDefaultRates a ds mDa
         let (prepayRates2,defaultRates2) = applyExtraStress mESa ds prepayRates defaultRates
-        return (prepayRates2,defaultRates2,recoveryRate,recoveryLag)
+        return (prepayRates2,defaultRates2,recoveryRate,recoveryLag) 
 
 
 getDefaultDelinqAssump :: Maybe A.AssetDelinquencyAssumption -> [Date] -> ([Rate],Int,Rate)
