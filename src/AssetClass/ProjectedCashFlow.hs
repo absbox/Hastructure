@@ -154,7 +154,7 @@ seperateCashflows a@(ProjectedByFactor pflow dp (fixPct,fixRate) floaterList)
                   do
                     assumptionInput <- case mPassump of 
                                         Just pAssump -> buildAssumptionPpyDefRecRate a ds pAssump 
-                                        Nothing -> Right (replicate flowSize 0.0, replicate flowSize 0.0, 0.0, 0)
+                                        Nothing -> Right (replicate (pred flowSize) 0.0, replicate (pred flowSize) 0.0, 0.0, 0)
                     fixedCashFlow <- projFixCfwithAssumption (fixedBals, ds, fixedAmortFactor, replicate flowSize (ByRate fixRate), dp)
                                                              assumptionInput
                                                              begDate
