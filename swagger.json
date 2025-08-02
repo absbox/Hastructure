@@ -14703,7 +14703,49 @@
                     {
                         "properties": {
                             "contents": {
-                                "$ref": "#/components/schemas/CashFlowFrame"
+                                "items": [
+                                    {
+                                        "items": [
+                                            {
+                                                "multipleOf": 1.0e-2,
+                                                "type": "number"
+                                            },
+                                            {
+                                                "$ref": "#/components/schemas/Day"
+                                            }
+                                        ],
+                                        "maxItems": 2,
+                                        "minItems": 2,
+                                        "type": "array"
+                                    },
+                                    {
+                                        "items": {
+                                            "items": [
+                                                {
+                                                    "$ref": "#/components/schemas/Day"
+                                                },
+                                                {
+                                                    "multipleOf": 1.0e-2,
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "multipleOf": 1.0e-2,
+                                                    "type": "number"
+                                                }
+                                            ],
+                                            "maxItems": 3,
+                                            "minItems": 3,
+                                            "type": "array"
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/DatePattern"
+                                    }
+                                ],
+                                "maxItems": 3,
+                                "minItems": 3,
+                                "type": "array"
                             },
                             "tag": {
                                 "enum": [
@@ -21187,7 +21229,7 @@
             "name": "BSD 3"
         },
         "title": "Hastructure API",
-        "version": "0.51.0"
+        "version": "0.51.1"
     },
     "openapi": "3.0.0",
     "paths": {

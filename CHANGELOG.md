@@ -2,6 +2,14 @@
 
 <!-- towncrier release notes start -->
 
+## 0.51.2
+### 2025-08-02
+* NEW: new asset `ProjectedByFactor` and `ProjectedCashflow` .
+* ENHANCE: refactor on waterfall action, throw error when `name` is missing from the deal object
+* ENHANCE: throw error when divide by zero
+* ENHANCE: refactor on `credit support` for `liquidity suppport.
+* FIX: fix zero cashflow when holding position is too small
+
 ## 0.50.0
 ### 2025-07-14
 * NEW: add `stopBy` in run assumption ,which stop deal run by a list of `Condition`
