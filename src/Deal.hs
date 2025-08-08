@@ -222,7 +222,7 @@ priceBondIrr (AP.BuyBond dateToBuy bPricingMethod (AP.ByCash cash) Nothing) txns
                      x = nextTxn
                      totalInt' = (fromMaybe 0) <$> [(preview (_BondTxn . _3 ) x), (preview (_BondTxn . _7 ) x), (preview (_BondTxn . _8 ) x)]
                    in
-                     sum(totalInt') - accruedInt'
+                     mulBR (sum(totalInt') - accruedInt') buyPct
 
       (ds1, vs1) = (dateToBuy, negate (buyPaidOut + accuredInt))
       (ds2, vs2) = (getDate <$> futureFlow', getTxnAmt <$> boughtTxns)
@@ -245,6 +245,7 @@ priceBonds t@TestDeal {bonds = bndMap} (AP.RunZSpread curve bondPrices)
         (\bn (pd,price)-> ZSpread <$> L.calcZspread (price,pd) (bndMap Map.! bn) curve)
         bondPrices
 -- Calc Irr of bonds 
+-- TODO fix if bond name not found
 priceBonds t@TestDeal {bonds = bndMap} (AP.IrrInput bMapInput) 
   = let
       -- Date 
