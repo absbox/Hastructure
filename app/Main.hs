@@ -144,6 +144,7 @@ patchCumulativeToPoolRun
           (\(CF.CashFlowFrame _ txns,mAssetFlow) -> 
             (CF.CashFlowFrame (0,Lib.toDate "19000101",Nothing) (CF.patchCumulative (0,0,0,0,0,0) [] txns),mAssetFlow))
 
+-- flag -> breakdown flag
 wrapRunPoolType :: Bool -> PoolTypeWrap -> Maybe AP.ApplyAssumptionType -> Maybe [RateAssumption] -> RunPoolTypeRtn
 wrapRunPoolType flag (MPool pt) assump mRates = D.runPoolType flag pt assump $ Just (AP.NonPerfAssumption{AP.interest = mRates})
 wrapRunPoolType flag (LPool pt) assump mRates = D.runPoolType flag pt assump $ Just (AP.NonPerfAssumption{AP.interest = mRates})

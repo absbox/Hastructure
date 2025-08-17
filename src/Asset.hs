@@ -171,85 +171,98 @@ normalPerfVector = floorWith 0.0 . capWith 1.0
 
 buildPrepayRates :: Asset b => b -> [Date] -> Maybe A.AssetPrepayAssumption -> Either ErrorRep [Rate]
 buildPrepayRates _ ds Nothing = return $ replicate ((pred . length) ds) 0.0
-buildPrepayRates a ds mPa = 
-  normalPerfVector <$>
-    case mPa of
-      Just (A.PrepaymentConstant r) -> return $ replicate (pred size) r
-      Just (A.PrepaymentCPR r) -> return $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
-      Just (A.PrepaymentVec vs) -> return $ zipWith 
-                                      Util.toPeriodRateByInterval
-                                      (paddingDefault 0.0 vs (pred size))
-                                      (getIntervalDays ds)
-      Just (A.PrepaymentVecPadding vs) -> return $ zipWith 
-                                           Util.toPeriodRateByInterval
-                                           (paddingDefault (last vs) vs (pred size))
-                                           (getIntervalDays ds)
-      Just (A.PrepayStressByTs ts x) -> 
-        do
-          rs <- buildPrepayRates a ds (Just x)
-          return $ getTsVals $ multiplyTs Exc (zipTs (tail ds) rs) ts 
-      Just (A.PrepaymentPSA r) -> 
-        let 
-          agedTerm = getPastTerms a
-          remainingTerm = getRemainTerms a
-          ppyVectorInCPR = (* r) <$> [0.002,0.004..0.06] ++ repeat 0.06
-          vectorUsed = take remainingTerm $ drop agedTerm ppyVectorInCPR
-        in 
-          case period (getOriginInfo a) of
-            Monthly -> return $ cpr2smm <$> vectorUsed
-            _ -> Left $ "PSA is only supported for monthly payment but got "++ show (period (getOriginInfo a))
-      Just (A.PrepaymentByTerm rs) -> 
-        let 
-          agedTerm = getPastTerms a
-          oTerm = originTerm (getOriginInfo a)
-        in 
-          case find (\x -> oTerm == length x) rs of 
-            Just v -> return $ drop agedTerm v
-            Nothing -> Left "Prepayment by term doesn't match the origin term"
+buildPrepayRates a ds (Just (A.PrepaymentConstant r)) 
+  | r < 0 || r > 1.0  = Left $ "buildPrepayRates: prepayment constant rate should be between 0 and 1, got " ++ show r
+  | otherwise = return $ replicate (pred (length ds)) r
 
-      _ -> Left ("failed to find prepayment type"++ show mPa)
-  where
-    size = length ds
+buildPrepayRates a ds (Just (A.PrepaymentCPR r)) 
+  | r < 0 || r > 1.0 = Left $ "buildPrepayRates: prepayment CPR rate should be between 0 and 1, got " ++ show r
+  | otherwise = return $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
+
+buildPrepayRates a ds (Just (A.PrepaymentVec vs))
+  | any (> 1.0) vs || any (< 0.0) vs = Left $ "buildPrepayRates: prepayment vector should be between 0 and 1, got " ++ show vs
+  | otherwise = return $ zipWith Util.toPeriodRateByInterval
+                                 (paddingDefault 0.0 vs (pred (length ds)))
+                                 (getIntervalDays ds)
+buildPrepayRates a ds (Just (A.PrepaymentVecPadding vs))
+  | any (> 1.0) vs || any (< 0.0) vs = Left $ "buildPrepayRates: prepayment vector should be between 0 and 1, got " ++ show vs
+  | otherwise = return $ zipWith Util.toPeriodRateByInterval
+                                 (paddingDefault (last vs) vs (pred (length ds)))
+                                 (getIntervalDays ds)
+buildPrepayRates a ds (Just (A.PrepayStressByTs ts x)) 
+  | any (< 0.0) (getTsVals ts) = Left $ "buildPrepayRates: prepayment vector by ts should be non-negative, got " ++ show (getTsVals ts)
+  | otherwise = do
+                  rs <- buildPrepayRates a ds (Just x)
+                  return $ getTsVals $ multiplyTs Exc (zipTs (tail ds) rs) ts
+buildPrepayRates a ds (Just (A.PrepaymentPSA r))
+  | r < 0 = Left $ "buildPrepayRates: PSA rate should be non-negative, got " ++ show r
+  | otherwise = let 
+                  agedTerm = getPastTerms a
+                  remainingTerm = getRemainTerms a
+                  ppyVectorInCPR = (* r) <$> [0.002,0.004..0.06] ++ repeat 0.06
+                  vectorUsed = take remainingTerm $ drop agedTerm ppyVectorInCPR
+                in 
+                  case period (getOriginInfo a) of
+                    Monthly -> return $ cpr2smm <$> vectorUsed
+                    _ -> Left $ "PSA is only supported for monthly payment but got "++ show (period (getOriginInfo a))
+buildPrepayRates a ds (Just (A.PrepaymentByTerm rs)) 
+  | any (< 0.0) (concat rs) = Left $ "buildPrepayRates: prepayment by term vector should be non-negative, got " ++ show rs
+  | any (> 1.0) (concat rs) = Left $ "buildPrepayRates: prepayment by term vector should be between 0 and 1, got " ++ show rs
+  | otherwise = let 
+                  agedTerm = getPastTerms a
+                  oTerm = originTerm (getOriginInfo a)
+                in 
+                  case find (\x -> oTerm == length x) rs of 
+                    Just v -> return $ drop agedTerm v
+                    Nothing -> Left "Prepayment by term doesn't match the origin term"
 
 buildDefaultRates :: Asset b => b -> [Date] -> Maybe A.AssetDefaultAssumption -> Either ErrorRep [Rate]
 buildDefaultRates _ ds Nothing = return $ replicate ((pred . length) ds) 0.0
 buildDefaultRates a [] mDa = Left "buildDefaultRates: empty date list" 
-buildDefaultRates a ds mDa = 
-  normalPerfVector <$>
-    case mDa of
-      Just (A.DefaultConstant r) -> return $ replicate (pred size) r
-      Just (A.DefaultCDR r) -> return $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
-      Just (A.DefaultVec vs) -> return $ zipWith 
-                                  Util.toPeriodRateByInterval
-                                  (paddingDefault 0.0 vs (pred size))
-                                  (getIntervalDays ds)
-      Just (A.DefaultVecPadding vs) -> return $ zipWith 
-                                        Util.toPeriodRateByInterval
-                                        (paddingDefault (last vs) vs (pred size))
-                                        (getIntervalDays ds)
-      Just (A.DefaultAtEndByRate r rAtEnd)
-        -> Right $ case size of 
-            0 -> []
-            1 -> []
-            _ -> (Util.toPeriodRateByInterval r <$> getIntervalDays (init ds)) ++ (Util.toPeriodRateByInterval rAtEnd <$> getIntervalDays [head ds,last ds])
-
-      Just (A.DefaultStressByTs ts x) -> 
-        do
-          rs <- buildDefaultRates a ds (Just x)
-          let r = getTsVals $ multiplyTs Inc (zipTs (tail ds) rs) ts 
-          return r
-
-      Just (A.DefaultByTerm rs) -> 
-        let 
-          agedTerm = getPastTerms a
-          oTerm = originTerm (getOriginInfo a)
-        in 
-          case find (\x -> oTerm == length x) rs of 
-            Just v -> Right $ drop agedTerm v
-            Nothing -> Left "Default by term doesn't match the origin term"
-      _ -> Left ("failed to find default rate type"++ show mDa)    
+buildDefaultRates a ds (Just (A.DefaultConstant r))
+  | r > 1.0 || r < 0.0 = Left $ "buildDefaultRates: default constant rate should be between 0 and 1, got " ++ show r
+  | otherwise = return $ replicate (pred (length ds)) r
+buildDefaultRates a ds (Just (A.DefaultCDR r))
+  | r > 1.0 || r < 0.0 = Left $ "buildDefaultRates: default CDR rate should be between 0 and 1, got " ++ show r
+  | otherwise = return $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
+buildDefaultRates a ds (Just (A.DefaultVec vs))
+  | any (> 1.0) vs || any (< 0.0) vs = Left $ "buildDefaultRates: default vector should be between 0 and 1, got " ++ show vs
+  | otherwise = return $ zipWith Util.toPeriodRateByInterval
+                                 (paddingDefault 0.0 vs (pred (length ds)))
+                                 (getIntervalDays ds)
+buildDefaultRates a ds (Just (A.DefaultVecPadding vs))
+  | any (> 1.0) vs || any (< 0.0) vs = Left $ "buildDefaultRates: default vector should be between 0 and 1, got " ++ show vs
+  | otherwise = return $ zipWith Util.toPeriodRateByInterval
+                                 (paddingDefault (last vs) vs (pred (length ds)))
+                                 (getIntervalDays ds)
+buildDefaultRates a ds (Just (A.DefaultAtEndByRate r rAtEnd))
+  | r > 1.0 || r < 0.0 = Left $ "buildDefaultRates: default at end rate should be between 0 and 1, got " ++ show r
+  | rAtEnd > 1.0 || rAtEnd < 0.0 = Left $ "buildDefaultRates: default at end rate should be between 0 and 1, got " ++ show rAtEnd
+  | otherwise = return $
+                  case size of 
+                    0 -> []
+                    1 -> []
+                    _ -> (Util.toPeriodRateByInterval r <$> getIntervalDays (init ds)) ++ (Util.toPeriodRateByInterval rAtEnd <$> getIntervalDays [head ds,last ds])
   where
     size = length ds
+buildDefaultRates a ds (Just (A.DefaultStressByTs ts x)) 
+  | any (< 0.0) (getTsVals ts) = Left $ "buildDefaultRates: default vector by ts should be non-negative, got " ++ show (getTsVals ts)
+  | otherwise = do
+                  rs <- buildDefaultRates a ds (Just x)
+                  return $ getTsVals $ multiplyTs Inc (zipTs (tail ds) rs) ts
+
+buildDefaultRates a ds (Just (A.DefaultByTerm rs))
+  | any (< 0.0) (concat rs) = Left $ "buildDefaultRates: default by term vector should be non-negative, got " ++ show rs
+  | any (> 1.0) (concat rs) = Left $ "buildDefaultRates: default by term vector should be between 0 and 1, got " ++ show rs
+  | otherwise = 
+      let 
+        agedTerm = getPastTerms a
+        oTerm = originTerm (getOriginInfo a)
+      in 
+        case find (\x -> oTerm == length x) rs of 
+          Just v -> return $ drop agedTerm v
+          Nothing -> Left "Default by term doesn't match the origin term"
+
 
 getRecoveryLagAndRate :: Maybe A.RecoveryAssumption -> (Rate,Int)
 getRecoveryLagAndRate Nothing = (0,0)

@@ -175,6 +175,7 @@ patchLossRecovery trs (Just (A.Recovery (rr,lag)))
 patchLossRecovery trs (Just (A.RecoveryTiming (rr,recoveryTimingDistribution)))
   | rr > 1.0 = Left $ "Recovery rate cannot be greater than 1.0:"++ show rr
   | sum recoveryTimingDistribution /= 1.0 = Left $ "Recovery timing distribution must sum to 1.0:" ++ show recoveryTimingDistribution ++ "sum"++ show (sum recoveryTimingDistribution)
+  | any (<0) recoveryTimingDistribution = Left $ "Recovery timing distribution cannot have negative values:" ++ show recoveryTimingDistribution
   | otherwise 
     = let
       cfLength = length trs -- cashflow length
