@@ -152,7 +152,8 @@ instance Asset Installment where
             ppyRates <- Ast.buildPrepayRates inst (lastPayDate:cfDates) prepayAssump
             defRates <- Ast.buildDefaultRates inst (lastPayDate:cfDates) defaultAssump
             let (txns,_,_) = projectInstallmentFlow (cb,lastPayDate,(opmt,ofee),orate,currentFactor,pt,ot) (cfDates,defRates,ppyRates,remainTerms) 
-            let (futureTxns,historyM) = CF.cutoffTrs asOfDay (patchLossRecovery (DL.toList txns) recoveryAssump)
+            txns' <- patchLossRecovery (DL.toList txns) recoveryAssump
+            let (futureTxns,historyM) = CF.cutoffTrs asOfDay txns'
             let begBal = CF.buildBegBal futureTxns
             return (applyHaircut ams (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns), historyM)
 

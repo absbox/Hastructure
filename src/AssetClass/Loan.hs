@@ -150,7 +150,8 @@ instance Asset Loan where
                             divideBB cb (scheduleBals!!(ot - rt))
                          _ -> 1.0  
           let (txns,_,_,_) = projectLoanFlow ((ob,ot,getOriginRate pl), cb,lastPayDate,prinPayType,dc,cr,initFactor) (cfDates,defRates,ppyRates,rateVector,remainTerms)  -- `debug` (" rateVector"++show rateVector)
-          let (futureTxns,historyM) = CF.cutoffTrs asOfDay (patchLossRecovery (DL.toList txns) recoveryAssump)
+          txns' <- patchLossRecovery (DL.toList txns) recoveryAssump
+          let (futureTxns,historyM) = CF.cutoffTrs asOfDay txns'
           let begBal = CF.buildBegBal futureTxns
           return $ (applyHaircut ams (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns), historyM)
   -- ^ Project cashflow for defautled loans 

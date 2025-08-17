@@ -119,12 +119,15 @@ instance Asset Receivable where
                asOfDay
                massump@(A.ReceivableAssump _ amr ams, _ , _)
                mRates
-    = Right $ (CF.CashFlowFrame (ob,asOfDay,Nothing) futureTxns, historyM)
-    where
-      payDate = dd
-      initTxn = CF.ReceivableFlow sd ob 0 0 0 0 0 0 Nothing
-      txns = [initTxn, CF.ReceivableFlow asOfDay 0 0 0 0 ob 0 ob Nothing]
-      (futureTxns,historyM)= CF.cutoffTrs asOfDay (patchLossRecovery txns amr)
+    = let
+        payDate = dd
+        initTxn = CF.ReceivableFlow sd ob 0 0 0 0 0 0 Nothing
+        txns = [initTxn, CF.ReceivableFlow asOfDay 0 0 0 0 ob 0 ob Nothing]
+      in 
+        do 
+          txns' <- (patchLossRecovery txns amr)
+          let (futureTxns,historyM) = CF.cutoffTrs asOfDay txns' 
+          return $ (CF.CashFlowFrame (ob,asOfDay,Nothing) futureTxns, historyM)
 
 
   -- Performing Invoice : default all balance at end of due date

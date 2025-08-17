@@ -152,25 +152,31 @@ decreaseBorrowerNum bb eb mBn
                    divideBB eb bb
 
 -- | given a list of future cashflows and patch recovery & loss
-patchLossRecovery :: [CF.TsRow] -> Maybe A.RecoveryAssumption -> [CF.TsRow]
+patchLossRecovery :: [CF.TsRow] -> Maybe A.RecoveryAssumption -> Either ErrorRep [CF.TsRow]
 patchLossRecovery trs Nothing 
-  = CF.dropTailEmptyTxns $ [ CF.tsSetRecovery 0 (CF.tsSetLoss d r) | (d,r) <- zip defaultVec trs ] -- `debug` ("Hit Nothign on recovery"++ show defaultVec)
-    where 
+  = let 
       defaultVec = mflowDefault <$> trs
+    in 
+      return $ CF.dropTailEmptyTxns $ [ CF.tsSetRecovery 0 (CF.tsSetLoss d r) | (d,r) <- zip defaultVec trs ] -- `debug` ("Hit Nothign on recovery"++ show defaultVec)
 
 -- ^ make sure trs has empty rows with length=lag. as it drop extended rows
 patchLossRecovery trs (Just (A.Recovery (rr,lag)))
-  = CF.dropTailEmptyTxns $ [ CF.tsSetRecovery recovery (CF.tsSetLoss loss r) | (r,recovery,loss) <- zip3 trs recoveryAfterLag lossVecAfterLag]
-    where 
+  | rr > 1.0 = Left $ "Recovery rate cannot be greater than 1.0:"++ show rr 
+  | lag < 0 = Left $ "Recovery lag cannot be negative:"++ show lag
+  | otherwise 
+    = let 
       defaultVec = mflowDefault <$> trs
       recoveriesVec = (`mulBR` rr) <$> defaultVec -- `debug` ("Default Vec"++ show defaultVec)
       recoveryAfterLag = replicate lag 0.0 ++ recoveriesVec --  `debug` ("recovery"++ show recoveriesVec)
       lossVec = (`mulBR` (1-rr)) <$> defaultVec  --  `debug` ("Rec after lag"++ show recoveryAfterLag)
       lossVecAfterLag = replicate lag 0.0 ++ lossVec  -- drop last lag elements
-
+    in 
+      return $ CF.dropTailEmptyTxns $ [ CF.tsSetRecovery recovery (CF.tsSetLoss loss r) | (r,recovery,loss) <- zip3 trs recoveryAfterLag lossVecAfterLag]
 patchLossRecovery trs (Just (A.RecoveryTiming (rr,recoveryTimingDistribution)))
-  = CF.dropTailEmptyTxns $ [ CF.tsSetRecovery recVal (CF.tsSetLoss loss r) | (recVal,loss,r) <- zip3 sumRecovery sumLoss trs ]
-    where
+  | rr > 1.0 = Left $ "Recovery rate cannot be greater than 1.0:"++ show rr
+  | sum recoveryTimingDistribution /= 1.0 = Left $ "Recovery timing distribution must sum to 1.0:" ++ show recoveryTimingDistribution ++ "sum"++ show (sum recoveryTimingDistribution)
+  | otherwise 
+    = let
       cfLength = length trs -- cashflow length
       rLength = length recoveryTimingDistribution  -- recovery length
       defaultVec = mflowDefault <$> trs  -- default balance of each row
@@ -187,3 +193,5 @@ patchLossRecovery trs (Just (A.RecoveryTiming (rr,recoveryTimingDistribution)))
       sumRecovery = sum <$> transpose paddedRecoveries
       lossVec = [ mulBR defaultVal (1-rr) | defaultVal <- defaultVec ]
       sumLoss = replicate (pred rLength) 0.0 ++ lossVec
+    in 
+      return $ CF.dropTailEmptyTxns $ [ CF.tsSetRecovery recVal (CF.tsSetLoss loss r) | (recVal,loss,r) <- zip3 sumRecovery sumLoss trs ]

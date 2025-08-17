@@ -399,7 +399,8 @@ instance Ast.Asset Mortgage where
           ppyRates <- Ast.buildPrepayRates m (lastPayDate:cfDates) amp
           let txns = projCashflowByDefaultAmt (cb,lastPayDate,prinPayType,p,cr,mbn) 
                                               (cfDates,(expectedDefaultBals,unAppliedDefaultBals),ppyRates,rateVector,remainTerms)
-          let (futureTxns,historyM)= CF.cutoffTrs asOfDay (patchLossRecovery txns amr)
+          txns' <- (patchLossRecovery txns amr)
+          let (futureTxns,historyM)= CF.cutoffTrs asOfDay txns'
           let begBal = CF.buildBegBal futureTxns
           return $ (applyHaircut ams $ patchPrepayPenaltyFlow (ot,mpn) (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns) ,historyM)
   
@@ -424,7 +425,8 @@ instance Ast.Asset Mortgage where
         do
           ppyRates <- Ast.buildPrepayRates m (lastPayDate:cfDates) amp
           let txns = projCashflowByDefaultAmt (cb,lastPayDate,prinPayType,p,cr,mbn) (cfDates,(expectedDefaultBals,unAppliedDefaultBals),ppyRates,rateVector,remainTerms)
-          let (futureTxns,historyM)= CF.cutoffTrs asOfDay (patchLossRecovery txns amr)
+          txns' <- (patchLossRecovery txns amr)
+          let (futureTxns,historyM)= CF.cutoffTrs asOfDay txns'
           let begBal = CF.buildBegBal futureTxns
           return $ (applyHaircut ams $ patchPrepayPenaltyFlow (ot,mpn) (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns) ,historyM)
   -- project schedule cashflow with total default amount
@@ -451,14 +453,15 @@ instance Ast.Asset Mortgage where
           let (txns,_) = projScheduleCashflowByDefaultAmt 
                           (begBal,begDate,begRate,begMbn) 
                           (flowsWithEx,(expectedDefaultBals,unAppliedDefaultBals),ppyRates) -- `debug` ("exted flows"++ show flowsWithEx)
-          let (futureTxns,historyM) = CF.cutoffTrs asOfDay (patchLossRecovery txns amr) -- `debug` ("txn"++show txns)
+          txns' <- (patchLossRecovery txns amr)
+          let (futureTxns,historyM) = CF.cutoffTrs asOfDay txns' -- `debug` ("txn"++show txns)
           let begBalAfterCut = CF.buildBegBal futureTxns
           return $ (applyHaircut ams (CF.CashFlowFrame (begBalAfterCut,asOfDay,Nothing) futureTxns) ,historyM)  -- `debug` ("Future txn"++ show futureTxns)
 
   -- project current mortgage(without delinq)
   projCashflow m@(Mortgage (MortgageOriginalInfo ob or ot p sd prinPayType mpn _) cb cr rt mbn Current) 
                asOfDay 
-               mars@(A.MortgageAssump amd amp amr ams ,_ ,_) 
+               mars@(A.MortgageAssump amd amp amr ams,_ ,_) 
                mRates =
     let
       recoveryLag = maybe 0 getRecoveryLag amr
@@ -478,8 +481,8 @@ instance Ast.Asset Mortgage where
         let txns = DL.toList txns'
         let lastProjTxn = last txns
         let extraTxns = [ CF.emptyTsRow d lastProjTxn  | d <- recoveryDates ]
-      
-        let (futureTxns,historyM)= CF.cutoffTrs asOfDay (patchLossRecovery (txns++extraTxns) amr)
+        txns'' <- (patchLossRecovery (txns++extraTxns) amr)
+        let (futureTxns,historyM)= CF.cutoffTrs asOfDay txns''
         let begBal = CF.buildBegBal futureTxns
         return $ (applyHaircut ams $ patchPrepayPenaltyFlow (ot,mpn) (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns) ,historyM)
 
@@ -551,7 +554,8 @@ instance Ast.Asset Mortgage where
         (ppyRates,defRates,recoveryRate,recoveryLag) <- buildAssumptionPpyDefRecRate m (lastPayDate:cfDates) (A.MortgageAssump amd amp amr ams)
         let remainTerms = reverse $ replicate recoveryLag 0 ++ [0..rt]
         let (txns,_,_) = projectMortgageFlow (scheduleBalToday, cb,lastPayDate,mbn,prinPayType,dc,cr,p,ot) (cfDates, defRates, ppyRates,rateVector,remainTerms)
-        let (futureTxns,historyM)= CF.cutoffTrs asOfDay (patchLossRecovery (DL.toList txns) amr)
+        txns' <- (patchLossRecovery (DL.toList txns) amr)
+        let (futureTxns,historyM)= CF.cutoffTrs asOfDay txns'
         let begBal = CF.buildBegBal futureTxns
         return $ (applyHaircut ams $ patchPrepayPenaltyFlow (ot,mpn) (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns) ,historyM)
   
