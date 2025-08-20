@@ -90,6 +90,8 @@ data ActionOnDate = EarnAccInt Date AccName              -- ^ sweep bank account
                   | ResetLiqProviderRate Date String     -- ^ accure interest/premium amount for liquidity provider
                   | PoolCollection Date String           -- ^ collect pool cashflow and deposit to accounts
                   | RunWaterfall Date String             -- ^ execute waterfall on distribution date
+                  | AccrueRunWaterfall Date String       -- ^ accrue all liabilities, execute waterfall on distribution date
+                  | AccruePoolCollection Date String     -- ^ accrue all liabilities, collect pool cashflow and deposit to accounts
                   | DealClosed Date                      -- ^ actions to perform at the deal closing day, and enter a new deal status
                   | FireTrigger Date DealCycle String    -- ^ fire a trigger
                   | InspectDS Date [DealStats]           -- ^ inspect formulas
@@ -194,70 +196,71 @@ data DateDesp = PreClosingDates CutoffDate ClosingDate (Maybe RevolvingDate) Sta
               | CurrentDates (Date,Date) (Maybe Date) StatedDate (Date,PoolCollectionDates) (Date,DistributionDates)
               -- Dict based 
               | GenericDates (Map.Map DateType DatePattern)
+              | AccruedGenericDates (Map.Map DateType DatePattern)
               deriving (Show,Eq, Generic,Ord)
 
+type PoolCollectionActions = [ActionOnDate]
+type BondDistributionActions = [ActionOnDate]
+type CustomActions = [ActionOnDate]
 
-populateDealDates :: DateDesp -> DealStatus -> Either String (Date,Date,Date,[ActionOnDate],[ActionOnDate],Date,[ActionOnDate])
+populateDealDates :: DateDesp -> DealStatus -> Either ErrorRep (Date,Date,Date,PoolCollectionActions,BondDistributionActions,Date,CustomActions)
 populateDealDates (PreClosingDates cutoff closing mRevolving end (firstCollect,poolDp) (firstPay,bondDp)) _
-  = return (cutoff,closing,firstPay,pa,ba,end, []) 
-    where 
+  = let 
       pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 IE firstCollect poolDp end ]
       ba = [ RunWaterfall _d "" | _d <- genSerialDatesTill2 IE firstPay bondDp end ]
+    in 
+      return (cutoff,closing,firstPay,pa,ba,end, []) 
 
 populateDealDates (CurrentDates (lastCollect,lastPay) mRevolving end (nextCollect,poolDp) (nextPay,bondDp)) _
-  = return (lastCollect, lastPay,head futurePayDates, pa, ba, end, []) 
-    where 
+  = let 
       futurePayDates = genSerialDatesTill2 IE nextPay bondDp end 
       ba = [ RunWaterfall _d "" | _d <- futurePayDates]
       futureCollectDates = genSerialDatesTill2 IE nextCollect poolDp end 
       pa = [ PoolCollection _d "" | _d <- futureCollectDates]
+    in 
+      return (lastCollect, lastPay,head futurePayDates, pa, ba, end, []) 
 
-populateDealDates (GenericDates m) 
-                  (PreClosing _)
+populateDealDates (GenericDates m) st 
   = let 
-      requiredFields = (CutoffDate, ClosingDate, FirstPayDate, StatedMaturityDate
-                        , DistributionDates, CollectionDates) 
-      vals = lookupTuple6 requiredFields m
-      
+      requiredFields (PreClosing _) = (CutoffDate, ClosingDate, FirstPayDate, StatedMaturityDate , DistributionDates, CollectionDates) 
+      requiredFields _  = (LastCollectDate, LastPayDate, NextPayDate, StatedMaturityDate, DistributionDates, CollectionDates) 
       isCustomWaterfallKey (CustomExeDates _) _ = True
       isCustomWaterfallKey _ _ = False
       custWaterfall = Map.toList $ Map.filterWithKey isCustomWaterfallKey m
     in 
-      case vals of
-        (Just (SingletonDate coffDate), Just (SingletonDate closingDate), Just (SingletonDate fPayDate)
-          , Just (SingletonDate statedDate), Just bondDp, Just poolDp)
-          -> let 
-                pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 IE closingDate poolDp statedDate ]
-                ba = [ RunWaterfall _d "" | _d <- genSerialDatesTill2 IE fPayDate bondDp statedDate ]
-                cu = [ RunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall
-                                                , _d <- genSerialDatesTill2 EE closingDate custDp statedDate ]
-              in 
-                return (coffDate, closingDate, fPayDate, pa, ba, statedDate, cu)
-        _ 
-          -> Left "Missing required dates in GenericDates in deal status PreClosing"
+      do 
+        vals <- lookupTuple6 (requiredFields st) m
+        case vals of
+          (SingletonDate lastCollect, SingletonDate lastPayDate, SingletonDate nextPayDate , SingletonDate statedDate, bondDp, poolDp)
+            -> let 
+                  pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 EE lastCollect poolDp statedDate ]
+                  ba = [ RunWaterfall _d "" | _d <- genSerialDatesTill2 IE nextPayDate bondDp statedDate ]
+                  cu = [ RunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall, _d <- genSerialDatesTill2 EE lastCollect custDp statedDate ]
+                in 
+                  return (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu)
+          _ 
+            -> Left $ "Missing required dates in GenericDates in deal status" ++ (show st) ++ "but got"
 
-populateDealDates (GenericDates m) _ 
+populateDealDates (AccruedGenericDates m) st 
   = let 
-      requiredFields = (LastCollectDate, LastPayDate, NextPayDate, StatedMaturityDate
-                        , DistributionDates, CollectionDates) 
-      vals = lookupTuple6 requiredFields m
-      
+      requiredFields (PreClosing _) = (CutoffDate, ClosingDate, FirstPayDate, StatedMaturityDate , DistributionDates, CollectionDates) 
+      requiredFields _  = (LastCollectDate, LastPayDate, NextPayDate, StatedMaturityDate, DistributionDates, CollectionDates) 
       isCustomWaterfallKey (CustomExeDates _) _ = True
       isCustomWaterfallKey _ _ = False
       custWaterfall = Map.toList $ Map.filterWithKey isCustomWaterfallKey m
     in 
-      case vals of
-        (Just (SingletonDate lastCollect), Just (SingletonDate lastPayDate), Just (SingletonDate nextPayDate)
-          , Just (SingletonDate statedDate), Just bondDp, Just poolDp)
-          -> let 
-                pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 EE lastCollect poolDp statedDate ]
-                ba = [ RunWaterfall _d "" | _d <- genSerialDatesTill2 IE nextPayDate bondDp statedDate ]
-                cu = [ RunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall
-                                                , _d <- genSerialDatesTill2 EE lastCollect custDp statedDate ]
-              in 
-                return (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu) -- `debug` ("custom action"++ show cu)
-        _ 
-          -> Left "Missing required dates in GenericDates in deal status PreClosing"
+      do 
+        vals <- lookupTuple6 (requiredFields st) m
+        case vals of
+          (SingletonDate lastCollect, SingletonDate lastPayDate, SingletonDate nextPayDate , SingletonDate statedDate, bondDp, poolDp)
+            -> let 
+                  pa = [ AccruePoolCollection _d "" | _d <- genSerialDatesTill2 EE lastCollect poolDp statedDate ]
+                  ba = [ AccrueRunWaterfall _d "" | _d <- genSerialDatesTill2 IE nextPayDate bondDp statedDate ]
+                  cu = [ AccrueRunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall, _d <- genSerialDatesTill2 EE lastCollect custDp statedDate ]
+                in 
+                  return (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu)
+          _ 
+            -> Left $ "Missing required dates in GenericDates in deal status" ++ (show st) ++ "but got"
 
 
 

@@ -6,6 +6,7 @@ pkgs.mkShell {
     haskell.compiler.ghc912
     haskell-language-server
     ghciwatch
+    just
   ];
   LANG = "en_US.UTF-8";
   LC_ALL = "en_US.UTF-8";

@@ -442,13 +442,13 @@ patchRuntimeBal balMap pt = pt
 
 getInits :: Ast.Asset a => S.Set ExpectReturn -> TestDeal a -> Maybe AP.ApplyAssumptionType -> Maybe AP.NonPerfAssumption 
          -> Either String (TestDeal a,[ActionOnDate], Map.Map PoolId CF.PoolCashflow, Map.Map PoolId CF.PoolCashflow)
-getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status,bonds=bndMap,stats=_stats} mAssumps mNonPerfAssump =
+getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status,bonds=bndMap,stats=_stats,dates=dealDates} mAssumps mNonPerfAssump =
   let 
     expandInspect sd ed (AP.InspectPt dp ds) = [ InspectDS _d [ds] | _d <- genSerialDatesTill2 II sd dp ed ]
     expandInspect sd ed (AP.InspectRpt dp dss) = [ InspectDS _d dss | _d <- genSerialDatesTill2 II sd dp ed ] 
   in 
     do 
-      (startDate,closingDate,firstPayDate,pActionDates,bActionDates,endDate,custWdates) <- populateDealDates (dates t) status
+      (startDate,closingDate,firstPayDate,pActionDates,bActionDates,endDate,custWdates) <- populateDealDates dealDates status
 
       let intEarnDates = A.buildEarnIntAction (Map.elems (accounts t)) endDate [] 
       let intAccRateResetDates = (A.buildRateResetDates endDate) <$> (Map.elems (accounts t))

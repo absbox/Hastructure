@@ -145,7 +145,7 @@ setBondNewRate t d ras b@(L.MultiIntBond bn _ _ iis _ bal currentRates _ dueInts
       return $ b' { L.bndRates = newRates } 
 
 -- ^ accure rate cap 
-accrueRC :: Ast.Asset a => TestDeal a -> Date -> [RateAssumption] -> RateCap -> Either String RateCap
+accrueRC :: Ast.Asset a => TestDeal a -> Date -> [RateAssumption] -> RateCap -> Either ErrorRep RateCap
 accrueRC t d rs rc@RateCap{rcNetCash = amt, rcStrikeRate = strike,rcIndex = index
                         ,rcStartDate = sd, rcEndDate = ed, rcNotional = notional
                         ,rcLastStlDate = mlsd
@@ -297,6 +297,24 @@ appendCollectedCF d t@TestDeal { pool = ResecDeal uds } poolInflowMap
    in 
      t {pool = newPt} 
 
+
+accrueDeal :: Ast.Asset a => Date -> [RateAssumption] -> TestDeal a -> Either ErrorRep (TestDeal a)
+accrueDeal d ras t@TestDeal{fees = feeMap, bonds = bondMap, liqProvider = liqMap
+                            , rateSwap = rsMap, rateCap = rcMap, accounts = accMap}
+  = do
+      feeMap' <- sequenceA (over mapped (calcDueFee t d) feeMap)
+      let bondMap' = (Map.map (L.accrueInt d) bondMap)
+      let liqMap' = (Map.map (CE.accrueLiqProvider d)) <$> liqMap
+      let rsMap' = (Map.map (HE.accrueIRS d)) <$> rsMap
+      rcMap' <- traverse (Map.traverseWithKey (\_ -> accrueRC t d ras)) rcMap
+      return t { fees = feeMap' ,
+                 bonds = bondMap',
+                 liqProvider = liqMap',
+                 rateSwap = rsMap',
+                 rateCap = rcMap'
+                 }
+
+
 run :: Ast.Asset a => TestDeal a -> Map.Map PoolId CF.PoolCashflow -> Maybe [ActionOnDate] -> Maybe [RateAssumption] -> Maybe ([Pre],[Pre])
         -> Maybe (Map.Map String (RevolvingPool,AP.ApplyAssumptionType)) -> DL.DList ResultComponent 
         -> Either String (TestDeal a, DL.DList ResultComponent, Map.Map PoolId CF.PoolCashflow)
@@ -351,6 +369,16 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                     (DL.concat [newLogs0,newLogs,eopActionsLog,newLogs1]) 
           else
             run t poolFlowMap (Just ads) rates calls rAssump log 
+
+        AccruePoolCollection d x -> 
+          do 
+            t' <- (accrueDeal d (fromMaybe [] rates) t)
+            run t' poolFlowMap (Just (PoolCollection d x:ads)) rates calls rAssump log
+
+        AccrueRunWaterfall d x -> 
+          do 
+            t' <- (accrueDeal d (fromMaybe [] rates) t)
+            run t' poolFlowMap (Just (RunWaterfall d x:ads)) rates calls rAssump log
 
         RunWaterfall d "" -> 
           let

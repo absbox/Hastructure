@@ -2,6 +2,13 @@
 
 <!-- towncrier release notes start -->
 
+
+## 0.51.3
+### 2025-08-20
+* ENHANCE: add assumption validation on `prepayment` `default` `recovery` .
+* FIX: pricing IRR: engine will use wrong position when `Buy Bond`
+
+
 ## 0.51.2
 ### 2025-08-02
 * NEW: new asset `ProjectedByFactor` and `ProjectedCashflow` .

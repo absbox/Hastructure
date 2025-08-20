@@ -473,9 +473,10 @@ selectInMap errMsg keys m
       inputKs = S.fromList keys
       mapKs = Map.keysSet m
 
-lookupTuple6 :: (Ord k) => (k, k, k, k, k, k) -> Map.Map k v -> (Maybe v, Maybe v, Maybe v, Maybe v, Maybe v, Maybe v)
-lookupTuple6 (k1, k2, k3, k4, k5, k6) m =
-  ( Map.lookup k1 m , Map.lookup k2 m , Map.lookup k3 m , Map.lookup k4 m , Map.lookup k5 m , Map.lookup k6 m)
+lookupTuple6 :: (Show k,Ord k) => (k, k, k, k, k, k) -> Map.Map k v -> Either ErrorRep (v, v, v, v, v, v)
+lookupTuple6 (k1, k2, k3, k4, k5, k6) m 
+  | any (\k -> Map.notMember k m) [k1, k2, k3, k4, k5, k6] = Left $ "lookupTuple6: Empty key in tuple"++ show (k1, k2, k3, k4, k5, k6) ++ "but map has keys: " ++ (show (Map.keys m))
+  | otherwise = return (m Map.! k1, m Map.! k2, m Map.! k3, m Map.! k4, m Map.! k5, m Map.! k6)
 
 lookupTuple7 :: (Ord k) => (k, k, k, k, k, k, k) -> Map.Map k v -> (Maybe v, Maybe v, Maybe v, Maybe v, Maybe v, Maybe v, Maybe v)
 lookupTuple7 (k1, k2, k3, k4, k5, k6, k7) m =
