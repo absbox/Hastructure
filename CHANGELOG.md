@@ -3,8 +3,9 @@
 <!-- towncrier release notes start -->
 
 
-## 0.51.3
+## 0.51.5
 ### 2025-08-20
+* NEW: New accrue-type waterfall action
 * ENHANCE: add assumption validation on `prepayment` `default` `recovery` .
 * FIX: pricing IRR: engine will use wrong position when `Buy Bond`
 

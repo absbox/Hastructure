@@ -148,6 +148,8 @@ instance TimeSeries ActionOnDate where
     getDate (FundBond d _ _ _ _) = d
     getDate (HitStatedMaturity d) = d
     getDate (StopRunTest d _) = d
+    getDate (AccrueRunWaterfall d _) = d
+    getDate (AccruePoolCollection d _) = d
     getDate x = error $ "Failed to match"++ show x
 
 
@@ -174,7 +176,9 @@ sortActionOnDate a1 a2
                   (ResetLiqProvider {} ,_) -> LT  -- reset liq be first
                   (_ , ResetLiqProvider {}) -> GT -- reset liq be first
                   (PoolCollection {}, RunWaterfall {}) -> LT -- pool collection should be executed before waterfall
+                  (AccruePoolCollection {}, AccrueRunWaterfall {}) -> LT -- pool collection should be executed before waterfall
                   (RunWaterfall {}, PoolCollection {}) -> GT -- pool collection should be executed before waterfall
+                  (AccrueRunWaterfall {}, AccruePoolCollection {}) -> GT -- pool collection should be executed before waterfall
                   (_,_) -> EQ 
   | otherwise = compare d1 d2
   where 

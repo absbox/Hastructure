@@ -5059,6 +5059,28 @@
                         ],
                         "title": "GenericDates",
                         "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "contents": {
+                                "additionalProperties": {
+                                    "$ref": "#/components/schemas/DatePattern"
+                                },
+                                "type": "object"
+                            },
+                            "tag": {
+                                "enum": [
+                                    "AccruedGenericDates"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "tag",
+                            "contents"
+                        ],
+                        "title": "AccruedGenericDates",
+                        "type": "object"
                     }
                 ]
             },

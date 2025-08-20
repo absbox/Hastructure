@@ -289,8 +289,8 @@ runDeal t er perfAssumps nonPerfAssumps@AP.NonPerfAssumption{AP.callWhen = opts 
         let finalDeal = prepareDeal er _finalDeal
     -- extract pool cash collected to deal
         let poolFlowUsedNoEmpty = Map.map 
-                                (over CF.cashflowTxn CF.dropTailEmptyTxns) 
-                                (getAllCollectedFrame finalDeal Nothing)
+                                    (over CF.cashflowTxn CF.dropTailEmptyTxns) 
+                                    (getAllCollectedFrame finalDeal Nothing)
         let poolFlowUnUsed = osPoolFlow & mapped . _1 . CF.cashflowTxn %~ CF.dropTailEmptyTxns
                                         & mapped . _2 . _Just . each . CF.cashflowTxn %~ CF.dropTailEmptyTxns
         bndPricing <- case mPricing of 
@@ -450,7 +450,7 @@ getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status
     do 
       (startDate,closingDate,firstPayDate,pActionDates,bActionDates,endDate,custWdates) <- populateDealDates dealDates status
 
-      let intEarnDates = A.buildEarnIntAction (Map.elems (accounts t)) endDate [] 
+      let intEarnDates = A.buildEarnIntAction (Map.elems (accounts t)) endDate []
       let intAccRateResetDates = (A.buildRateResetDates endDate) <$> (Map.elems (accounts t))
       let iAccIntDates = [ EarnAccInt _d accName | (accName,accIntDates) <- intEarnDates , _d <- accIntDates ] 
       let iAccRateResetDates = concat [ [ResetAccRate _d accName | _d <- _ds] | rst@(Just (accName, _ds)) <- intAccRateResetDates, isJust rst ]
@@ -570,8 +570,10 @@ getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status
                                                      ,bondIssuePlan,bondRefiPlan,callDates, iAccRateResetDates 
                                                      ,bndStepUpDates] 
                                         in
-                                          case (dates t,status) of 
+                                          case (dealDates, status) of 
                                             (PreClosingDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
+                                            (GenericDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
+                                            (AccruedGenericDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
                                             _ -> sortBy sortActionOnDate a
                          _actionDates = __actionDates++[HitStatedMaturity endDate]
                        in 

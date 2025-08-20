@@ -41,6 +41,10 @@ import Types
 
 import Util
 import Lib
+
+import Debug.Trace
+debug = flip trace
+
 -- ^ execute effects of trigger: making changes to deal
 -- TODO seems position of arugments can be changed : f :: a -> b -> m a  => f:: b -> a -> m a
 runEffects :: Ast.Asset a => (TestDeal a, RunContext a, [ActionOnDate], DL.DList ResultComponent) -> Date -> TriggerEffect 
@@ -395,7 +399,8 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
               (dRunWithTrigger0, rc1, ads1, newLogs0) <- runTriggers (t, runContext, ads) d BeginDistributionWF 
               let logsBeforeDist
                     | Map.notMember waterfallKey waterfallM 
-                        = DL.snoc newLogs0 (WarningMsg (" No waterfall distribution found on date "++show d++" with waterfall key "++show waterfallKey))
+                        = DL.snoc newLogs0 
+                                  (WarningMsg (" No waterfall distribution found on date "++show d++" with waterfall key "++show waterfallKey++"from"++ (show (Map.keys waterfallM))))
                     | otherwise = newLogs0
               flag <- anyM (testPre d dRunWithTrigger0) callTest 
               if flag then
@@ -472,7 +477,7 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
         
         DealClosed d ->
           let
-            w = Map.findWithDefault [] W.OnClosingDay (waterfall t) 
+            w = Map.findWithDefault [] W.OnClosingDay (waterfall t)
             rc = RunContext poolFlowMap rAssump rates  
             logForClosed =  [RunningWaterfall d W.OnClosingDay| not (null w)]
           in 
