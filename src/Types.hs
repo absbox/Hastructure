@@ -46,6 +46,7 @@ module Types
   ,MyRatio,HowToPay(..),BondPricingMethod(..),InvestorAction(..)
   ,_BondTxn ,_InspectBal, _IrrResult,DueType(..)
   ,EvalExpr(..),ErrorRep,Accruable(..),Payable(..),Drawable(..)
+  ,SupportAvailType(..),updateSupportAvailType
   )
   where
 
@@ -404,6 +405,17 @@ data InvestorAction = Buy
                     deriving (Show,Ord,Read,Generic,Eq)
 
 
+data SupportAvailType = ByAvailAmount Balance 
+                      | Unlimit
+                      deriving (Show, Eq, Ord, Read)
+
+updateSupportAvailType :: (Balance -> Balance) -> SupportAvailType -> SupportAvailType
+updateSupportAvailType f (ByAvailAmount b) = ByAvailAmount (f b)
+updateSupportAvailType _ Unlimit = Unlimit
+
+
+$(deriveJSON defaultOptions ''SupportAvailType)
+
 class TimeSeries ts where 
     cmp :: ts -> ts -> Ordering
     cmp t1 t2 = compare (getDate t1) (getDate t2)
@@ -604,7 +616,7 @@ data TxnComment = PayInt [BondName]
 data Txn = BondTxn Date Balance Interest Principal IRate Cash DueInt DueIoI (Maybe Float) TxnComment     -- ^ bond transaction record for interest and principal 
          | AccTxn Date Balance Amount TxnComment                                                         -- ^ account transaction record 
          | ExpTxn Date Balance Amount Balance TxnComment                                                 -- ^ expense transaction record
-         | SupportTxn Date (Maybe Balance) Balance DueInt DuePremium Cash TxnComment                     -- ^ liquidity provider transaction record
+         | SupportTxn Date SupportAvailType Balance DueInt DuePremium Cash TxnComment                     -- ^ liquidity provider transaction record
          | IrsTxn Date Balance Amount IRate IRate Balance TxnComment                                     -- ^ interest swap transaction record
          | EntryTxn Date Balance Amount TxnComment                                                       -- ^ ledger book entry
          | TrgTxn Date Bool TxnComment
@@ -907,7 +919,8 @@ data DueType = DueInterest (Maybe Int) -- ^ interest due
 class Accruable ac where 
   bookAccrual :: Date -> Balance -> ac -> ac
   getAccrualDates :: Date -> ac -> [Date]
-
+  accrueTo :: Date -> ac -> ac
+  -- accrueWithDeal :: Date -> deal -> ac -> ac
 
 class Payable pa where
   pay :: Date -> DueType -> Balance -> pa -> pa

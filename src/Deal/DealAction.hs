@@ -208,7 +208,7 @@ calcDueFee t calcDay f@(F.Fee fn (F.FeeFlowByBondPeriod pc) fs fd fdday fa lpd s
 
 disableLiqProvider :: Ast.Asset a => TestDeal a -> Date -> CE.LiqFacility -> CE.LiqFacility
 disableLiqProvider _ d liq@CE.LiqFacility{CE.liqEnds = Just endDate } 
-  | d > endDate = liq{CE.liqCredit = Just 0}
+  | d > endDate = liq{CE.liqCredit = ByAvailAmount 0}
   | otherwise = liq
 disableLiqProvider _ d liq@CE.LiqFacility{CE.liqEnds = Nothing }  = liq
 
@@ -223,8 +223,8 @@ updateLiqProvider t d liq@CE.LiqFacility{CE.liqType = liqType, CE.liqCredit = cu
       newCredit = case liqType of 
                     --  CE.ReplenishSupport _ b -> max b <$> curCredit
                     CE.ByPct ds _r ->  case (* _r) <$> (queryCompound t d (patchDateToStats d ds)) of
-                                          Left y -> Nothing -- TODO tobe fix error
-                                          Right x -> (min (fromRational x)) <$> curCredit
+                                          Left y -> error "Shouldn't happen"
+                                          Right x -> updateSupportAvailType (min (fromRational x)) curCredit
                     _ -> curCredit
 
 -- ^TODO : to be replace from L.accrueInt
@@ -373,11 +373,7 @@ updateOriginDate2 d (ACM.LS m) = ACM.LS $ updateOriginDate m (Ast.calcAlignDate 
 updateOriginDate2 d (ACM.RE m) = ACM.RE $ updateOriginDate m (Ast.calcAlignDate m d)
 
 
-
-data SupportAvailType = ByAvailAmount Balance 
-                      | Unlimit
-                      deriving (Show, Eq, Ord)
-                      
+                     
 sumSupport :: [SupportAvailType] -> SupportAvailType
 sumSupport [] = ByAvailAmount 0
 sumSupport [ByAvailAmount b1] = ByAvailAmount b1
@@ -404,9 +400,7 @@ evalExtraSupportBalance d t@TestDeal{liqProvider=Just liqMap} (W.SupportLiqFacil
       support <- lookupM liqName liqMap
       case Map.lookup liqName liqMap of
         Nothing -> Left $ "Liquidity facility not found:" ++ show liqName
-        Just liq -> case CE.liqCredit liq of 
-                      Nothing -> return Unlimit 
-                      Just b -> return $ ByAvailAmount b 
+        Just liq -> return $ CE.liqCredit liq  
 evalExtraSupportBalance d t (W.MultiSupport supports) 
   = sumSupport <$> (sequenceA [ (evalExtraSupportBalance d t sp) | sp <- supports ])
 
@@ -436,8 +430,8 @@ drawExtraSupport d amt (W.SupportLiqFacility liqName) t@TestDeal{liqProvider= Ju
   = do
       theLiqProvider <- lookupM liqName liqMap 
       let drawAmt = case CE.liqCredit theLiqProvider of 
-                      Nothing -> amt -- `debug` ("From amt"++ show amt)
-                      Just b -> min amt b -- `debug` ("From Just"++ show b++">>"++show amt)
+                      Unlimit -> amt -- `debug` ("From amt"++ show amt)
+                      ByAvailAmount b -> min amt b -- `debug` ("From Just"++ show b++">>"++show amt)
       let oustandingAmt = amt - drawAmt -- `debug` ("Draw Amt"++show drawAmt++">>"++ show amt ++">>>")
       newLiqMap <- adjustM (CE.draw d drawAmt SupportDraw) liqName liqMap
       return (t {liqProvider = Just newLiqMap} , oustandingAmt)
@@ -1224,10 +1218,10 @@ performAction d t@TestDeal{accounts=accs, liqProvider = Just _liqProvider} (W.Li
         in 
           do 
             transferAmt <- case (CE.liqCredit liq, mLimit) of 
-                             (Nothing, Nothing) -> Left $ "Date:"++show d ++"Can't deposit unlimit cash to an account in LiqSupport(Account):"++ show pName ++ ":"++ show an
-                             (Just av, Nothing) -> Right . toRational $ av
-                             (Nothing, Just (DS ds)) -> queryCompound t d (patchDateToStats d ds) -- `debug` ("hit with ds"++ show ds)
-                             (Just av, Just (DS ds)) -> (min (toRational av)) <$> queryCompound t d (patchDateToStats d ds) 
+                             (Unlimit, Nothing) -> Left $ "Date:"++show d ++"Can't deposit unlimit cash to an account in LiqSupport(Account):"++ show pName ++ ":"++ show an
+                             (ByAvailAmount av, Nothing) -> Right . toRational $ av
+                             (Unlimit, Just (DS ds)) -> queryCompound t d (patchDateToStats d ds) -- `debug` ("hit with ds"++ show ds)
+                             (ByAvailAmount av, Just (DS ds)) -> (min (toRational av)) <$> queryCompound t d (patchDateToStats d ds) 
                              (_ , Just _x) -> Left $ "Date:"++show d ++"Not support limit in LiqSupport(Account)"++ show _x 
             let dAmt = fromRational transferAmt
 	    newLiqMap <- adjustM (draw d dAmt LiquidationDraw) pName _liqProvider
@@ -1244,8 +1238,8 @@ performAction d t@TestDeal{fees=feeMap,liqProvider = Just _liqProvider} (W.LiqSu
       supportAmt <- applyLimit t d (fromRational totalDueFee) (fromRational totalDueFee) mLimit
 
       let transferAmt = case CE.liqCredit liq of 
-                          Nothing -> supportAmt
-                          (Just v) -> min supportAmt v
+                          Unlimit -> supportAmt
+                          (ByAvailAmount v) -> min supportAmt v
 
       let newFeeMap = payInMap d transferAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) fns ByProRata feeMap
       newLiqMap <- adjustM (draw d transferAmt LiquidationDraw) pName _liqProvider 
@@ -1261,8 +1255,8 @@ performAction d t@TestDeal{bonds=bndMap,liqProvider = Just _liqProvider}
       supportAmt <- applyLimit t d (fromRational totalDueInt) (fromRational totalDueInt) mLimit
 
       let transferAmt = case CE.liqCredit liq of 
-                          Nothing -> supportAmt
-                          (Just v) -> min supportAmt v
+                          Unlimit -> supportAmt
+                          (ByAvailAmount v) -> min supportAmt v
 
       let newBondMap = payInMap d transferAmt L.getTotalDueInt (L.payInt d) bns ByProRata bndMap
       newLiqMap <- adjustM (draw  d transferAmt  LiquidationDraw) pName _liqProvider 
@@ -1278,7 +1272,9 @@ performAction d t@TestDeal{accounts=accs,liqProvider = Just _liqProvider} (W.Liq
       liqDueAmts CE.LiqPremium = [ CE.liqDuePremium $ _liqProvider Map.! pName]
       liqDueAmts (CE.LiqRepayTypes lrts) = concat $ liqDueAmts <$> lrts
 
-      overDrawnBalance = maybe 0 negate (CE.liqCredit $ _liqProvider Map.! pName)
+      overDrawnBalance = case (CE.liqCredit $ _liqProvider Map.! pName) of
+                           Unlimit -> 0
+                           ByAvailAmount v -> negate v
       
       dueBreakdown 
         | overDrawnBalance > 0 = overDrawnBalance:liqDueAmts rpt

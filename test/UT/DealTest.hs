@@ -156,7 +156,7 @@ td2 = D.TestDeal {
                                 "" 
                                 (CE.FixSupport 100)
                                 50
-                                (Just 100)
+                                (ByAvailAmount 100)
                                 Nothing
                                 Nothing
                                 Nothing
@@ -167,8 +167,8 @@ td2 = D.TestDeal {
                                 0
                                 (toDate "20220201")
                                 Nothing
-                                (Just (Stmt.Statement (DL.fromList [SupportTxn (toDate "20220215") (Just 110) 10 40 0 0 Empty 
-                                                    ,SupportTxn (toDate "20220315") (Just 100) 10 50 0 0 Empty]))))]
+                                (Just (Stmt.Statement (DL.fromList [SupportTxn (toDate "20220215") (ByAvailAmount 110) 10 40 0 0 Empty 
+                                                    ,SupportTxn (toDate "20220315") (ByAvailAmount 100) 10 50 0 0 Empty]))))]
  ,D.triggers = Just $
                 Map.fromList $
                   [(BeginDistributionWF,
@@ -365,7 +365,7 @@ liqProviderTest =
     liq1 = CE.LiqFacility "" 
                        (CE.FixSupport 100)
                        90
-                       (Just 100)
+                       (ByAvailAmount 100)
                        (Just CE.IncludeDueInt)
                        Nothing -- rate type
                        Nothing -- premium rate type
@@ -378,13 +378,13 @@ liqProviderTest =
                        (toDate "20220301")
                        Nothing
                        (Just (Stmt.Statement 
-                               (DL.fromList ([SupportTxn (toDate "20220215") (Just 110) 40 40 0 0 Empty
-                               ,SupportTxn (toDate "20220315") (Just 100) 50 90 0 0 Empty
+                               (DL.fromList ([SupportTxn (toDate "20220215") (ByAvailAmount 110) 40 40 0 0 Empty
+                               ,SupportTxn (toDate "20220315") (ByAvailAmount 100) 50 90 0 0 Empty
                                ]))))
   in 
     testGroup "Liq provider test" 
       [testCase "Liq Provider Int test" $
           assertEqual ""
-           (Just 100)
+           (ByAvailAmount 100)
            (CE.liqCredit $ CE.accrueLiqProvider (toDate "20221101") liq1)
       ]

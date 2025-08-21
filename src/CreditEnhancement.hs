@@ -7,7 +7,7 @@ module CreditEnhancement
   (LiqFacility(..),LiqSupportType(..),buildLiqResetAction,buildLiqRateResetAction
   ,LiquidityProviderName,draw,repay,accrueLiqProvider
   ,LiqDrawType(..),LiqRepayType(..),LiqCreditCalc(..)
-  ,consolStmt,CreditDefaultSwap(..),
+  ,CreditDefaultSwap(..),
   )
   where
 
@@ -56,7 +56,7 @@ data LiqRepayType = LiqBal                        -- ^ repay oustanding balance 
                   | LiqPremium                    -- ^ repay oustanding premium fee of lp
                   | LiqInt                        -- ^ repay oustanding interest of lp
                   | LiqRepayTypes [LiqRepayType]  -- ^ repay by sequence
-                  | LiqResidual                   -- ^ excess pay
+                  | LiqResidual                   -- ^ excess pay to liquidity provider
                   | LiqOD
                   deriving (Show,Generic,Ord,Eq)
 
@@ -70,7 +70,7 @@ data LiqFacility = LiqFacility {
     liqName :: String 
     ,liqType :: LiqSupportType 
     ,liqBalance :: Balance                   -- ^ total balance supported/drawed
-    ,liqCredit :: Maybe Balance              -- ^ available balance to support. Nothing -> unlimit 
+    ,liqCredit ::  SupportAvailType          -- ^ available balance to support. Nothing -> unlimit 
     ,liqCreditCalc :: Maybe LiqCreditCalc    -- ^ how to calculate credit
     
     ,liqRateType :: Maybe IR.RateType        -- ^ interest rate type 
@@ -89,16 +89,35 @@ data LiqFacility = LiqFacility {
     ,liqStmt :: Maybe Statement              -- ^ transaction history
 } deriving (Show,Generic,Eq,Ord)
 
-consolStmt :: LiqFacility -> LiqFacility
-consolStmt liq@LiqFacility{liqStmt = Nothing} = liq
-consolStmt liq@LiqFacility{liqStmt = Just (S.Statement txn')} 
-  | DL.empty == txn' = liq
-  | otherwise = let 
-                  (txn:txns) = DL.toList txn'
-                  combinedBondTxns = foldl S.consolTxn [txn] txns    
-                  droppedTxns = dropWhile S.isEmptyTxn combinedBondTxns 
-                in 
-                  liq {liqStmt = Just (S.Statement (DL.fromList (reverse droppedTxns)))}
+-- consolStmt :: LiqFacility -> LiqFacility
+-- consolStmt liq@LiqFacility{liqStmt = Nothing} = liq
+-- consolStmt liq@LiqFacility{liqStmt = Just (S.Statement txn')} 
+--   | DL.empty == txn' = liq
+--   | otherwise = let 
+--                   (txn:txns) = DL.toList txn'
+--                   combinedBondTxns = foldl S.consolTxn [txn] txns    
+--                   droppedTxns = dropWhile S.isEmptyTxn combinedBondTxns 
+--                 in 
+--                   liq {liqStmt = Just (S.Statement (DL.fromList (reverse droppedTxns)))}
+
+instance HasStmt LiqFacility where
+  consolStmt liq@LiqFacility{liqStmt = Nothing} = liq
+  consolStmt liq@LiqFacility{liqStmt = Just (S.Statement txn')} 
+      | DL.empty == txn' = liq
+      | otherwise = let 
+                      (txn:txns) = DL.toList txn'
+                      combinedBondTxns = foldl S.consolTxn [txn] txns    
+                      droppedTxns = dropWhile S.isEmptyTxn combinedBondTxns 
+                    in 
+                      liq {liqStmt = Just (S.Statement (DL.fromList (reverse droppedTxns)))}
+
+  getAllTxns liq@LiqFacility{liqStmt = Nothing} = []
+  getAllTxns liq@LiqFacility{liqStmt = Just (S.Statement txns)} 
+      = DL.toList txns
+
+  hasEmptyTxn liq@LiqFacility{liqStmt = Nothing} = True
+  hasEmptyTxn _ = False
+
 
 
 -- | update the reset events of liquidity provider
@@ -131,13 +150,20 @@ instance Drawable LiqFacility where
   draw d amt txn liq@LiqFacility{ liqBalance = liqBal ,liqStmt = mStmt 
                                  ,liqCredit = mCredit ,liqDueInt = dueInt 
                                  ,liqDuePremium = duePremium}
-    | isJust mCredit && (fromMaybe 0 mCredit) <= 0 
-      = return $ liq { liqStmt = appendStmt (SupportTxn d mCredit liqBal dueInt duePremium 0 txn) mStmt }
-    | otherwise = return $ liq { liqBalance = newBal,liqCredit = newCredit,liqStmt = newStmt}
-    where 
-      newCredit = (subtract amt) <$> mCredit 
-      newBal = liqBal + amt 
-      newStmt = appendStmt (SupportTxn d newCredit newBal dueInt duePremium (negate amt) txn) mStmt
+    = case mCredit of
+        (ByAvailAmount availBal) -> 
+          let 
+            newBal = liqBal + amt 
+            newCredit = ByAvailAmount (availBal - amt)
+            newStmt = appendStmt (SupportTxn d newCredit newBal dueInt duePremium (negate amt) txn) mStmt
+          in
+            return $ liq { liqBalance = newBal,liqCredit = mCredit,liqStmt = newStmt}
+        Unlimit -> 
+          let
+            newBal = liqBal + amt 
+            newStmt = appendStmt (SupportTxn d mCredit newBal dueInt duePremium (negate amt) txn) mStmt
+          in
+            return $ liq { liqBalance = newBal,liqCredit = mCredit,liqStmt = newStmt}
 
 
 repay :: Amount -> Date -> LiqRepayType -> LiqFacility -> LiqFacility
@@ -159,12 +185,12 @@ repay amt d pt liq@LiqFacility{liqBalance = liqBal
           _ -> ( liqBal, liqDueInt, liqDuePremium )
 
       newCredit = case (mCreditType,pt) of
-                    (_ , LiqOD) -> (+ amt) <$> mCredit
+                    (_ , LiqOD) -> updateSupportAvailType (+ amt) mCredit 
                     (Nothing, _) -> mCredit
-                    (Just IncludeDueInt, LiqInt) -> (+ amt) <$> mCredit
-                    (Just IncludeDuePremium, LiqPremium) -> (+ amt) <$> mCredit
-                    (Just IncludeBoth, LiqInt) -> (+ amt) <$> mCredit
-                    (Just IncludeBoth, LiqPremium) -> (+ amt) <$> mCredit
+                    (Just IncludeDueInt, LiqInt) -> updateSupportAvailType (+ amt) mCredit
+                    (Just IncludeDuePremium, LiqPremium) -> updateSupportAvailType (+ amt) mCredit
+                    (Just IncludeBoth, LiqInt) -> updateSupportAvailType (+ amt) mCredit
+                    (Just IncludeBoth, LiqPremium) -> updateSupportAvailType (+ amt) mCredit
                     _ -> mCredit
 
       newStmt = appendStmt (SupportTxn d newCredit newBal newIntDue newDuePremium amt  (LiquidationRepay (show pt))) mStmt  
@@ -186,14 +212,14 @@ accrueLiqProvider d liq@(LiqFacility _ _ curBal mCredit mCreditType mRateType mP
          }
     where 
       lastAccDate = fromMaybe sd dueDate
-      accureInt = case rate of 
+      accrueInt = case rate of 
                     Nothing -> 0
                     Just r -> 
                       let 
                         bals = weightAvgBalanceByDates [lastAccDate,d] (DL.toList txns)
                       in 
                         sum $ flip mulBIR r <$> bals -- `debug` ("Accure Using Rate"++show r++"avg bal"++ show bals ++"ds"++show [lastAccDate,d])
-      accureFee = case prate of
+      accrueFee = case prate of
                     Nothing -> 0 
                     Just r -> 
                       let 
@@ -204,17 +230,23 @@ accrueLiqProvider d liq@(LiqFacility _ _ curBal mCredit mCreditType mRateType mP
                       in 
                         mulBIR _avgBal r
                         
-      getUnusedBal (SupportTxn _ b _ _ _ _ _) = fromMaybe 0 b 
+      getUnusedBal (SupportTxn _ Unlimit _ _ _ _ _) = 0
+      getUnusedBal (SupportTxn _ (ByAvailAmount b) _ _ _ _ _) = b 
       
-      newDueFee = accureFee + duePremium
-      newDueInt = accureInt + dueInt
+      newDueFee = accrueFee + duePremium
+      newDueInt = accrueInt + dueInt
       newCredit = case mCreditType of 
                     Nothing -> mCredit
-                    Just IncludeDueInt -> (\x -> x - accureInt) <$> mCredit
-                    Just IncludeDuePremium -> (\x -> x - accureFee) <$> mCredit
-                    Just IncludeBoth -> (\x -> x - accureInt - accureFee) <$> mCredit
+                    Just IncludeDueInt -> updateSupportAvailType (\x -> x - accrueInt) mCredit
+                    Just IncludeDuePremium -> updateSupportAvailType (\x -> x - accrueFee) mCredit
+                    Just IncludeBoth -> updateSupportAvailType (\ x -> x - (accrueFee + accrueInt)) mCredit
 
-      newStmt = appendStmt (SupportTxn d newCredit curBal newDueInt newDueFee 0 (LiquidationSupportInt accureInt accureFee)) mStmt 
+      newStmt = appendStmt (SupportTxn d newCredit curBal newDueInt newDueFee 0 (LiquidationSupportInt accrueInt accrueFee)) mStmt 
+
+-- instance Accruable LiqFacility where 
+--   accrue d liq@LiqFacility{liqStmt = Nothing} = liq
+--   accrue d liq@LiqFacility{liqStmt = Just (Statement txns)} 
+--     = ccrueLiqProvider d $ consolStmt liq {liqStmt = Just (Statement (DL.fromList (reverse txns)))}
 
 
 instance QueryByComment LiqFacility where 

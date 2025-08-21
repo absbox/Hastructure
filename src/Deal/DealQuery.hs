@@ -711,9 +711,14 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
     LiqCredit lqNames -> 
       case liqProvider t of
         Nothing -> Left $ "Date:"++show d++"No Liquidation Provider modeled when looking for " ++ show s
-        Just liqProviderM -> Right . toRational $
-                               sum $ [ fromMaybe 0 (CE.liqCredit liq) | (k,liq) <- Map.assocs liqProviderM
-                                     , S.member k (S.fromList lqNames) ]
+        Just liqProviderM -> 
+            let 
+              xs = [ case (CE.liqCredit liq) of
+                       Unlimit -> 0
+                       ByAvailAmount v -> v
+                     | (k,liq) <- Map.assocs liqProviderM , S.member k (S.fromList lqNames) ] 
+            in 
+              Right . toRational $ sum xs 
 
     LiqBalance lqNames -> 
       case liqProvider t of

@@ -59,7 +59,8 @@ scaleTxn :: Rate -> Txn -> Txn
 scaleTxn r (BondTxn d b i p r0 c di dioi f t) = BondTxn d (mulBR b r) (mulBR i r) (mulBR p r) r0 (mulBR c r) (mulBR di r) (mulBR dioi r) f t
 scaleTxn r (AccTxn d b a t) = AccTxn d (mulBR b r) (mulBR a r) t
 scaleTxn r (ExpTxn d b a b0 t) = ExpTxn d (mulBR b r) (mulBR a r) (mulBR b0 r) t
-scaleTxn r (SupportTxn d b b0 i p c t) = SupportTxn d (flip mulBR r <$> b) (mulBR b0 r) (mulBR i r) (mulBR p r) (mulBR c r) t
+scaleTxn r (SupportTxn d Unlimit b0 i p c t) = SupportTxn d Unlimit (mulBR b0 r) (mulBR i r) (mulBR p r) (mulBR c r) t
+scaleTxn r (SupportTxn d (ByAvailAmount b) b0 i p c t) = SupportTxn d (ByAvailAmount (mulBR b r)) (mulBR b0 r) (mulBR i r) (mulBR p r) (mulBR c r) t
 scaleTxn r (IrsTxn d b a i0 i1 b0 t) = IrsTxn d (mulBR b r) (mulBR a r) i0 i1 (mulBR b0 r) t
 scaleTxn r (EntryTxn d b a t) = EntryTxn d (mulBR b r)  (mulBR a r) t
 
@@ -113,7 +114,7 @@ emptyTxn :: Txn -> Date -> Txn
 emptyTxn BondTxn {} d = BondTxn d 0 0 0 0 0 0 0 Nothing Empty
 emptyTxn AccTxn {} d = AccTxn d 0 0 Empty
 emptyTxn ExpTxn {} d = ExpTxn d 0 0 0 Empty
-emptyTxn SupportTxn {} d = SupportTxn d Nothing 0 0 0 0 Empty
+emptyTxn SupportTxn {} d = SupportTxn d Unlimit 0 0 0 0 Empty
 emptyTxn IrsTxn {} d = IrsTxn d 0 0 0 0 0 Empty
 emptyTxn EntryTxn {} d = EntryTxn d 0 0 Empty
 emptyTxn TrgTxn {} d = TrgTxn d False Empty
@@ -122,7 +123,7 @@ isEmptyTxn :: Txn -> Bool
 isEmptyTxn (BondTxn _ 0 0 0 _ 0 0 0 _ Empty) = True
 isEmptyTxn (AccTxn _ 0 0 Empty) = True
 isEmptyTxn (ExpTxn _ 0 0 0 Empty) = True
-isEmptyTxn (SupportTxn _ Nothing 0 0 0 0 Empty) = True
+isEmptyTxn (SupportTxn _ _ 0 0 0 0 Empty) = True
 isEmptyTxn (IrsTxn _ 0 0 0 0 0 Empty) = True
 isEmptyTxn (EntryTxn _ 0 0 Empty) = True
 isEmptyTxn _ = False
@@ -288,5 +289,6 @@ class QueryByComment a where
 class HasStmt a where 
   getAllTxns :: a -> [Txn]
   hasEmptyTxn :: a -> Bool
+  consolStmt :: a -> a
 
 $(deriveJSON defaultOptions ''Statement)
