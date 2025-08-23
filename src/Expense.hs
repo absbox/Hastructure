@@ -11,6 +11,7 @@ import Lib(Period,paySeqLiabilities,Dates
            ,Amount,Balance,Date,Rate,Ts(..))
 import Stmt(appendStmt,Statement,TxnComment(..))
 import Data.Traversable
+import Control.Monad
 import Language.Haskell.TH
 
 import qualified Data.Text
@@ -59,27 +60,88 @@ data Fee = Fee {
 
 
 instance Payable Fee where
-  pay d (DueTotalOf [DueArrears,DueFee]) amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) = 
+
+  pay d DueFee amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) 
+    | amt > fd = Left $ "Payment amount is greater than due amount of fee:" ++ fn
+    | otherwise = 
+        let 
+          dueRemain = fd - amt
+          newStmt = appendStmt (ExpTxn d dueRemain amt fa (PayFee fn)) fstmt
+        in 
+          return $ f {feeLastPaidDay = Just d ,feeDue = dueRemain ,feeStmt = newStmt}
+
+  pay d DueArrears amt f@(Fee fn ft fs fd fdDay fa flpd fstmt)
+    | amt > fa = Left $ "Payment amount is greater than arrears amount of fee:" ++ fn
+    | otherwise = 
+        let 
+          arrearRemain = fa - amt
+          newStmt = appendStmt (ExpTxn d fd amt arrearRemain (PayFee fn)) fstmt
+        in 
+          return $ f {feeLastPaidDay = Just d ,feeArrears = arrearRemain ,feeStmt = newStmt}
+
+  pay d (DueTotalOf [DueArrears,DueFee]) amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) 
+    | amt > fa + fd = Left $ "Payment amount is greater than total due amount of fee:" ++ fn
+    | otherwise = 
     let 
       [(r0,arrearRemain),(r1,dueRemain)] = paySeqLiabilities amt [fa,fd]
-      paid = fa + fd - arrearRemain - dueRemain 
+      paid = (fa + fd) - amt
       newStmt = appendStmt (ExpTxn d dueRemain paid arrearRemain (PayFee fn)) fstmt
     in 
-      f {feeLastPaidDay = Just d ,feeDue = dueRemain ,feeArrears = arrearRemain ,feeStmt = newStmt}
+      return $ f {feeLastPaidDay = Just d ,feeDue = dueRemain ,feeArrears = arrearRemain ,feeStmt = newStmt}
+
+  pay d (DueTotalOf []) amt f = return f 
+
+  pay d (DueTotalOf (dt:dts)) amt f 
+    = pay d (DueTotalOf dts) remainAmt =<< pay d dt amt f
+      where 
+        dueBal = getDueBal d (Just dt) f
+        (amtToPay, remainAmt) = (min dueBal amt, amt - min dueBal amt)
   
   pay d DueResidual amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) =
     let 
-      [(r0,arrearRemain),(r1,dueRemain)] = paySeqLiabilities amt [fa,fd] 
-      newStmt = appendStmt (ExpTxn d dueRemain amt arrearRemain (PayFee fn)) fstmt  
+      newStmt = appendStmt (ExpTxn d fd amt fa (PayFee fn)) fstmt  
     in 
-      f {feeLastPaidDay = Just d ,feeDue = dueRemain ,feeArrears = arrearRemain ,feeStmt = newStmt}
+      return $ f {feeLastPaidDay = Just d ,feeStmt = newStmt}
 
+  pay d dt _ f = Left $ "Unsupported due type for pay fee"++ feeName f ++ show dt
+  
   
   getDueBal d t fee@(Fee fn ft fs fd fdDay fa flpd fstmt) 
     = case t of 
-	Nothing -> fa + fd
-	Just DueFee -> fd
-	Just DueArrears -> fa
+        Nothing -> fa + fd
+        Just DueFee -> fd
+        Just DueArrears -> fa
+        Just (DueTotalOf []) -> 0 
+        Just (DueTotalOf (dt:dts)) -> getDueBal d (Just dt) fee + getDueBal d (Just (DueTotalOf dts)) fee 
+
+  writeOff d DueFee amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) 
+    | amt > fd = Left $ "Write off amount is greater than due amount of fee:" ++ fn 
+    | otherwise = 
+      let 
+        newStmt = appendStmt (ExpTxn d (fd - amt) 0 fa (WriteOff fn amt)) fstmt
+      in 
+        return (Fee fn ft fs (fd - amt) fdDay fa flpd newStmt)
+
+  writeOff d DueArrears amt f@(Fee fn ft fs fd fdDay fa flpd fstmt)
+    | amt > fa = Left $ "Write off amount is greater than arrears amount of fee:" ++ fn
+    | otherwise = 
+        let 
+          newStmt = appendStmt (ExpTxn d fd 0 (fa - amt) (WriteOff fn amt)) fstmt
+        in 
+          return (Fee fn ft fs fd fdDay (fa - amt) flpd newStmt)
+
+  writeOff d (DueTotalOf []) amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) 
+    | amt /= 0 = Left $ "Write off amount is not zero for empty due total of fee:" ++ fn
+    | otherwise = return f
+  
+  writeOff d (DueTotalOf (dt:dts)) amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) 
+    = let 
+        dueBal = getDueBal d (Just dt) f
+        (amtToWriteOff, remainAmt) = (min dueBal amt, amt - min dueBal amt)
+      in
+        writeOff d (DueTotalOf dts) remainAmt =<< writeOff d dt amtToWriteOff f
+
+  writeOff d dt _ _ = Left $ "Unsupported due type for write off fee"++ show dt
 
 -- | build accure dates for a fee
 buildFeeAccrueAction :: [Fee] -> Date -> [(String,Dates)] -> [(String,Dates)]

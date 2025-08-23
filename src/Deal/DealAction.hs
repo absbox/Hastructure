@@ -769,7 +769,8 @@ performAction d t@TestDeal{fees=feeMap, accounts=accMap} (W.PayFeeBySeq mLimit a
     acc <- lookupM an accMap
     feesToPay <- lookupVs fns feeMap
     paidOutAmt <- calcAvailAfterLimit t d acc mSupport (sum (map F.feeDue feesToPay)) mLimit
-    let (feesPaid, remainAmt) = paySequentially d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) [] feesToPay
+    -- let (feesPaid, remainAmt) = paySequentially d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) [] feesToPay
+    (feesPaid, remainAmt) <- paySeqM d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) (Right []) feesToPay
     let accPaidOut = min (A.accBalance acc) paidOutAmt
     newAccMap <- adjustM (A.draw d accPaidOut (SeqPayFee fns)) an accMap 
     let dealAfterAcc = t {accounts = newAccMap
@@ -785,7 +786,8 @@ performAction d t@TestDeal{fees=feeMap, accounts=accMap} (W.PayFee mLimit an fns
     feesToPay <- lookupVs fns feeMap
     let totalFeeDue = sum $ map F.feeDue feesToPay
     paidOutAmt <- calcAvailAfterLimit t d acc mSupport totalFeeDue mLimit
-    let (feesPaid, remainAmt) = payProRata d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) feesToPay
+    -- let (feesPaid, remainAmt) = payProRata d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) feesToPay
+    (feesPaid, remainAmt) <- payProM d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) feesToPay
     let accPaidOut = min (A.accBalance acc) paidOutAmt
     newAccMap <- adjustM (A.draw d accPaidOut (SeqPayFee fns)) an accMap 
     let dealAfterAcc = t {accounts = newAccMap
@@ -939,7 +941,8 @@ performAction d t@TestDeal{fees=feeMap,accounts=accMap} (W.PayFeeResidual mlimit
     acc <- lookupM an accMap
     paidOutAmt <- applyLimit t d (A.accBalance acc) (A.accBalance acc) mlimit
     newAccMap <- adjustM (A.draw d paidOutAmt (PayFeeYield feeName)) an accMap
-    let feeMapAfterPay = Map.adjust (pay d  DueResidual paidOutAmt) feeName feeMap
+    -- let feeMapAfterPay = Map.adjust (pay d DueResidual paidOutAmt) feeName feeMap
+    feeMapAfterPay <- adjustM (pay d DueResidual paidOutAmt) feeName feeMap
     return $ t {accounts = newAccMap, fees = feeMapAfterPay}
 
 performAction d t@TestDeal{bonds=bndMap,accounts=accMap} 
@@ -1110,7 +1113,7 @@ performAction d t@TestDeal{bonds = bndMap, ledgers = Just ledgerM }
       let bndBal = L.bndBalance bndToWriteOff
       writeAmt <- applyLimit t d bndBal bndBal mLimit
       let newLedgerM = Map.adjust (LD.entryLogByDr dr writeAmt d (Just (WriteOff bnd writeAmt))) lName ledgerM
-      bndWritedOff <- L.writeOff d writeAmt bndToWriteOff
+      bndWritedOff <- writeOff d DuePrincipal writeAmt bndToWriteOff
       return $ t {bonds = Map.fromList [(bnd,bndWritedOff)] <> bndMap, ledgers = Just newLedgerM}
 
 performAction d t@TestDeal{bonds=bndMap} (W.WriteOff mlimit bnd)
@@ -1123,7 +1126,7 @@ performAction d t@TestDeal{bonds=bndMap} (W.WriteOff mlimit bnd)
                     x -> Left $ "Date:"++show d ++"not supported type to determine the amount to write off"++ show x
 
       let writeAmtCapped = min (fromRational writeAmt) $ L.bndBalance bndToWriteOff
-      bndWritedOff <- L.writeOff d writeAmtCapped $ bndToWriteOff
+      bndWritedOff <- writeOff d DuePrincipal writeAmtCapped $ bndToWriteOff
       return $ t {bonds = Map.fromList [(bnd,bndWritedOff)] <> bndMap}
 
 performAction d t@TestDeal{bonds=bndMap, ledgers = Just ledgerM} 
@@ -1133,7 +1136,7 @@ performAction d t@TestDeal{bonds=bndMap, ledgers = Just ledgerM}
       let totalBondBal = sum $ L.bndBalance <$> bndsToWriteOff
       -- total amount to be write off
       writeAmt <- applyLimit t d totalBondBal totalBondBal mLimit
-      (bndWrited, _) <- paySeqM d writeAmt L.bndBalance (L.writeOff d) (Right []) bndsToWriteOff 
+      (bndWrited, _) <- paySeqM d writeAmt L.bndBalance (writeOff d DuePrincipal) (Right []) bndsToWriteOff 
       let bndMapUpdated = lstToMapByFn L.bndName bndWrited
       let newLedgerM = Map.adjust (LD.entryLogByDr dr writeAmt d Nothing) lName ledgerM
       return t {bonds = bndMapUpdated <> bndMap, ledgers = Just newLedgerM}
@@ -1144,7 +1147,7 @@ performAction d t@TestDeal{bonds=bndMap } (W.WriteOffBySeq mLimit bnds)
       bondsToWriteOff <- mapM (calcDueInt t d . (bndMap Map.!)) bnds
       let totalBondBal = sum $ L.bndBalance <$> bondsToWriteOff
       writeAmt <- applyLimit t d totalBondBal totalBondBal mLimit
-      (bndWrited, _) <- paySeqM d writeAmt L.bndBalance (L.writeOff d) (Right []) bondsToWriteOff 
+      (bndWrited, _) <- paySeqM d writeAmt L.bndBalance (writeOff d DuePrincipal) (Right []) bondsToWriteOff 
       let bndMapUpdated = lstToMapByFn L.bndName bndWrited
       return t {bonds = bndMapUpdated <> bndMap }
 
@@ -1231,19 +1234,19 @@ performAction d t@TestDeal{accounts=accs, liqProvider = Just _liqProvider} (W.Li
 
 
 -- TODO : add pay fee by sequence
-performAction d t@TestDeal{fees=feeMap,liqProvider = Just _liqProvider} (W.LiqSupport mLimit pName CE.LiqToFee fns)
-  = do 
-      liq <- lookupM pName _liqProvider
-      totalDueFee <- queryCompound t d (CurrentDueFee fns)
-      supportAmt <- applyLimit t d (fromRational totalDueFee) (fromRational totalDueFee) mLimit
-
-      let transferAmt = case CE.liqCredit liq of 
-                          Unlimit -> supportAmt
-                          (ByAvailAmount v) -> min supportAmt v
-
-      let newFeeMap = payInMap d transferAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) fns ByProRata feeMap
-      newLiqMap <- adjustM (draw d transferAmt LiquidationDraw) pName _liqProvider 
-      return $ t { fees = newFeeMap, liqProvider = Just newLiqMap }
+-- performAction d t@TestDeal{fees=feeMap,liqProvider = Just _liqProvider} (W.LiqSupport mLimit pName CE.LiqToFee fns)
+--   = do 
+--       liq <- lookupM pName _liqProvider
+--       totalDueFee <- queryCompound t d (CurrentDueFee fns)
+--       supportAmt <- applyLimit t d (fromRational totalDueFee) (fromRational totalDueFee) mLimit
+-- 
+--       let transferAmt = case CE.liqCredit liq of 
+--                           Unlimit -> supportAmt
+--                           (ByAvailAmount v) -> min supportAmt v
+-- 
+--       let newFeeMap = payInMap d transferAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) fns ByProRata feeMap
+--       newLiqMap <- adjustM (draw d transferAmt LiquidationDraw) pName _liqProvider 
+--       return $ t { fees = newFeeMap, liqProvider = Just newLiqMap }
 
 -- TODO : add pay int by sequence
 -- TODO : may not work for bond group

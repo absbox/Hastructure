@@ -108,10 +108,10 @@ deposit amount d source acc@(Account bal _ _ _ maybeStmt)
       acc {accBalance = newBal , accStmt = appendStmt (AccTxn d newBal amount source) maybeStmt }
 
 instance Drawable Account where 
-  availForDraw d (Account bal _ _ _ _) = bal
+  availForDraw d (Account bal _ _ _ _) = ByAvailAmount bal
   draw d 0 txn acc@(Account bal _ _ _ maybeStmt) = return acc 
   draw d amt txn acc@(Account bal _ _ _ maybeStmt) 
-    | availForDraw d acc >= amt = return $ deposit (- amt) d txn acc  
+    | bal >= amt = return $ deposit (- amt) d txn acc  
     | otherwise = Left  $ "Date:"++ show d ++" Failed to draw "++ show amt ++" from account" ++ accName acc ++ " with balance " ++ show bal
 
 

@@ -338,7 +338,7 @@ prepareDeal er t@TestDeal {bonds = bndMap ,pool = poolType }
         | S.member AssetLevelFlow er = xs
         | otherwise = []
     in 
-      t {bonds = Map.map (L.patchBondFactor . L.consolStmt) bndMap
+      t {bonds = Map.map (L.patchBondFactor . consolStmt) bndMap
          ,pool = poolType & over (_MultiPool . mapped . P.poolFutureCf . _Just ._1) consolePoolFlowFn 
                           & over (_ResecDeal . mapped . uDealFutureCf . _Just) consolePoolFlowFn
                           & over (_MultiPool . mapped . P.poolFutureCf . _Just . _2 . _Just) rmAssetLevelFn 

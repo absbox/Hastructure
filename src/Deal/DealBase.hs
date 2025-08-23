@@ -345,7 +345,7 @@ instance SPV (TestDeal a) where
   getBondStmtByName t bns
     = Map.map L.bndStmt bndsM
       where
-      bndsM = Map.map L.consolStmt $ getBondsByName t bns
+      bndsM = Map.map consolStmt $ getBondsByName t bns
 
   getNextBondPayDate t
     = case populateDealDates (dates t) (status t) of

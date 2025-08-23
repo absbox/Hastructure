@@ -16,7 +16,7 @@ module Util
     ,lookupInMap,selectInMap,scaleByFstElement
     ,lookupTuple6 ,lookupTuple7,diffNum,splitBal,lookupM,lookupVs
     -- for debug
-    ,debugOnDate,paySeqM,splitByLengths,showLength
+    ,debugOnDate,paySeqM,payProM,splitByLengths,showLength
     )
     where
 import qualified Data.Time as T
@@ -357,7 +357,7 @@ lstToMapByFn fn lst =
   in 
     M.fromList $ zip ks lst
 
-paySeqM :: Date -> Amount -> (a->Balance) -> (Amount->a->Either String a) -> Either String [a] -> [a] -> Either String ([a],Amount)
+paySeqM :: Date -> Amount -> (a->Balance) -> (Amount->a->Either ErrorRep a) -> Either ErrorRep [a] -> [a] -> Either ErrorRep ([a],Amount)
 paySeqM d amt getDueAmt payFn paidList []
   = do 
       pList <- paidList 
@@ -374,6 +374,21 @@ paySeqM d amt getDueAmt payFn paidList (l:tobePaidList)
       paidL <- payFn actualPaidOut l
       paidList_ <- paidList
       paySeqM d remainAmt getDueAmt payFn (Right $ paidL:paidList_) tobePaidList
+
+payProM :: Date -> Amount -> (a->Balance) -> (Amount -> a -> Either ErrorRep a) -> [a] -> Either ErrorRep ([a],Amount)
+payProM d amt getDueAmt payFn tobePaidList
+  = let
+      dueAmts = getDueAmt <$> tobePaidList
+      totalDueAmt = sum dueAmts
+      actualPaidOut = min amt totalDueAmt
+      remainAmt = amt - actualPaidOut
+      allocAmt = prorataFactors dueAmts actualPaidOut
+    in
+      do 
+        paidList <- sequenceA [ payFn amt l | (amt,l) <- zip allocAmt tobePaidList ]
+        return (paidList, remainAmt)
+
+
 
 paySequentially :: Date -> Amount -> (a->Balance) -> (Amount->a->a) -> [a] -> [a] -> ([a],Amount)
 paySequentially d amt getDueAmt payFn paidList []

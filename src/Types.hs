@@ -407,7 +407,7 @@ data InvestorAction = Buy
 
 data SupportAvailType = ByAvailAmount Balance 
                       | Unlimit
-                      deriving (Show, Eq, Ord, Read)
+                      deriving (Show, Eq, Ord, Generic, Read)
 
 updateSupportAvailType :: (Balance -> Balance) -> SupportAvailType -> SupportAvailType
 updateSupportAvailType f (ByAvailAmount b) = ByAvailAmount (f b)
@@ -612,10 +612,13 @@ data TxnComment = PayInt [BondName]
                 | TxnComments [TxnComment]
                 deriving (Eq, Show, Ord ,Read, Generic)
 
+type FeeDue = Balance
+type FeeArrears = Balance
+
 -- ^ transaction record in each entity
 data Txn = BondTxn Date Balance Interest Principal IRate Cash DueInt DueIoI (Maybe Float) TxnComment     -- ^ bond transaction record for interest and principal 
          | AccTxn Date Balance Amount TxnComment                                                         -- ^ account transaction record 
-         | ExpTxn Date Balance Amount Balance TxnComment                                                 -- ^ expense transaction record
+         | ExpTxn Date FeeDue Amount FeeArrears TxnComment                                                 -- ^ expense transaction record
          | SupportTxn Date SupportAvailType Balance DueInt DuePremium Cash TxnComment                     -- ^ liquidity provider transaction record
          | IrsTxn Date Balance Amount IRate IRate Balance TxnComment                                     -- ^ interest swap transaction record
          | EntryTxn Date Balance Amount TxnComment                                                       -- ^ ledger book entry
@@ -923,9 +926,9 @@ class Accruable ac where
   -- accrueWithDeal :: Date -> deal -> ac -> ac
 
 class Payable pa where
-  pay :: Date -> DueType -> Balance -> pa -> pa
+  pay :: Date -> DueType -> Balance -> pa -> Either ErrorRep pa
   getDueBal :: Date -> Maybe DueType -> pa -> Balance
-  -- writeOff :: Date -> DueType -> Balance -> pa -> Either ErrorRep pa
+  writeOff :: Date -> DueType -> Amount -> pa -> Either ErrorRep pa
 
 class RateResettable rs where
   getResetDates :: Date -> rs -> [Dates]
@@ -933,7 +936,7 @@ class RateResettable rs where
 
 class Drawable dr where
   draw :: Date -> Balance -> TxnComment -> dr -> Either ErrorRep dr
-  availForDraw :: Date -> dr -> Balance
+  availForDraw :: Date -> dr -> SupportAvailType
 
   -- buildAccrualAction :: ac -> Date -> Date -> [ActionOnDate]
 

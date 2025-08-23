@@ -349,6 +349,7 @@ instance ToSchema (DB.UnderlyingDeal AB.AssetUnion)
 instance ToSchema ResultComponent
 instance ToSchema PriceResult
 instance ToSchema DealType
+instance ToSchema SupportAvailType
 
 -- $(concat <$> traverse (deriveJSON defaultOptions) [''DealType,''RootFindResp])
 $(deriveJSON defaultOptions ''DealType)
