@@ -13,7 +13,7 @@ module Liability
   ,priceBond,pv,InterestInfo(..),RateReset(..)
   ,getDueInt,weightAverageBalance,calcZspread,payYield,getTotalDueInt
   ,buildRateResetDates,isAdjustable,StepUp(..),isStepUp,getDayCountFromInfo
-  ,calcWalBond,patchBondFactor,fundWith,InterestOverInterestType(..)
+  ,calcWalBond,patchBondFactor,InterestOverInterestType(..)
   ,getCurBalance,setBondOrigDate
   ,bndOriginInfoLens,bndIntLens,getBeginRate,_Bond,_BondGroup
   ,totalFundedBalance,getIndexFromInfo,buildStepUpDates
@@ -471,20 +471,6 @@ instance Payable Bond where
 --       Right $ bnd {bndBalance = newBal , bndStmt=newStmt}
 
 -- TODO: should increase the original balance of the bond?
-fundWith :: Date -> Amount -> Bond -> Bond
-fundWith d 0 b = b
-fundWith d amt _bnd = 
-  let 
-    bnd = accrueInt d _bnd
-    dueIoI = getDueIntOverInt bnd
-    dueInt = getDueInt bnd
-    bn = bndName bnd
-    stmt = bndStmt bnd
-    newBal = bndBalance bnd + amt
-    newStmt = S.appendStmt (BondTxn d newBal 0 (negate amt) (getCurRate _bnd) 0 dueInt dueIoI Nothing (S.FundWith bn amt )) stmt 
-  in 
-    bnd {bndBalance = newBal, bndStmt=newStmt } 
-
 instance Drawable Bond where
   draw d amt txn bond 
     | amt == 0 = return bond
@@ -495,9 +481,9 @@ instance Drawable Bond where
                     bn = bndName bond
                     stmt = bndStmt bond
                     newBal = bndBalance bond + amt
-                    newStmt = S.appendStmt (BondTxn d newBal 0 (negate amt) (getCurRate bond) 0 dueInt dueIoI Nothing (S.FundWith bn amt )) stmt 
+                    newStmt = S.appendStmt (BondTxn d newBal 0 (negate amt) (getCurRate bond) 0 dueInt dueIoI Nothing txn) stmt 
                   in 
-                    return $ bnd {bndBalance = newBal, bndStmt=newStmt } 
+                    return $ bond {bndBalance = newBal, bndStmt=newStmt } 
 
 
 -- ^ get interest rate for due interest

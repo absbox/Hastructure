@@ -651,7 +651,7 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
             newAcc = Map.adjust (A.deposit fundAmt d (FundWith bName fundAmt)) accName accMap
           in 
             do
-              let bndFunded = L.fundWith d fundAmt $ bndMap Map.! bName
+              bndFunded <- draw d fundAmt (FundWith bName fundAmt) $ bndMap Map.! bName
               run t{accounts = newAcc, bonds = Map.insert bName bndFunded bndMap}
                   poolFlowMap (Just ads) rates calls rAssump log
 
@@ -665,7 +665,7 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                 False -> run t poolFlowMap (Just ads) rates calls rAssump (DL.snoc log (WarningMsg ("Failed to fund bond"++ bName++ ":" ++show p)))
                 True -> 
                   do
-                    let bndFunded = L.fundWith d fundAmt $ bndMap Map.! bName
+                    bndFunded <- draw d fundAmt (FundWith bName fundAmt) $ bndMap Map.! bName
                     run t{accounts = newAcc, bonds = Map.insert bName bndFunded bndMap}
                         poolFlowMap (Just ads) rates calls rAssump log
           

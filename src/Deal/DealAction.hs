@@ -1102,7 +1102,8 @@ performAction d t@TestDeal{accounts=accMap, bonds=bndMap} (W.FundWith mlimit an 
     let fundAmt = fromRational fundAmt_
     let accMapAfterFund = Map.adjust (A.deposit fundAmt d (FundWith bnd fundAmt)) an accMap
     bndToFund <- lookupM bnd bndMap
-    let bndFunded = L.fundWith d fundAmt bndToFund
+    -- let bndFunded = L.fundWith d fundAmt bndToFund
+    bndFunded <- draw d fundAmt (FundWith bnd fundAmt) bndToFund
     return $ t {accounts = accMapAfterFund, bonds= Map.fromList [(bnd,bndFunded)] <> bndMap } 
 
 -- ^ write off bonds and book 
