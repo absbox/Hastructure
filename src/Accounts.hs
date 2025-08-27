@@ -93,7 +93,7 @@ depositInt ed a@(Account bal _ (Just intType) _ stmt)
     newTxn = AccTxn ed newBal accruedInt BankInt
 
 -- | move cash from account A to account B
-transfer :: (Account,Account) -> Date -> Amount -> Either ErrorRep (Account, Account)
+transfer :: (Account, Account) -> Date -> Amount -> Either ErrorRep (Account, Account)
 transfer (sourceAcc@(Account sBal san _ _ sStmt), targetAcc@(Account tBal tan _ _ tStmt)) d amount
   = do 
       sourceAcc' <- draw d amount (Transfer san tan) sourceAcc

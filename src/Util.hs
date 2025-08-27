@@ -12,7 +12,7 @@ module Util
     ,floorWith,slice,toPeriodRateByInterval, dropLastN, zipBalTs
     ,lastOf,findBox,safeDivide', safeDiv
     ,safeDivide,lstToMapByFn,paySequentially,payProRata,mapWithinMap
-    ,payInMap,adjustM,lookupAndApply,lookupAndUpdate,lookupAndApplies
+    ,payInMap,payInMapM,adjustM,lookupAndApply,lookupAndUpdate,lookupAndApplies
     ,lookupInMap,selectInMap,scaleByFstElement
     ,lookupTuple6 ,lookupTuple7,diffNum,splitBal,lookupM,lookupVs
     -- for debug
@@ -433,6 +433,25 @@ payInMap d amt getDueFn payFn objNames how inputMap
     in 
       (Map.fromList $ zip objNames paidObjs) <> inputMap
 
+payInMapM :: Date -> Balance -> (a->Balance) -> (Balance->a->Either ErrorRep a)-> [String] 
+          -> HowToPay -> Map.Map String a -> Either ErrorRep (Map.Map String a)
+payInMapM d amt getDueFn payFn objNames how inputMap
+  = let 
+      objsToPay = (inputMap Map.!) <$> objNames  
+      dueAmts = getDueFn <$> objsToPay
+      totalDueAmt = sum dueAmts
+      actualPaidOut = min totalDueAmt amt
+      allocatedPayAmt = case how of 
+                          ByProRata -> prorataFactors dueAmts actualPaidOut
+                          BySequential -> paySeqLiabilitiesAmt amt dueAmts
+    in 
+      do 
+        paidObjs <- sequenceA [ payFn amt l | (amt,l) <- zip allocatedPayAmt objsToPay ]
+        return $ (Map.fromList $ zip objNames paidObjs) <> inputMap
+
+
+
+
 mapWithinMap :: Ord k => (a -> a) -> [k] -> Map.Map k a -> Map.Map k a  
 mapWithinMap fn ks m = foldr (Map.adjust fn) m ks
 
@@ -440,38 +459,38 @@ adjustM :: (Ord k, Applicative m) => (a -> m a) -> k -> Map.Map k a -> m (Map.Ma
 adjustM f = Map.alterF (traverse f)
 
 
-lookupM :: (Show k,Ord k) => k -> Map.Map k a -> Either String a
+lookupM :: (Show k,Ord k) => k -> Map.Map k a -> Either ErrorRep a
 lookupM key m =
   case Map.lookup key m of
     Nothing -> Left $ "Key not found: " ++ show key ++ " in map with keys: " ++ show (Map.keys m)
     Just a  -> Right a
 
-lookupVs :: (Show k, Ord k) => [k] -> Map.Map k a -> Either String [a]
+lookupVs :: (Show k, Ord k) => [k] -> Map.Map k a -> Either ErrorRep [a]
 lookupVs keys m = 
   let 
     missingKeys = filter (not . (`Map.member` m)) keys
   in 
     if null missingKeys then 
-      Right $ map (m Map.!) keys
+      return $ map (m Map.!) keys
     else 
       Left $ "Missing keys: " ++ show missingKeys ++ " in map with keys: " ++ show (Map.keys m)
 
 
 -- ^ lookup and apply a function to a single value in a map ,return a value
-lookupAndApply :: Ord k => (a -> b) -> String -> k -> Map.Map k a -> Either String b
+lookupAndApply :: Ord k => (a -> b) -> String -> k -> Map.Map k a -> Either ErrorRep b
 lookupAndApply f errMsg key m =
   case Map.lookup key m of
     Nothing -> Left errMsg
-    Just a  -> Right $ f a
+    Just a  -> return $ f a
 
 -- ^ lookup and apply a function to values in a map ,return a list
-lookupAndApplies :: Ord k => (a -> b) -> String -> [k] -> Map.Map k a -> Either String [b]
+lookupAndApplies :: Ord k => (a -> b) -> String -> [k] -> Map.Map k a -> Either ErrorRep [b]
 lookupAndApplies f errMsg keys m 
   = sequenceA $ (\x -> lookupAndApply f errMsg x m) <$> keys
 
-lookupAndUpdate :: (Show k, Ord k) => (a -> a) -> String -> [k] -> Map.Map k a -> Either String (Map.Map k a) 
+lookupAndUpdate :: (Show k, Ord k) => (a -> a) -> String -> [k] -> Map.Map k a -> Either ErrorRep (Map.Map k a) 
 lookupAndUpdate f errMsg keys m 
-  | S.isSubsetOf inputKs mapKs = Right $ mapWithinMap f keys m
+  | S.isSubsetOf inputKs mapKs = return $ mapWithinMap f keys m
   | otherwise = Left $ errMsg++":Missing keys, valid range "++ show mapKs ++ "But got:" ++ show inputKs
   where 
       inputKs = S.fromList keys
@@ -493,9 +512,12 @@ lookupTuple6 (k1, k2, k3, k4, k5, k6) m
   | any (\k -> Map.notMember k m) [k1, k2, k3, k4, k5, k6] = Left $ "lookupTuple6: Empty key in tuple"++ show (k1, k2, k3, k4, k5, k6) ++ "but map has keys: " ++ (show (Map.keys m))
   | otherwise = return (m Map.! k1, m Map.! k2, m Map.! k3, m Map.! k4, m Map.! k5, m Map.! k6)
 
-lookupTuple7 :: (Ord k) => (k, k, k, k, k, k, k) -> Map.Map k v -> (Maybe v, Maybe v, Maybe v, Maybe v, Maybe v, Maybe v, Maybe v)
-lookupTuple7 (k1, k2, k3, k4, k5, k6, k7) m =
-  ( Map.lookup k1 m , Map.lookup k2 m , Map.lookup k3 m , Map.lookup k4 m , Map.lookup k5 m , Map.lookup k6 m, Map.lookup k7 m)
+lookupTuple7 :: (Ord k, Show k) => (k, k, k, k, k, k, k) -> Map.Map k v -> Either ErrorRep (v, v, v, v, v, v, v)
+lookupTuple7 (k1, k2, k3, k4, k5, k6, k7) m
+  | any (\k -> Map.notMember k m) [k1, k2, k3, k4, k5, k6, k7] 
+    = Left $ "lookupTuple7: Empty key in tuple"++ show (k1, k2, k3, k4, k5, k6, k7) ++ "but map has keys: " ++ (show (Map.keys m))
+  | otherwise = return (m Map.! k1, m Map.! k2, m Map.! k3, m Map.! k4, m Map.! k5, m Map.! k6, m Map.! k7)
+  
 
 
 splitByLengths :: Num a => [a] -> [Int] -> [[a]]

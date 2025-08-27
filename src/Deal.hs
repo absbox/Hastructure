@@ -448,7 +448,7 @@ getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status
     expandInspect sd ed (AP.InspectRpt dp dss) = [ InspectDS _d dss | _d <- genSerialDatesTill2 II sd dp ed ] 
   in 
     do 
-      (startDate,closingDate,firstPayDate,pActionDates,bActionDates,endDate,custWdates) <- populateDealDates dealDates status
+      (startDate,closingDate,firstPayDate,pActionDates,bActionDates,endDate,custWdates) <- populateDealDates dealDates status 
 
       let intEarnDates = A.buildEarnIntAction (Map.elems (accounts t)) endDate []
       let intAccRateResetDates = (A.buildRateResetDates endDate) <$> (Map.elems (accounts t))
@@ -563,23 +563,23 @@ getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status
                               -> [StopRunTest d pres | d <- genSerialDatesTill2 EI startDate dp endDate]
                             _ -> []
       let allActionDates = let 
-                         __actionDates = let 
-                                          a = concat [bActionDates,pActionDates,custWdates,iAccIntDates,makeWholeDate
-                                                     ,feeAccrueDates,liqResetDates,mannualTrigger,concat rateCapSettleDates
-                                                     ,concat irUpdateSwapDates, concat irSettleSwapDates ,inspectDates, bndRateResets,financialRptDates, stopTestDates
-                                                     ,bondIssuePlan,bondRefiPlan,callDates, iAccRateResetDates 
-                                                     ,bndStepUpDates] 
-                                        in
-                                          case (dealDates, status) of 
-                                            (PreClosingDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
-                                            (GenericDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
-                                            (AccruedGenericDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
-                                            _ -> sortBy sortActionOnDate a
-                         _actionDates = __actionDates++[HitStatedMaturity endDate]
-                       in 
-                         case mNonPerfAssump of
-                           Just AP.NonPerfAssumption{AP.stopRunBy = Just (AP.StopByDate d)} -> cutBy Exc Past d __actionDates ++ [StopRunFlag d]
-                           _ -> _actionDates  
+                             __actionDates = let 
+                                              a = concat [bActionDates,pActionDates,custWdates,iAccIntDates,makeWholeDate
+                                                         ,feeAccrueDates,liqResetDates,mannualTrigger,concat rateCapSettleDates
+                                                         ,concat irUpdateSwapDates, concat irSettleSwapDates ,inspectDates, bndRateResets,financialRptDates, stopTestDates
+                                                         ,bondIssuePlan,bondRefiPlan,callDates, iAccRateResetDates 
+                                                         ,bndStepUpDates] 
+                                            in
+                                              case (dealDates, status) of 
+                                                (PreClosingDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
+                                                (GenericDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
+                                                (AccruedGenericDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
+                                                _ -> sortBy sortActionOnDate a
+                             _actionDates = __actionDates++[HitStatedMaturity endDate]
+                           in 
+                             case mNonPerfAssump of
+                               Just AP.NonPerfAssumption{AP.stopRunBy = Just (AP.StopByDate d)} -> cutBy Exc Past d __actionDates ++ [StopRunFlag d]
+                               _ -> _actionDates  
      
       let newFeeMap = case mNonPerfAssump of
                         Nothing -> feeMap

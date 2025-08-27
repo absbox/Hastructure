@@ -116,14 +116,14 @@ pricingTests = testGroup "Pricing Tests"
       pday = L.toDate "20220801"
     in
       testCase "pay prin to a bond" $
-      assertEqual "pay down prin" 2400  $ B.bndBalance (B.payPrin pday 600 b4)
+      assertEqual "pay down prin" (Right 2400)  $ B.bndBalance <$> (pay pday DuePrincipal 600 b4)
     ,
     let
       b5 = b1
       pday = L.toDate "20220801"
     in
       testCase "pay int to 2 bonds" $
-      assertEqual "pay int" 2400  $ B.bndBalance (B.payPrin pday 600 b5)
+      assertEqual "pay int" (Right 2400)  $ B.bndBalance <$> (pay pday DuePrincipal 600 b5)
     ,
     let 
       newCfStmt = Just $ S.Statement (DL.fromList [ BondTxn (L.toDate "20220501") 1500 300 2800 0.08 3100 0 0 Nothing S.Empty]) 

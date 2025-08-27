@@ -226,22 +226,22 @@ populateDealDates (CurrentDates (lastCollect,lastPay) mRevolving end (nextCollec
 
 populateDealDates (GenericDates m) st 
   = let 
-      requiredFields (PreClosing _) = (CutoffDate, ClosingDate, FirstPayDate, StatedMaturityDate , DistributionDates, CollectionDates) 
-      requiredFields _  = (LastCollectDate, LastPayDate, NextPayDate, StatedMaturityDate, DistributionDates, CollectionDates) 
+      requiredFields (PreClosing _) = (CutoffDate, ClosingDate, FirstPayDate, ClosingDate, StatedMaturityDate , DistributionDates, CollectionDates) 
+      requiredFields _  = (LastCollectDate, LastPayDate, NextPayDate, NextCollectDate, StatedMaturityDate, DistributionDates, CollectionDates) 
       isCustomWaterfallKey (CustomExeDates _) _ = True
       isCustomWaterfallKey _ _ = False
       custWaterfall = Map.toList $ Map.filterWithKey isCustomWaterfallKey m
     in 
       do 
-        vals <- lookupTuple6 (requiredFields st) m
+        vals <- lookupTuple7 (requiredFields st) m
         case vals of
-          (SingletonDate lastCollect, SingletonDate lastPayDate, SingletonDate nextPayDate , SingletonDate statedDate, bondDp, poolDp)
+          (SingletonDate lastCollect, SingletonDate lastPayDate, SingletonDate nextPayDate, SingletonDate nextCollectDate , SingletonDate statedDate, bondDp, poolDp)
             -> let 
-                  pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 EE lastCollect poolDp statedDate ]
+                  pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 IE nextCollectDate poolDp statedDate ]
                   ba = [ RunWaterfall _d "" | _d <- genSerialDatesTill2 IE nextPayDate bondDp statedDate ]
                   cu = [ RunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall, _d <- genSerialDatesTill2 EE lastCollect custDp statedDate ]
                 in 
-                  return (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu)
+                  return (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu) 
           _ 
             -> Left $ "Missing required dates in GenericDates in deal status" ++ (show st) ++ "but got"
 
@@ -350,7 +350,7 @@ instance SPV (TestDeal a) where
   getNextBondPayDate t
     = case populateDealDates (dates t) (status t) of
         Right _dates -> view _3 _dates 
-        Left _ -> error "Failed to populate dates"
+        Left err -> error $ "Failed to populate dates" ++ show err
 
   getBondBegBal t bn 
     = case b of 

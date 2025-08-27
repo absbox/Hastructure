@@ -72,6 +72,7 @@ import Data.Aeson.GADT.TH
 import Data.Ratio (Ratio, numerator, denominator)
 import Data.Text (pack)
 import Control.DeepSeq (NFData,rnf)
+import Control.Monad (foldM)
 
 import Data.Scientific (fromRationalRepetend,formatScientific, Scientific,FPFormat(Fixed))
 
@@ -911,11 +912,11 @@ class Liable lb where
 
 
 data DueType = DueInterest (Maybe Int) -- ^ interest due
-             | DuePrincipal            -- ^ principal due
-             | DueFee                  -- ^ fee due
-             | DueResidual             -- ^ residual 
-             | DueArrears              -- ^ something that is not paid in the past
-             | DueTotalOf [DueType]    -- ^ a combination of above with sequence
+             | DuePrincipal              -- ^ principal due
+             | DueFee                    -- ^ fee due
+             | DueResidual               -- ^ residual 
+             | DueArrears                -- ^ something that is not paid in the past
+             | DueTotalOf [DueType]      -- ^ a combination of above with sequence
              deriving (Show, Eq, Generic)
 
 
@@ -927,6 +928,20 @@ class Accruable ac where
 
 class Payable pa where
   pay :: Date -> DueType -> Balance -> pa -> Either ErrorRep pa
+  -- pay d (DueTotalOf []) amt pa = return  pa
+  -- pay d (DueTotalOf dts) amt pa 
+  --   = fst <$>
+  --       foldM 
+  --         (\(pa', amt') dt -> 
+  --             do 
+  --               let dueAmt = getDueBal d (Just dt) pa'
+  --               let paidOut = min amt' dueAmt
+  --               pa'' <- pay d dt amt' pa'
+  --               return (pa'', amt' - paidOut)
+  --               ) 
+  --         (pa, amt)
+  --         dts
+
   getDueBal :: Date -> Maybe DueType -> pa -> Balance
   writeOff :: Date -> DueType -> Amount -> pa -> Either ErrorRep pa
 

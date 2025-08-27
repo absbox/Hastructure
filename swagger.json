@@ -11240,8 +11240,7 @@
                         "type": "number"
                     },
                     "liqCredit": {
-                        "multipleOf": 1.0e-2,
-                        "type": "number"
+                        "$ref": "#/components/schemas/SupportAvailType"
                     },
                     "liqCreditCalc": {
                         "$ref": "#/components/schemas/LiqCreditCalc"
@@ -11291,6 +11290,7 @@
                     "liqName",
                     "liqType",
                     "liqBalance",
+                    "liqCredit",
                     "liqDueInt",
                     "liqDuePremium",
                     "liqStart"
@@ -17511,6 +17511,45 @@
                     }
                 ]
             },
+            "SupportAvailType": {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "contents": {
+                                "multipleOf": 1.0e-2,
+                                "type": "number"
+                            },
+                            "tag": {
+                                "enum": [
+                                    "ByAvailAmount"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "tag",
+                            "contents"
+                        ],
+                        "title": "ByAvailAmount",
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "tag": {
+                                "enum": [
+                                    "Unlimit"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "tag"
+                        ],
+                        "title": "Unlimit",
+                        "type": "object"
+                    }
+                ]
+            },
             "Table_(Fixed_*_E2)_(Fixed_*_E2)": {
                 "items": {
                     "items": [
@@ -20172,8 +20211,7 @@
                                         "$ref": "#/components/schemas/Day"
                                     },
                                     {
-                                        "multipleOf": 1.0e-2,
-                                        "type": "number"
+                                        "$ref": "#/components/schemas/SupportAvailType"
                                     },
                                     {
                                         "multipleOf": 1.0e-2,
