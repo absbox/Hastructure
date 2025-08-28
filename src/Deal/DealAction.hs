@@ -185,8 +185,11 @@ calcDueFee t@TestDeal{ pool = pool } calcDay f@(F.Fee fn (F.ByCollectPeriod amt)
                       Just lastFeeDueDay -> subDates EI lastFeeDueDay calcDay txnsDates
       dueAmt = fromRational $ mulBInt amt (length pastPeriods)
 
-calcDueFee t calcDay f@(F.Fee fn (F.AmtByTbl _ ds tbl) fs fd fdday fa lpd _)
-  = do
+calcDueFee t calcDay f@(F.Fee fn (F.AmtByTbl _ ds tbl) fs fd Nothing fa lpd _)
+  = calcDueFee t calcDay f {F.feeDueDate = Just fs }
+calcDueFee t calcDay f@(F.Fee fn (F.AmtByTbl _ ds tbl) fs fd (Just fdday) fa lpd _)
+  | fdday == calcDay = return f
+  | otherwise = do
       lookupVal <- queryCompound t calcDay (patchDateToStats calcDay ds)
       let dueAmt = fromMaybe 0.0 $ lookupTable tbl Up ( fromRational lookupVal >=)
       return f {F.feeDue = dueAmt + fd, F.feeDueDate = Just calcDay}
@@ -237,12 +240,12 @@ calcDueInt t d b@(L.BondGroup bMap pt)
 
 -- first time to accrue interest\
 -- use default date to start to accrue
-calcDueInt t@TestDeal{ status = st} d b@(L.Bond _ bt oi io _ bal r dp _ di Nothing _ _ _ ) 
+calcDueInt t@TestDeal{ status = st, dates = dealDates} d b@(L.Bond bn bt oi io _ bal r dp _ di Nothing _ _ _ ) 
   | bal+di == 0 && (bt /= L.IO) = return b
   | otherwise = 
         do 
-          sd <- getClosingDate (dates t)
-          b' <- calcDueInt t d (b {L.bndDueIntDate = Just sd })  -- `debug` ("hit")
+          sd <- getClosingDate dealDates
+          b' <- calcDueInt t d (b {L.bndDueIntDate = Just sd }) 
           return b'
 
 -- Interest Only Bond with Reference Balance
@@ -278,11 +281,9 @@ calcDueInt t d b@(L.Bond bn bt bo (L.WithIoI intInfo ioiIntInfo) _ bond_bal bond
 
 -- TODO: to enable override rate & balance
 -- accure interest by rate
-calcDueInt t d b@(L.MultiIntBond {}) 
-  = return $ L.accrueInt d b
+calcDueInt t d b@(L.MultiIntBond {}) = return $ L.accrueInt d b
 
-calcDueInt t d b@(L.Bond {})
-  = return $ L.accrueInt d b
+calcDueInt t d b@(L.Bond {}) = return $ L.accrueInt d b
 
 
 -- ^ modify due principal for bond
@@ -789,8 +790,7 @@ performAction d t@TestDeal{fees=feeMap, accounts=accMap} (W.PayFee mLimit an fns
     feesToPay <- lookupVs fns feeMap
     let totalFeeDue = sum $ map F.feeDue feesToPay
     paidOutAmt <- calcAvailAfterLimit t d acc mSupport totalFeeDue mLimit
-    -- let (feesPaid, remainAmt) = payProRata d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) feesToPay
-    (feesPaid, remainAmt) <- payProM d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) feesToPay
+    (feesPaid, remainAmt) <- payProM d paidOutAmt F.feeDue (pay d (DueTotalOf [DueArrears,DueFee])) feesToPay `debug` ("pay fee"++ show d ++ show paidOutAmt ++ show fns)
     let accPaidOut = min (A.accBalance acc) paidOutAmt
     newAccMap <- adjustM (A.draw d accPaidOut (SeqPayFee fns)) an accMap 
     let dealAfterAcc = t {accounts = newAccMap

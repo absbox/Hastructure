@@ -355,9 +355,10 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
         q2 <- queryCompound t d (ReserveBalance ans)
         return $ max 0 (q2 - q1)
 
-    CurrentBondBalance -> Right . toRational $ Map.foldr (\x acc -> getCurBalance x + acc) 0.0 bndMap
+    -- CurrentBondBalance -> Right . toRational $ Map.foldr (\x acc -> getCurBalance x + acc) 0.0 bndMap
+    CurrentBondBalance -> return $ sum $ toRational . getCurBalance <$> Map.elems bndMap
     
-    OriginalBondBalance -> Right . toRational $ Map.foldr (\x acc -> getOriginBalance x + acc) 0.0 bndMap
+    OriginalBondBalance -> return $ sum $ toRational . getOriginBalance <$> Map.elems bndMap
     
     BondDuePrin bnds -> Right . toRational $ sum $ L.bndDuePrin <$> viewDealBondsByNames t bnds
     

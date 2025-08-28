@@ -550,17 +550,17 @@ instance Payable Bond where
 -- TODO: should increase the original balance of the bond?
 instance Drawable Bond where
   draw d amt txn bond 
+    | amt < 0 = Left $ "Cannot draw negative amount "++ show amt ++ " from bond "++ show (bndName bond)
     | amt == 0 = return bond
     | otherwise = let 
-                    bnd = accrueInt d bond
-                    dueIoI = getDueIntOverInt bond
-                    dueInt = getDueInt bond
-                    bn = bndName bond
-                    stmt = bndStmt bond
-                    newBal = bndBalance bond + amt
-                    newStmt = S.appendStmt (BondTxn d newBal 0 (negate amt) (getCurRate bond) 0 dueInt dueIoI Nothing txn) stmt 
+                    bond' = accrueInt d bond
+                    dueIoI = getDueIntOverInt bond'
+                    dueInt = getDueInt bond'
+                    stmt = bndStmt bond'
+                    newBal = bndBalance bond' + amt
+                    newStmt = S.appendStmt (BondTxn d newBal 0 (negate amt) (getCurRate bond') 0 dueInt dueIoI Nothing txn) stmt 
                   in 
-                    return $ bond {bndBalance = newBal, bndStmt=newStmt } 
+                    return $ bond' {bndBalance = newBal, bndStmt=newStmt } 
 
   availForDraw d bond = Unlimit
 
@@ -579,11 +579,11 @@ accrueInt :: Date -> Bond -> Bond
 accrueInt d b@Bond{bndInterestInfo = ii,bndDueIntDate = mDueIntDate, bndDueInt= dueInt
                   , bndDueIntOverInt = dueIoI, bndRate = r, bndBalance = bal} 
   | d == beginDate = b
+  | d < beginDate = b
   | otherwise = let 
                   dc = (fromMaybe DC_ACT_365F) (getDayCountFromInfo ii)
                   r2 = getIoI ii r
                   period = yearCountFraction dc beginDate d
-                  -- newDue = mulBR bal $ toRational r * period 
                   newDue = IR.calcInt bal beginDate d r dc
                   newIoiDue = mulBR dueInt (toRational r2 * period)
                 in 
@@ -739,7 +739,7 @@ tryCalcZspread tradePrice originBalance priceDay futureCfs riskFreeCurve spread
       fromRational (faceVal - tradePrice)
 
 
-calcZspread :: (Rational,Date) -> Bond -> Ts -> Either String Spread
+calcZspread :: (Rational,Date) -> Bond -> Ts -> Either ErrorRep Spread
 calcZspread _ b@Bond{bndStmt = Nothing} _ = Left "No Cashflow for bond"
 calcZspread _ b@MultiIntBond{bndStmt = Nothing} _ = Left "No Cashflow for bond"
 calcZspread (tradePrice,priceDay) b riskFreeCurve =
@@ -754,7 +754,7 @@ calcZspread (tradePrice,priceDay) b riskFreeCurve =
       def = RiddersParam { riddersMaxIter = itertimes, riddersTol = RelTol 0.00001 }
     in
       case ridders def (0.0001,100) (tryCalcZspread tradePrice oBalance priceDay (zip ds cashflow) riskFreeCurve) of
-        Root r -> Right (fromRational (toRational r))
+        Root r -> return (fromRational (toRational r))
         _ -> Left $ "Failed to find Z spread with "++ show itertimes ++ " times try"
 
 -- ^ get total funded balance (from transaction) of a bond
@@ -767,7 +767,7 @@ totalFundedBalance b
       isFundingTxn _ = False
       fundingTxns = S.filterTxn isFundingTxn txns
     in 
-      sum $ (\(BondTxn d b i p r0 c di dioi f t) -> abs p) <$> fundingTxns
+      sum $ (\(BondTxn _ _ _ p _ _ _ _ _ _) -> abs p) <$> fundingTxns
 
 buildRateResetDates :: Bond -> StartDate -> EndDate -> [Date]
 buildRateResetDates (BondGroup bMap _) sd ed  =  concat $ (\x -> buildRateResetDates x sd ed) <$> Map.elems bMap

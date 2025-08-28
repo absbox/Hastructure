@@ -305,18 +305,20 @@ appendCollectedCF d t@TestDeal { pool = ResecDeal uds } poolInflowMap
 accrueDeal :: Ast.Asset a => Date -> [RateAssumption] -> TestDeal a -> Either ErrorRep (TestDeal a)
 accrueDeal d ras t@TestDeal{fees = feeMap, bonds = bondMap, liqProvider = liqMap
                             , rateSwap = rsMap, rateCap = rcMap, accounts = accMap}
-  = do
-      feeMap' <- sequenceA (over mapped (calcDueFee t d) feeMap)
-      let bondMap' = (Map.map (L.accrueInt d) bondMap)
-      let liqMap' = (Map.map (CE.accrueLiqProvider d)) <$> liqMap
-      let rsMap' = (Map.map (HE.accrueIRS d)) <$> rsMap
-      rcMap' <- traverse (Map.traverseWithKey (\_ -> accrueRC t d ras)) rcMap
-      return t { fees = feeMap' ,
-                 bonds = bondMap',
-                 liqProvider = liqMap',
-                 rateSwap = rsMap',
-                 rateCap = rcMap'
-                 }
+  = let
+      liqMap' = (Map.map (CE.accrueLiqProvider d)) <$> liqMap
+      rsMap' = (Map.map (HE.accrueIRS d)) <$> rsMap
+    in 
+      do
+        bondMap' <- sequenceA (Map.map (calcDueInt t d) bondMap) 
+        feeMap' <- sequenceA (over mapped (calcDueFee t d) feeMap)
+        rcMap' <- traverse (Map.traverseWithKey (\_ -> accrueRC t d ras)) rcMap
+        return t { fees = feeMap' ,
+                   bonds = bondMap',
+                   liqProvider = liqMap',
+                   rateSwap = rsMap',
+                   rateCap = rcMap'
+                   }
 
 
 run :: Ast.Asset a => TestDeal a -> Map.Map PoolId CF.PoolCashflow -> Maybe [ActionOnDate] -> Maybe [RateAssumption] -> Maybe ([Pre],[Pre])

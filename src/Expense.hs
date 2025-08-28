@@ -79,20 +79,10 @@ instance Payable Fee where
         in 
           return $ f {feeLastPaidDay = Just d ,feeArrears = arrearRemain ,feeStmt = newStmt}
 
-  pay d (DueTotalOf [DueArrears,DueFee]) amt f@(Fee fn ft fs fd fdDay fa flpd fstmt) 
-    | amt > fa + fd = Left $ "Payment amount is greater than total due amount of fee:" ++ fn
-    | otherwise = 
-    let 
-      [(r0,arrearRemain),(r1,dueRemain)] = paySeqLiabilities amt [fa,fd]
-      paid = (fa + fd) - amt
-      newStmt = appendStmt (ExpTxn d dueRemain paid arrearRemain (PayFee fn)) fstmt
-    in 
-      return $ f {feeLastPaidDay = Just d ,feeDue = dueRemain ,feeArrears = arrearRemain ,feeStmt = newStmt}
 
   pay d (DueTotalOf []) amt f = return f 
-
   pay d (DueTotalOf (dt:dts)) amt f 
-    = pay d (DueTotalOf dts) remainAmt =<< pay d dt amt f
+    = pay d (DueTotalOf dts) remainAmt =<< pay d dt amtToPay f
       where 
         dueBal = getDueBal d (Just dt) f
         (amtToPay, remainAmt) = (min dueBal amt, amt - min dueBal amt)

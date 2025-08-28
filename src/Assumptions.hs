@@ -274,11 +274,11 @@ data IrrType = HoldingBond HistoryCash CurrentHolding (Maybe (Date, BondPricingM
 
 data BondPricingInput = DiscountCurve PricingDate Ts                               
                       -- ^ PV curve used to discount bond cashflow and a PV date where cashflow discounted to 
-                      | RunZSpread Ts (Map.Map BondName (Date,Rational))    
+                      | RunZSpread Ts (Map.Map BondName (PricingDate,Rational))    
                       -- ^ PV curve as well as bond trading price with a deal used to calc Z - spread
                       | DiscountRate PricingDate Rate
                       -- | OASInput Date BondName Balance [Spread] (Map.Map String Ts)                        -- ^ only works in multiple assumption request 
-                      | IrrInput  (Map.Map BondName IrrType)        
+                      | IrrInput (Map.Map BondName IrrType)        
                       -- ^ IRR calculation for a list of bonds
                       deriving (Show,Generic)
 

@@ -25,7 +25,7 @@ module Types
   ,PerPoint(..),PerCurve(..),getValFromPerCurve
   ,Period(..), Threshold(..)
   ,RangeType(..),CutoffType(..),DealStatus(..)
-  ,Balance,Index(..)
+  ,Balance,Index(..),AccrueAmt
   ,Cmp(..),TimeHorizion(..)
   ,Date,Dates,TimeSeries(..),IRate,Amount,Rate,StartDate,EndDate,Lag
   ,Spread,Floor,Cap,Interest,Principal,Cash,Default,Loss,Rental,PrepaymentPenalty
@@ -82,15 +82,8 @@ import Data.Aeson.Types
 import Data.Fixed hiding (Ratio)
 import Data.Decimal
 import Data.Ix
-
-
 import Data.List (intercalate, findIndex, find)
--- import Cashflow (CashFlowFrame)
-
--- import Web.Hyperbole hiding (All,Fixed)
-
 import Debug.Trace
--- import qualified Cashflow as CF
 debug = flip trace
 
 
@@ -115,7 +108,6 @@ type Balance = Centi
 type Amount = Balance
 type Principal = Balance
 type Valuation = Balance
-
 type Interest = Balance
 type Default = Balance
 type Loss = Balance
@@ -132,12 +124,14 @@ type CumLoss = Balance
 type CumRecovery = Balance
 type AccruedInterest = Balance
 
-type PerFace = Micro
 type WAL = Balance
+
+type PerFace = Micro
 type Duration = Micro
 type Convexity = Micro
 type Yield = Micro
 type IRR = Micro
+type AccrueAmt = Micro
 
 type Rate = Rational  -- general Rate like pool factor
 type PrepaymentRate = Rate
@@ -928,20 +922,6 @@ class Accruable ac where
 
 class Payable pa where
   pay :: Date -> DueType -> Balance -> pa -> Either ErrorRep pa
-  -- pay d (DueTotalOf []) amt pa = return  pa
-  -- pay d (DueTotalOf dts) amt pa 
-  --   = fst <$>
-  --       foldM 
-  --         (\(pa', amt') dt -> 
-  --             do 
-  --               let dueAmt = getDueBal d (Just dt) pa'
-  --               let paidOut = min amt' dueAmt
-  --               pa'' <- pay d dt amt' pa'
-  --               return (pa'', amt' - paidOut)
-  --               ) 
-  --         (pa, amt)
-  --         dts
-
   getDueBal :: Date -> Maybe DueType -> pa -> Balance
   writeOff :: Date -> DueType -> Amount -> pa -> Either ErrorRep pa
 
@@ -958,6 +938,12 @@ class Drawable dr where
 -- class Resettable rs where 
 --   reset :: Date -> rs -> rs
 --   buildResetAction :: rs -> Date -> Date -> [Txn]
+
+class Collectable cl where 
+  collect :: Date -> cl -> Either ErrorRep cl
+  availForCollect :: Date -> cl -> Either ErrorRep Balance
+
+
 
 lookupTable :: Ord a => Table a b -> Direction -> (a -> Bool) -> Maybe b
 lookupTable (ThresholdTable rows) direction lkUpFunc

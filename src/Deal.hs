@@ -248,16 +248,12 @@ priceBonds t@TestDeal {bonds = bndMap} (AP.RunZSpread curve bondPrices)
 -- TODO fix if bond name not found
 priceBonds t@TestDeal {bonds = bndMap} (AP.IrrInput bMapInput) 
   = let
-      -- Date 
-      d = getNextBondPayDate t
-      -- get projected bond txn
-      projectedTxns xs = snd $ splitByDate xs d EqToRight 
       -- (Maybe Bond,IrrType)
       bndMap' = Map.mapWithKey (\k v -> (getBondByName t True k, v)) bMapInput
       -- (Rate, [(date, cash)])
       bndMap'' = Map.map (\(Just b, v) -> 
                               do 
-                                let _irrTxns = projectedTxns (getAllTxns b)
+                                let _irrTxns = getAllTxns b
                                 (_irr, flows) <- priceBondIrr v _irrTxns
                                 return (IrrResult (fromRational _irr) flows))
                          bndMap'

@@ -350,7 +350,7 @@ instance SPV (TestDeal a) where
   getNextBondPayDate t
     = case populateDealDates (dates t) (status t) of
         Right _dates -> view _3 _dates 
-        Left err -> error $ "Failed to populate dates" ++ show err
+        Left err -> error $ "failed to get next bond pay date: Failed to populate dates" ++ show err
 
   getBondBegBal t bn 
     = case b of 
@@ -417,13 +417,13 @@ viewBondsInMap t@TestDeal{ bonds = bndMap }
       Map.fromList $ zip bndNames bnds
 
 -- ^ support bond group
+-- TODO: it shall raise error if bond name not found
 viewDealBondsByNames :: Ast.Asset a => TestDeal a -> [BondName] -> [L.Bond]
 viewDealBondsByNames _ [] = []
 viewDealBondsByNames t@TestDeal{bonds= bndMap } bndNames
   = let 
       -- bonds and bond groups
       bnds = filter (\b -> L.bndName b `elem` bndNames) $ viewDealAllBonds t
-      -- bndsFromGrp = $ Map.filter (\L.BondGroup {} -> True)  bndMap
       bndsFromGrp = Map.foldrWithKey
                       (\k (L.BondGroup bMap _) acc -> 
                         if k `elem` bndNames 

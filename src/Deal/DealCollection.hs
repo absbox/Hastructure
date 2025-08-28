@@ -31,7 +31,7 @@ data CollectionRule = Collect (Maybe [PoolId]) PoolSource AccountName           
                     deriving (Show,Generic,Eq,Ord)
 
 
-readProceeds :: PoolSource -> CF.TsRow -> Either String Balance
+readProceeds :: PoolSource -> CF.TsRow -> Either ErrorRep Balance
 readProceeds CollectedInterest x = return $ CF.mflowInterest x
 readProceeds CollectedPrincipal x = return $ CF.mflowPrincipal x
 readProceeds CollectedRecoveries x = return $ CF.mflowRecovery x

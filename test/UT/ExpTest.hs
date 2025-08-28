@@ -1,4 +1,4 @@
-module UT.ExpTest(expTests)
+module UT.ExpTest(expTests,expPayTest)
 where
 
 import Test.Tasty
@@ -8,6 +8,8 @@ import qualified Data.Time as T
 import qualified Lib as L
 import qualified Asset as P
 import qualified Deal as D
+import qualified Data.DList as DL
+import qualified Stmt as S
 import qualified Deal.DealAction as DA
 import qualified UT.DealTest as DT
 import Expense
@@ -58,18 +60,54 @@ expTests =  testGroup "Expense Tests"
 
   ]
 
---cnVatFeeTest = 
---  let 
---    vatFeeInt = Fee "VatFee" 
---                  (PctFee (PoolCollectionIncome CollectedInterest) 0.0325) 
---                  (L.toDate "20220101") 0 Nothing 0 Nothing Nothing
---    poolFlows = CashFlowFrame $ [MortgageFlow (toDate "20220101") 100 20 15 0 0 0 0 0.01
---                                 ,MortgageFlow (toDate "20220101") 100 20 15 0 0 0 0 0.01
---                                 ]
---  in 
---    testGroup "China VAT fee test" $
---    [
---
---
---    ]
-   
+expPayTest = 
+  let
+    f1 = Fee "FeeName1" (FixFee 100) (L.toDate "20220101") 100 Nothing 0 Nothing Nothing
+    payDate = (L.toDate "20220201")
+    f1' = pay payDate DueFee 30 f1
+
+    f2 = Fee "FeeName2" (FixFee 100) (L.toDate "20220101") 100 Nothing 20 Nothing Nothing
+    f2' = pay payDate DueArrears 10 f2
+
+    f3 = pay payDate (DueTotalOf [DueArrears,DueFee]) 15 f2
+    f3' = pay payDate (DueTotalOf [DueArrears,DueFee]) 25 f2
+    f3'' = pay payDate (DueTotalOf [DueFee, DueArrears]) 80 f2
+    f3''' = pay payDate (DueTotalOf [DueFee, DueArrears]) 110 f2
+  in
+    testGroup "Expense Pay Test"
+    [
+      testCase "pay fee remain due" $
+      assertEqual "test date"
+        ((Right 70.0),Right (Just payDate))
+        ((feeDue <$> f1'),(feeLastPaidDay <$> f1'))
+     ,testCase "pay txn" $
+      assertEqual "test date"
+        (Right [ExpTxn payDate 70.0 30.0 00.0 (PayFee "FeeName1")])
+        ( (DL.toList . S.getTxns) <$> (feeStmt <$> f1'))
+     ,testCase "pay arrears remain arrears" $
+      assertEqual "test date"
+        ((Right 10.0),Right (Just payDate))
+        ((feeArrears <$> f2'),(feeLastPaidDay <$> f2'))
+     ,testCase "pay arrears txn" $
+      assertEqual "test date"
+        (Right [ExpTxn payDate 100.0 10.0 10.0 (PayFee "FeeName2")])
+        ((DL.toList . S.getTxns) <$> (feeStmt <$> f2'))
+
+     ,testCase "pay multiple due" $
+        assertEqual ""
+        (Right 100, Right 5) 
+        ((getDueBal epocDate (Just DueFee)) <$> f3, (getDueBal epocDate (Just DueArrears)) <$> f3 )
+     ,testCase "pay multiple due" $
+        assertEqual ""
+        (Right 95, Right 0) 
+        ((getDueBal epocDate (Just DueFee)) <$> f3', (getDueBal epocDate (Just DueArrears) <$> f3') )
+     ,testCase "pay multiple due" $
+        assertEqual ""
+        (Right 20, Right 20) 
+        ((getDueBal epocDate (Just DueFee)) <$> f3'', (getDueBal epocDate (Just DueArrears)) <$> f3'' )
+     ,testCase "pay multiple due" $
+        assertEqual ""
+        (Right 0, Right 10) 
+        ((getDueBal epocDate (Just DueFee)) <$> f3''', (getDueBal epocDate (Just DueArrears)) <$> f3''' )
+
+    ]

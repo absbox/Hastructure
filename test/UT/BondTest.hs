@@ -1,4 +1,4 @@
-module UT.BondTest(pricingTests,bndConsolTest,writeOffTest)
+module UT.BondTest(pricingTests,bndConsolTest,writeOffTest,accrueTest)
 where
 
 import Test.Tasty
@@ -234,3 +234,23 @@ writeOffTest =
     (Left "Cannot write off principal 120.00 which is greater than bond balance 100.00 bond name \"A\"")
     (writeOff d1 DuePrincipal writeAmt2 bnd1)
   ]
+
+accrueTest = 
+   testGroup "accrued int" [
+     testCase "accrue int on bond" $
+       assertEqual "accrue int on bond" 
+       (fromRational (3000 * 0.08 * (90 % 365)))
+       (B.bndDueInt (B.accrueInt (L.toDate "20210401") b1))
+     ,testCase "multiple times"  $
+       assertEqual "accrue int on bond multiple times"
+       (B.accrueInt (L.toDate "20210401") b1)
+       (B.accrueInt (L.toDate "20210401") (B.accrueInt (L.toDate "20210401") b1))
+     -- ,testCase "multiple times on diff dates"  $
+     --   assertEqual "accrue int on bond multiple times on diff dates"
+     --   (B.bndDueInt (B.accrueInt (L.toDate "20210103") b1))
+     --   (B.bndDueInt (B.accrueInt (L.toDate "20210103") (B.accrueInt (L.toDate "20210102") b1)))
+    ]
+
+
+
+
