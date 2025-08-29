@@ -334,6 +334,9 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
         (_,_,_,m) -> case Map.lookup s m of
                       Just v -> Right . toRational $ v
                       Nothing -> Left $ "Date:"++show d++"Failed to query int deal stat of -> "++ show s ++" in map"++ show m
+    ActiveBondNum -> Right . toRational $ length $ filter (not . L.isPaidOff) $ (viewDealAllBonds t)
+
+    -- balance query
 
 
     ReserveBalance ans -> 
@@ -357,7 +360,6 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
 
     -- CurrentBondBalance -> Right . toRational $ Map.foldr (\x acc -> getCurBalance x + acc) 0.0 bndMap
     CurrentBondBalance -> return $ sum $ toRational . getCurBalance <$> Map.elems bndMap
-    
     OriginalBondBalance -> return $ sum $ toRational . getOriginBalance <$> Map.elems bndMap
     
     BondDuePrin bnds -> Right . toRational $ sum $ L.bndDuePrin <$> viewDealBondsByNames t bnds

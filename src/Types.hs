@@ -711,6 +711,7 @@ data DealStats = CurrentBondBalance
                | ProjCollectPeriodNum
                | MonthsTillMaturity BondName
                | DealStatInt DealStatFields
+               | ActiveBondNum
                -- boolean type
                | TestRate DealStats Cmp Micro
                | TestAny Bool [DealStats]

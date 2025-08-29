@@ -3,7 +3,7 @@
 
 test:
     echo "Running Tests"
-    cabal test
+    cabal test --test-option="--hide-successes"
 
 update-version version:
     echo "Update Version: {{version}}"
