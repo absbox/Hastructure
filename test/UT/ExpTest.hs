@@ -109,5 +109,12 @@ expPayTest =
         assertEqual ""
         (Right 0, Right 10) 
         ((getDueBal epocDate (Just DueFee)) <$> f3''', (getDueBal epocDate (Just DueArrears)) <$> f3''' )
-
+    ,testCase "test query dueBal" $ 
+        assertEqual "test query dueBal"
+        (Right 40)
+        (getDueBal epocDate (Just (DueTotalOf [DueFee, DueArrears])) <$> f3'')
+    ,testCase "test query dueBal" $ 
+        assertEqual "test query dueBal"
+        (Right 40)
+        (getDueBal epocDate Nothing <$> f3'')
     ]

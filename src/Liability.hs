@@ -379,10 +379,11 @@ instance Payable Bond where
 
   getDueBal d (Just (DueTotalOf [])) b = 0
   getDueBal d (Just (DueTotalOf (dt:dts))) b = (getDueBal d (Just dt) b) + (getDueBal d (Just (DueTotalOf dts)) b)
-  getDueBal d (Just DuePrincipal) b = getCurBalance b
   getDueBal d (Just (DueInterest Nothing)) b = getDueInt b
   getDueBal d (Just (DueInterest (Just idx))) b@MultiIntBond{bndDueInts=dis} = dis !! idx
   getDueBal d (Just DueArrears) b = getDueIntOverInt b
+  
+  getDueBal d (Just DuePrincipal) b = bndDuePrin b
 
   pay d DuePrincipal 0 b = return b
   pay d DuePrincipal _ bnd@(Bond {bndBalance = 0}) = return bnd

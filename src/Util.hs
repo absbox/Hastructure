@@ -15,6 +15,7 @@ module Util
     ,payInMap,payInMapM,adjustM,lookupAndApply,lookupAndUpdate,lookupAndApplies
     ,lookupInMap,selectInMap,scaleByFstElement
     ,lookupTuple6 ,lookupTuple7,diffNum,splitBal,lookupM,lookupVs
+    ,lookupMM
     -- for debug
     ,debugOnDate,paySeqM,payProM,splitByLengths,showLength
     )
@@ -450,20 +451,23 @@ payInMapM d amt getDueFn payFn objNames how inputMap
         return $ (Map.fromList $ zip objNames paidObjs) <> inputMap
 
 
-
-
 mapWithinMap :: Ord k => (a -> a) -> [k] -> Map.Map k a -> Map.Map k a  
 mapWithinMap fn ks m = foldr (Map.adjust fn) m ks
 
 adjustM :: (Ord k, Applicative m) => (a -> m a) -> k -> Map.Map k a -> m (Map.Map k a)
 adjustM f = Map.alterF (traverse f)
 
-
 lookupM :: (Show k,Ord k) => k -> Map.Map k a -> Either ErrorRep a
 lookupM key m =
   case Map.lookup key m of
     Nothing -> Left $ "Key not found: " ++ show key ++ " in map with keys: " ++ show (Map.keys m)
-    Just a  -> Right a
+    Just a  -> return a
+
+lookupMM :: (Show k,Ord k) => k -> Maybe (Map.Map k a) -> Either ErrorRep a
+lookupMM k Nothing = Left $ "Empty map to look up for key: "++ show k
+lookupMM key (Just m) = lookupM key m
+
+
 
 lookupVs :: (Show k, Ord k) => [k] -> Map.Map k a -> Either ErrorRep [a]
 lookupVs keys m = 
