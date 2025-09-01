@@ -12,7 +12,7 @@ module Util
     ,floorWith,slice,toPeriodRateByInterval, dropLastN, zipBalTs
     ,lastOf,findBox,safeDivide', safeDiv
     ,safeDivide,lstToMapByFn,paySequentially,payProRata,mapWithinMap
-    ,payInMap,payInMapM,adjustM,lookupAndApply,lookupAndUpdate,lookupAndApplies
+    ,payInMap,payInMapM,adjustM,adjustMs,mapInMapM,lookupAndApply,lookupAndUpdate,lookupAndApplies
     ,lookupInMap,selectInMap,scaleByFstElement
     ,lookupTuple6 ,lookupTuple7,diffNum,splitBal,lookupM,lookupVs
     ,lookupMM
@@ -456,6 +456,15 @@ mapWithinMap fn ks m = foldr (Map.adjust fn) m ks
 
 adjustM :: (Ord k, Applicative m) => (a -> m a) -> k -> Map.Map k a -> m (Map.Map k a)
 adjustM f = Map.alterF (traverse f)
+
+adjustMs :: (Ord k, Monad m) => (a -> m a) -> [k] -> Map.Map k a -> m (Map.Map k a)
+adjustMs f ks m = foldr (\k acc -> acc >>= adjustM f k) (pure m) ks
+
+mapInMapM :: (Ord k, Show k) => (a -> Either ErrorRep a) -> [k] -> Map.Map k a -> Either ErrorRep (Map.Map k a)
+mapInMapM fn ks m 
+  | any (`notElem` Map.keys m) ks = Left $ "mapInMapM: some keys not found in map, keys to adjust: "++ show ks ++ " but map has keys: " ++ show (Map.keys m)
+  | otherwise = foldr (\k acc -> acc >>= adjustM fn k) (Right m) ks
+
 
 lookupM :: (Show k,Ord k) => k -> Map.Map k a -> Either ErrorRep a
 lookupM key m =

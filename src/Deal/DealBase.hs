@@ -14,7 +14,7 @@ module Deal.DealBase (TestDeal(..),SPV(..),dealBonds,dealFees,dealAccounts,dealP
                      ,viewDealBondsByNames,poolTypePool,viewBondsInMap,bondGroupsBonds
                      ,increaseBondPaidPeriod,increasePoolCollectedPeriod
                      ,DealStatFields(..),getDealStatInt,isPreClosing,populateDealDates
-                     ,bondTraversal,findBondByNames,updateBondInMap
+                     ,bondTraversal,findBondByNames,updateBondInMap,traverseBondMap,traverseBondMapByFn
                      ,_MultiPool,_ResecDeal,uDealFutureCf,uDealFutureScheduleCf
                      )                      
   where
@@ -56,6 +56,7 @@ import Data.Aeson.Types
 import GHC.Generics
 import Control.Lens hiding (element)
 import Control.Lens.TH
+import Control.Monad (foldM)
 import Data.IntMap (filterWithKey)
 import qualified Data.Text as T
 import Text.Read (readMaybe)
@@ -437,8 +438,7 @@ viewDealBondsByNames t@TestDeal{bonds= bndMap } bndNames
       bnds ++ bndsFromGrp
 
 -- ^ find bonds with first match
--- TODO fix it using traversal
-findBondByNames :: Map.Map String L.Bond -> [BondName] -> Either String [L.Bond]
+findBondByNames :: Map.Map String L.Bond -> [BondName] -> Either ErrorRep [L.Bond]
 findBondByNames bMap bNames
   = let 
       (firstMatch, notMatched) = Map.partitionWithKey (\k _ -> k `elem` bNames) bMap
@@ -447,9 +447,83 @@ findBondByNames bMap bNames
       (secondMatch, notMatched2) = Map.partitionWithKey (\k _ -> k `elem` remainNames) $ Map.unions listOfBondGrps
     in 
       if Map.null notMatched2 then 
-        Right $ Map.elems firstMatch ++ Map.elems secondMatch
+        return $ Map.elems firstMatch ++ Map.elems secondMatch
       else
         Left $ "Failed to find bonds by names:"++ show (Map.keys notMatched2)
+
+-- perform an action to bonds and perserve the bond structure
+traverseBondMap' :: [BondName] -> (L.Bond -> Either ErrorRep L.Bond) -> Map.Map BondName L.Bond -> Either ErrorRep (Map.Map BondName L.Bond, [BondName])
+traverseBondMap' bNames f bMap
+  = let 
+      fn (acc,bNames') (bName, bnd) 
+        = do 
+            (bnd,newBNames) <- case (bName `elem` bNames') of
+                                True -> 
+                                  case bnd of
+                                    L.BondGroup subMap pt -> 
+                                      do
+                                        subMap' <- traverse f subMap
+                                        return (L.BondGroup subMap' pt, delete bName bNames')
+                                    _ -> 
+                                        do
+                                          updatedBnd <- f bnd
+                                          return (updatedBnd, delete bName bNames')
+                                False -> 
+                                  case bnd of
+                                    L.BondGroup subMap pt -> 
+                                      do
+                                        (subMap',bNames'') <- foldM fn (Map.empty,bNames') (Map.toList subMap)
+                                        return $ (L.BondGroup subMap' pt, bNames'')
+                                    _ -> return (bnd, bNames')
+            return $ (Map.insert bName bnd acc, newBNames)
+    in 
+      (foldM fn (Map.empty,bNames) (Map.toList bMap)) 
+
+traverseBondMap :: [BondName] -> (L.Bond -> Either ErrorRep L.Bond) -> Map.Map BondName L.Bond -> Either ErrorRep (Map.Map BondName L.Bond)
+traverseBondMap bNames f bMap =
+  case traverseBondMap' bNames f bMap of
+    Right (bMap', remainNames) 
+      | null remainNames -> return bMap'
+      | otherwise -> Left $ "Failed to find bonds by names:"++ show remainNames
+    Left err -> Left err
+
+
+traverseBondMapByFn' :: Map.Map BondName (L.Bond -> Either ErrorRep L.Bond) -> Map.Map BondName L.Bond -> Either ErrorRep (Map.Map BondName L.Bond, Map.Map BondName (L.Bond -> Either ErrorRep L.Bond))
+traverseBondMapByFn' bNamesFns bMap
+  = let 
+      fn (acc, bFnMap) (bName, bnd) 
+        = do 
+            (newBnd,newBMap) <- case (Map.member bName bFnMap) of
+                                True ->
+                                  case bnd of
+                                    L.BondGroup subMap pt -> 
+                                      do
+                                        subMap' <- traverse (bFnMap Map.! bName) subMap
+                                        return (L.BondGroup subMap' pt, Map.delete bName bFnMap)
+                                    _ -> 
+                                        do
+                                          updatedBnd <- (bFnMap Map.! bName) bnd
+                                          return (updatedBnd, Map.delete bName bFnMap)
+                                False -> 
+                                  case bnd of
+                                    L.BondGroup subMap pt -> 
+                                      do
+                                        (subMap',bFnMap') <- foldM fn (Map.empty,bFnMap) (Map.toList subMap)
+                                        return $ (L.BondGroup subMap' pt, bFnMap')
+                                    _ -> return (bnd, bFnMap)
+            return $ (Map.insert bName newBnd acc, newBMap)
+    in 
+      (foldM fn (Map.empty,bNamesFns) (Map.toList bMap)) 
+
+traverseBondMapByFn :: Map.Map BondName (L.Bond -> Either ErrorRep L.Bond) -> Map.Map BondName L.Bond -> Either ErrorRep (Map.Map BondName L.Bond)
+traverseBondMapByFn bFnMap bMap =
+  case traverseBondMapByFn' bFnMap bMap of
+    Right (bMap', remains) 
+      | null remains -> return bMap'
+      | otherwise -> Left $ "Failed to find bonds by names:"++ show (Map.keys remains)
+    Left err -> Left err
+
+
 
 -- ^ not support bond group
 dealBonds :: Ast.Asset a => Lens' (TestDeal a) (Map.Map BondName L.Bond)

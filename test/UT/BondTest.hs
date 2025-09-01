@@ -1,4 +1,4 @@
-module UT.BondTest(pricingTests,bndConsolTest,writeOffTest,accrueTest)
+module UT.BondTest(pricingTests,bndConsolTest,writeOffTest,accrueTest,selectorTest)
 where
 
 import Test.Tasty
@@ -13,6 +13,9 @@ import qualified Asset as P
 import qualified Assumptions as A
 import qualified Cashflow as CF
 import qualified Data.DList as DL
+import qualified Data.Map as Map
+import qualified Deal.DealBase as DB
+import Data.Either
 import Util
 import Types
 import Data.Ratio
@@ -251,6 +254,66 @@ accrueTest =
      --   (B.bndDueInt (B.accrueInt (L.toDate "20210103") (B.accrueInt (L.toDate "20210102") b1)))
     ]
 
-
+selectorTest = 
+  let 
+    bmTest = Map.fromList [("A1",b1),("A2",b1),("B",bfloat)]
+    bgTest = Map.fromList [("G1",B.BondGroup bmTest Nothing),("B1",bfloat)]
+    fn b = Right $ b {B.bndDuePrin = 1}
+    fn2 b = Right $ b {B.bndDuePrin = 2}
+    fnMap1 = Map.fromList [("A1",fn),("A2",fn2)]
+    fnMap2 = Map.fromList [("A1",fn),("A2",fn2),("B1",fn2)]
+    fnMap3 = Map.fromList [("G1",fn2)]
+    fnMap4 = Map.fromList [("C1",fn2)]
+  in 
+    testGroup "bond selector test" [
+      testCase "select bond by names"
+      (assertEqual "select bond by names"
+        (Right (Map.fromList [("A1",b1 {B.bndDuePrin = 1}),("A2",b1 {B.bndDuePrin = 1}),("B",bfloat)]))
+        (DB.traverseBondMap ["A1","A2"] fn bmTest))
+      ,testCase "select bond by names in group"
+      (assertEqual "select bond by names in group"
+        (Right $
+          Map.fromList [("G1",B.BondGroup (Map.fromList [("A1",b1 {B.bndDuePrin = 1}),("A2",b1 {B.bndDuePrin = 1}),("B",bfloat)]) Nothing)
+                        ,("B1",bfloat {B.bndDuePrin = 1})
+                        ]
+          )
+        (DB.traverseBondMap ["A1","A2","B1"] fn bgTest))
+      ,testCase "select group name "
+      (assertEqual "select group name "
+        (Right $
+          Map.fromList [("G1",B.BondGroup (Map.fromList [("A1",b1 {B.bndDuePrin = 1}),("A2",b1 {B.bndDuePrin = 1}),("B",bfloat {B.bndDuePrin = 1})]) Nothing)
+                        ,("B1",bfloat)]
+          )
+        (DB.traverseBondMap ["G1"] fn bgTest))
+      ,testCase "select bond by missing names"
+      (assertEqual "select bond by missing names"
+        True
+        (isLeft (DB.traverseBondMap ["A1","A3"] fn bmTest)))
+      ,testCase "apply fn map to bond map"
+      (assertEqual "apply fn map to bond map - 1"
+        (Right (Map.fromList [("A1",b1 {B.bndDuePrin = 1}),("A2",b1 {B.bndDuePrin = 2}),("B",bfloat)]))
+        (DB.traverseBondMapByFn fnMap1 bmTest)
+        )
+      ,testCase "apply fn map to bond map"
+      (assertEqual "apply fn map to bond map - 2"
+        (Right $
+          Map.fromList [("G1",B.BondGroup (Map.fromList [("A1",b1 {B.bndDuePrin = 1}),("A2",b1 {B.bndDuePrin = 2}),("B",bfloat )]) Nothing)
+                        ,("B1",bfloat {B.bndDuePrin = 2})
+                        ]
+          )
+        (DB.traverseBondMapByFn fnMap2 bgTest))
+      ,testCase "apply fn map to bond map"
+      (assertEqual "apply fn map to bond map - 3"
+        (Right $
+          Map.fromList [("G1",B.BondGroup (Map.fromList [("A1",b1 {B.bndDuePrin = 2}),("A2",b1 {B.bndDuePrin = 2}),("B",bfloat {B.bndDuePrin = 2} )]) Nothing)
+                        ,("B1",bfloat)
+                        ]
+          )
+        (DB.traverseBondMapByFn fnMap3 bgTest))
+      ,testCase "apply fn map to bond map"
+      (assertEqual "apply fn map to bond map - 4"
+        True
+        (isLeft (DB.traverseBondMapByFn fnMap4 bgTest)))
+    ]
 
 

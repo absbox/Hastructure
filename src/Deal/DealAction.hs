@@ -1083,7 +1083,6 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap} (W.PayPrin mLimit an bn
   = let 
       bndsToPay = getActiveBonds t bnds
       q = DuePrincipal
-      -- qFn = getDueBal d (Just q)
       qFn = L.bndDuePrin
     in
       do
@@ -1126,7 +1125,6 @@ performAction d t@TestDeal{accounts=accMap, bonds=bndMap} (W.FundWith mlimit an 
     let fundAmt = fromRational fundAmt_
     let accMapAfterFund = Map.adjust (A.deposit fundAmt d (FundWith bnd fundAmt)) an accMap
     bndToFund <- lookupM bnd bndMap
-    -- let bndFunded = L.fundWith d fundAmt bndToFund
     bndFunded <- draw d fundAmt (FundWith bnd fundAmt) bndToFund
     return $ t {accounts = accMapAfterFund, bonds= Map.fromList [(bnd,bndFunded)] <> bndMap } 
 
@@ -1211,8 +1209,8 @@ performAction d t@TestDeal{bonds=bndMap, accounts = accMap} (W.CalcBondPrin mLim
       acc <- lookupM accName accMap 
       let accBal = A.accBalance acc
       bndsDueAmts <- traverse (L.bndDuePrin <$>) $ (calcDuePrin t d) <$> bndsToPay
-      (payAmount,_,_) <- calcAvailAfterLimit t d (accMap Map.! accName) mSupport (sum bndsDueAmts) mLimit 
-      let bndsAmountToBePaid = zip bndsToPayNames $ prorataFactors bndsDueAmts payAmount  -- (bond, amt-allocated)
+      (payAmount,_,_) <- calcAvailAfterLimit t d acc mSupport (sum bndsDueAmts) mLimit 
+      let bndsAmountToBePaid = zip bndsToPayNames $ prorataFactors bndsDueAmts payAmount
       let newBndMap = foldr 
                         (\(bn,amt) acc -> Map.adjust (\b -> b {L.bndDuePrin = amt}) bn acc) 
                         bndMap 
