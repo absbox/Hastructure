@@ -194,6 +194,8 @@ getTsVals (FloatCurve ts) = [ v | (TsPoint d v) <- ts ]
 getTsVals (RatioCurve ts) = [ v | (TsPoint d v) <- ts ]
 getTsVals (BalanceCurve ts) = [ toRational v | (TsPoint d v) <- ts ]
 getTsVals (IRateCurve ts) = [ toRational v | (TsPoint d v) <- ts ]
+getTsVals (PricingCurve ts) = [ toRational v | (TsPoint d v) <- ts ]
+getTsVals x = error $ "getTsVals: not supported for this curve type"++ show x
 
 getTsDates :: Ts -> [Date]
 getTsDates (IRateCurve tps) =  map getDate tps

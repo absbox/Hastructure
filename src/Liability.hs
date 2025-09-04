@@ -662,13 +662,12 @@ getTxnInt _ = 0.0
 
 -- ^ get present value of a bond
 priceBond :: Date -> Ts -> Bond -> Either ErrorRep PriceResult
-priceBond d rc b@(Bond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing ) = return $  PriceResult 0 0 0 0 0 0 []
+priceBond d rc b@(Bond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing) = return $  PriceResult 0 0 0 0 0 0 []
 priceBond d rc b@(MultiIntBond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing ) = return $ PriceResult 0 0 0 0 0 0 []
 priceBond d rc bnd
   | all (==0) (S.getTxnAmt <$> futureCfs) = return $ PriceResult 0 0 0 0 0 0 []
   | otherwise 
       = let
-          presentValue = pv3 rc d (getDate <$> futureCfs) (getTxnAmt <$> futureCfs)
           cutoffBalance = case S.getTxnAsOf txns d of
                               Nothing ->  (S.getTxnBegBalance . head) txns
                               Just _txn -> S.getTxnBegBalance _txn
@@ -681,6 +680,7 @@ priceBond d rc bnd
 
         in 
           do 
+            presentValue <- pv4 (d, rc) $ zip (getDate <$> futureCfs) (getTxnAmt <$> futureCfs)
             pctFaceVal <- safeDivide' "Divide prenset value to original bond balance" presentValue obal
             return $ PriceResult presentValue (fromRational (100* pctFaceVal)) (realToFrac wal) (realToFrac duration) (realToFrac convexity) accruedInt futureCfs
   where 

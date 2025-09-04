@@ -383,10 +383,6 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
               0.0 $
               filter P.isDefaulted (getAllAssetList t)
 
-    DealIssuanceBalance mPns -> 
-      Right . toRational $ 
-        sum $ Map.findWithDefault 0.0 IssuanceBalance <$> Map.elems (getIssuanceStats t mPns)
-
     OriginalPoolBalance mPns -> 
       let 
         statsConsol = getIssuanceStatsConsol t mPns 

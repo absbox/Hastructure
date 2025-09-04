@@ -618,7 +618,7 @@ getIssuanceStats t@TestDeal{pool = pt} mPoolId
                                           Nothing -> pm
                                           Just pns -> Map.filterWithKey (\k _ -> k `elem` pns ) pm
                       in
-                        Map.map (fromMaybe Map.empty . P.issuanceStat) selectedPools
+                        Map.map ((fromMaybe Map.empty) . P.issuanceStat) selectedPools
 
 getIssuanceStatsConsol :: Ast.Asset a => TestDeal a -> Maybe [PoolId] -> Map.Map CutoffFields Balance
 getIssuanceStatsConsol t mPns 

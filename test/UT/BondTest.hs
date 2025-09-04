@@ -88,30 +88,32 @@ pricingTests = testGroup "Pricing Tests"
    ,
     let
       pr = B.priceBond (L.toDate "20210501")
-                       (L.PricingCurve [L.TsPoint (L.toDate "20210101") 0.01, L.TsPoint (L.toDate "20230101") 0.02])
+                       (L.PricingCurve [L.TsPoint (L.toDate "20210501") 0.01, L.TsPoint (L.toDate "20230101") 0.02])
                        b1
     in
       testCase "flat rate discount " $
       assertEqual "Test Pricing on case 01" 
-        (Right (PriceResult 1978.47 65.949000 1.18 1.1881448 0.4906438 52.60 (DL.toList b1Txn)))
+        (Right (PriceResult 1979.54 65.984666 1.18 1.188138 0.491335 52.60 (DL.toList b1Txn)))
         pr
     ,
-     let
-       b2Txn =  DL.fromList [BondTxn (L.toDate "20220301") 3000 10 300 0.08 310 0 0 Nothing S.Empty
-                           ,BondTxn (L.toDate "20220501") 2700 10 500 0.08 510 0 0 Nothing S.Empty
-                           ,BondTxn (L.toDate "20220701") 0 10 3200 0.08 3300 0 0 Nothing S.Empty]
-       b2 = b1 { B.bndStmt = Just (S.Statement b2Txn)}
+    let
+      b2Txn =  DL.fromList [BondTxn (L.toDate "20220301") 3000 10 300 0.08 310 0 0 Nothing S.Empty
+                            ,BondTxn (L.toDate "20220501") 2700 10 500 0.08 510 0 0 Nothing S.Empty
+                            ,BondTxn (L.toDate "20220701") 0 10 3200 0.08 3300 0 0 Nothing S.Empty]
+      b2 = b1 { B.bndStmt = Just (S.Statement b2Txn)}
 
-       pr = B.priceBond (L.toDate "20220201")
+      pr = B.priceBond (L.toDate "20220201")
                         (L.PricingCurve
-                            [L.TsPoint (L.toDate "20220101") 0.01
+                            [L.TsPoint (L.toDate "20220301") 0.01
                             ,L.TsPoint (L.toDate "20220401") 0.03
-                            ,L.TsPoint (L.toDate "20220601") 0.05])
+                            ,L.TsPoint (L.toDate "20220601") 0.05
+                            ,L.TsPoint (L.toDate "20220801") 0.05
+                            ])
                         b2
-     in
-       testCase " discount curve with two rate points " $
-       assertEqual "Test Pricing on case 01" 
-            (Right (PriceResult 4049.10 134.97 0.44 0.364564 0.006030 286.42 (DL.toList b2Txn)))
+    in
+      testCase " discount curve with two rate points " $
+      assertEqual "Test Pricing on case 01" 
+            (Right (PriceResult 4049.03 134.967666 0.44 0.364542 0.006193 286.42 (DL.toList b2Txn)))
             pr  --TODO need to confirm in UI
     ,
     let

@@ -5,7 +5,7 @@
 
 module Analytics (calcConvexity,calcDuration,pv,calcWAL,pv2,pv3
       ,fv2,pv21,calcRequiredAmtForIrrAtDate,calcIRR
-      ,calcSurvivorFactors)
+      ,calcSurvivorFactors,interpolateWithHermite,pv4)
 
   where 
 import Types
@@ -16,9 +16,14 @@ import Data.Aeson hiding (json)
 import Language.Haskell.TH
 import Data.Aeson.TH
 import Data.Aeson.Types
+import Data.Ord (comparing)
+import Data.List (sortBy)
 import GHC.Generics
 import Data.Ratio
 import Numeric.RootFinding
+import qualified Numeric.Interpolation.Piecewise as Piecewise
+import qualified Numeric.Interpolation.Type as Type
+import qualified Numeric.Interpolation.NodeList as Nodes
 
 import Debug.Trace
 debug = flip trace
@@ -31,6 +36,77 @@ calcSurvivorFactors sd ds survivalRate =
     factors = [ (1 - survivalRate) ** x | x <- yearFractions ]
   in 
     factors
+
+
+-- ^ interpolate the yield curve using Fritsch-Carlson method
+type TimeYield = (Double, Double)
+type YieldPoint = (Date, Double)
+
+toTimeYield :: Date -> [YieldPoint] -> [TimeYield]
+toTimeYield refDate points 
+  = let 
+        sorted = sortBy (comparing fst) points
+    in 
+        [ (fromRational (yearCountFraction DC_ACT_365F refDate d), y) | (d, y) <- sorted]
+
+secantSlopes :: [TimeYield] -> [Double]
+secantSlopes points = zipWith 
+                        (\(t1, y1) (t2, y2) -> (y2 - y1) / (t2 - t1)) 
+                        points 
+                        (tail points)
+
+-- Compute initial slopes (average of adjacent secant slopes for interior points)
+initialSlopes :: [TimeYield] -> [Double]
+initialSlopes points@((t0, y0):rest) = 
+    let deltas = secantSlopes points
+        n = length points
+        slopes = [head deltas] ++ -- First slope: use first secant slope
+                 [ (d1 + d2) / 2 | (d1, d2) <- zip deltas (tail deltas) ] ++ -- Interior slopes
+                 [last deltas] -- Last slope: use last secant slope
+    in slopes
+
+fritschCarlsonSlopes :: [TimeYield] -> [Double]
+fritschCarlsonSlopes points = adjustSlopes points initialSlopes
+  where
+    -- Compute initial slopes
+    initialSlopes :: [Double]
+    initialSlopes = let deltas = secantSlopes points
+                        n = length points
+                    in [head deltas] ++ -- First slope: use first secant slope
+                       [ if d1 * d2 > 0 then 2 / (1 / d1 + 1 / d2) else 0
+                         | (d1, d2) <- zip deltas (tail deltas) ] ++ -- Interior slopes: harmonic mean
+                       [last deltas] -- Last slope: use last secant slope
+
+    -- Adjust slopes for monotonicity
+    adjustSlopes :: [TimeYield] -> [Double] -> [Double]
+    adjustSlopes pts slopes = go pts slopes []
+      where
+        go :: [TimeYield] -> [Double] -> [Double] -> [Double]
+        go (_:[]) [m] acc = reverse (m:acc) -- Last point
+        go ((t1,y1):p2@((t2,y2):rest)) (m1:m2:ms) acc =
+            let delta = (y2 - y1) / (t2 - t1)
+                alpha = if delta == 0 then 0 else m1 / delta
+                beta = if delta == 0 then 0 else m2 / delta
+                r = sqrt (alpha * alpha + beta * beta)
+                (m1', m2') = if delta == 0 then (0, 0) -- Flat segment
+                             else if r > 3 then (m1 * 3 / r, m2 * 3 / r) -- Scale slopes
+                             else (m1, m2)
+            in go p2 (m2':ms) (m1':acc)
+        go _ _ _ = error "Invalid input"
+
+interpolateWithHermite :: (Date,[(Date, Double)]) -> Dates -> [Double]
+interpolateWithHermite (sd, ts) ds 
+  = let 
+      xs = (fromRational . (yearCountFraction DC_ACT_365F sd)) <$> (fst <$> ts)
+      ys = snd <$> ts
+      yds = fritschCarlsonSlopes (zip xs ys)
+      nodes = Nodes.fromList $
+                zipWith3 (\x' y' yd' -> (x',(y',yd'))) xs ys yds -- `debug` ("x y yd"++ show xs ++">>"++ show ys ++">>"++show yds)
+
+      lookupFn = Piecewise.interpolate Type.hermite1 nodes
+      xs' = (fromRational . yearCountFraction DC_ACT_365F sd) <$> ds 
+    in 
+      lookupFn <$> xs'
 
 -- ^ calculate the Weighted Average Life of cashflow, with unit option to Monthly or Yearly
 calcWAL :: TimeHorizion -> Balance -> Date -> [(Balance,Date)] -> Balance 
@@ -126,6 +202,31 @@ pv3' pvCurve pricingDate ds vs
       pvs = [ pv2' r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs' ]
     in 
       fromRational . toRational $ foldr (+) 0 pvs
+
+-- ^ using hermite interpolation to get present value
+pv4 :: (Date,Ts) -> [(Date,Amount)] -> Either ErrorRep Balance
+pv4 _ [] = Left "pv4: No cashflow to get present value"
+pv4 (pricingDate, pvCurve) (cf:cfs)
+  | null ds' = Left "pv4: empty pricing curve"
+  | head ds' < pricingDate = Left $ "pv4: cashflow date "++ show (head ds') ++" is before pricing date "++ show pricingDate
+  | fst cf < pricingDate = Left $ "pv4: cashflow date "++ show (fst cf) ++" is before pricing date "++ show pricingDate
+  | otherwise 
+    = let 
+        ds = fst <$> (cf:cfs)
+        rs = let 
+                ds' = getTsDates pvCurve
+                vs'::[Double] = fromRational <$> (getTsVals pvCurve)
+              in 
+                interpolateWithHermite 
+                  (pricingDate, zip ds' vs') 
+                  ds
+        vs' = (fromRational . toRational . snd) <$> (cf:cfs)
+        pvs = [ pv2' r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs' ]
+      in 
+        return $ fromRational . toRational $ foldr (+) 0 pvs
+  where
+    ds' = getTsDates pvCurve
+
 
 
 fv2 :: IRate -> Date -> Date -> Amount -> Amount
