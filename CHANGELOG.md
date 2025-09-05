@@ -2,6 +2,10 @@
 
 <!-- towncrier release notes start -->
 
+## 0.51.6
+### 2025-09-05
+* NEW: add new integer formula `activeBondNumber`
+
 
 ## 0.51.5
 ### 2025-08-20
