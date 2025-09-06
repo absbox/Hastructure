@@ -5,6 +5,7 @@
 ## 0.51.6
 ### 2025-09-05
 * NEW: add new integer formula `activeBondNumber`
+* NEW: refactor interpolation pricing curve from `linear` to `Hermite` way
 
 
 ## 0.51.5

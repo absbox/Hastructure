@@ -21,6 +21,7 @@ import qualified Cashflow as CF
 import qualified Accounts as A
 import qualified Data.Map as Map hiding (mapEither)
 import qualified Waterfall as W
+import qualified Expense as F
 import qualified Liability as L
 import qualified Reports as Rpt
 import qualified Pool as P
@@ -301,7 +302,7 @@ appendCollectedCF d t@TestDeal { pool = ResecDeal uds } poolInflowMap
    in 
      t {pool = newPt} 
 
-
+-- ^ accrue all liabilities of deal to date d
 accrueDeal :: Ast.Asset a => Date -> [RateAssumption] -> TestDeal a -> Either ErrorRep (TestDeal a)
 accrueDeal d ras t@TestDeal{fees = feeMap, bonds = bondMap, liqProvider = liqMap
                             , rateSwap = rsMap, rateCap = rcMap, accounts = accMap}
@@ -311,7 +312,7 @@ accrueDeal d ras t@TestDeal{fees = feeMap, bonds = bondMap, liqProvider = liqMap
     in 
       do
         bondMap' <- sequenceA (Map.map (calcDueInt t d) bondMap) 
-        feeMap' <- sequenceA (over mapped (calcDueFee t d) feeMap)
+        feeMap' <- sequenceA $ Map.map (\v -> if (reAccruableFeeType (F.feeType v)) then calcDueFee t d v else pure v) feeMap
         rcMap' <- traverse (Map.traverseWithKey (\_ -> accrueRC t d ras)) rcMap
         return t { fees = feeMap' ,
                    bonds = bondMap',

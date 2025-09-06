@@ -27,3 +27,13 @@ upload-chlog:
     echo "<CHANGE LOG> Upload Change Log "
     scp CHANGELOG.md root@simplicity.vip:/root/absbox.org/ChangeLog.md
 
+publish env version:
+    just update-version {{version}}
+    just tag-files {{env}} {{version}}
+    just push-code
+    just upload-chlog
+
+revert-tag env version:
+    echo "Revert Tag: {{env}}{{version}}"
+    git tag -d {{env}}{{version}}
+    git push origin :refs/tags/{{env}}{{version}}

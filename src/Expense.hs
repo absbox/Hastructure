@@ -4,7 +4,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 module Expense (Fee(..),FeeType(..) ,buildFeeAccrueAction
-               ,feeNameLens,feeDueLens,feeTypeLens,feeStmtLens)
+               ,feeNameLens,feeDueLens,feeTypeLens,feeStmtLens,reAccruableFeeType)
   where
 
 import Lib(Period,paySeqLiabilities,Dates
@@ -57,6 +57,14 @@ data Fee = Fee {
   ,feeLastPaidDay :: Maybe Date  -- ^ last paid date
   ,feeStmt :: Maybe Statement    -- ^ transaction history
 } deriving (Show, Ord, Eq, Generic)
+
+-- ^ a predicate identify a fee whether can be accrued multiple times regardless of model definition
+reAccruableFeeType :: FeeType -> Bool
+reAccruableFeeType (RecurFee _ _) = False
+reAccruableFeeType (NumFee _ _ _) = False
+reAccruableFeeType (AmtByTbl _ _ _) = False
+reAccruableFeeType (PctFee _ _) = False
+reAccruableFeeType _ = True
 
 
 instance Payable Fee where
@@ -169,7 +177,8 @@ instance IR.UseRate Fee where
   isAdjustableRate x = False
   getIndex x = Nothing 
 
-makeLensesFor [("feeName","feeNameLens"),("feeType","feeTypeLens") ,("feeDue","feeDueLens") ,("feeDueDate","feeDueDateLens") ,("feeStmt","feeStmtLens")] ''Fee
+makeLensesFor [("feeName","feeNameLens"),("feeType","feeTypeLens") ,("feeDue","feeDueLens") 
+              ,("feeDueDate","feeDueDateLens") ,("feeStmt","feeStmtLens")] ''Fee
 
 $(deriveJSON defaultOptions ''FeeType)
 $(deriveJSON defaultOptions ''Fee)
