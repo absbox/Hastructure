@@ -34,18 +34,30 @@ debug = flip trace
 
 type FormulaRate = DealStats
 
-data FeeType = AnnualRateFee DealStats FormulaRate                       -- ^ annulized fee with a referece
-             | PctFee DealStats FormulaRate                              -- ^ fee base on percentage 
-             | FixFee Balance                                            -- ^ one-off fee
-             | RecurFee DatePattern Balance                              -- ^ fee occur every date pattern
-             | NumFee DatePattern DealStats Amount                       -- ^ fee based on an integer number
-             | AmtByTbl DatePattern DealStats (Table Balance Balance)    -- ^ lookup query value in a table
-             | TargetBalanceFee DealStats DealStats                      -- ^ fee due amount = max( 0, (ds1 - ds2))
-             | FeeFlow Ts                                                -- ^ a time series based fee 
-             | FeeFlowByPoolPeriod (PerCurve Balance)                    -- ^ a pool index series based fee
-             | FeeFlowByBondPeriod (PerCurve Balance)                    -- ^ a bond index series based fee
-             | ByCollectPeriod Amount                                    -- ^ fix amount per collection period
-             deriving (Show, Eq, Generic, Ord)
+data FeeType 
+  -- | Weighted Average Formula With a Annualised Rate
+  = AnnualRateFee DealStats FormulaRate     
+  -- | percentage fee with a referece
+  | PctFee DealStats FormulaRate            
+  -- | one-off fee
+  | FixFee Balance                   
+  -- | recurring fee with a fixed balance
+  | RecurFee DatePattern Balance                              
+  -- | number-based fee with a referece: Fee Due = <FormulaValue> * <Amount>
+  | NumFee DatePattern DealStats Amount                       
+  -- | table based fee with a referece : Fee Due = Table Value look up by <FormulaValue>
+  | AmtByTbl DatePattern DealStats (Table Balance Balance)    
+  -- | target balance fee : Fee Due = max 0 (<FormulaValue 1> - <FormulaValue 2>)
+  | TargetBalanceFee DealStats DealStats                       
+  -- | time series fee : Fee Due = (sum of fees due before the calc date)
+  | FeeFlow Ts                                                
+  -- | pool period fee : Fee Due = using pool period number to look up a table value
+  | FeeFlowByPoolPeriod (PerCurve Balance)                    
+  -- | bond period fee : Fee Due = using bond period number to look up a table value
+  | FeeFlowByBondPeriod (PerCurve Balance)                    
+  -- | collection period fee : Fee Due = fixed amount for each collection period
+  | ByCollectPeriod Amount                                    
+  deriving (Show, Eq, Generic, Ord)
 
 data Fee = Fee {
   feeName :: String              -- ^ fee name
@@ -60,10 +72,10 @@ data Fee = Fee {
 
 -- ^ a predicate identify a fee whether can be accrued multiple times regardless of model definition
 reAccruableFeeType :: FeeType -> Bool
-reAccruableFeeType (RecurFee _ _) = False
-reAccruableFeeType (NumFee _ _ _) = False
-reAccruableFeeType (AmtByTbl _ _ _) = False
-reAccruableFeeType (PctFee _ _) = False
+reAccruableFeeType (RecurFee {}) = False
+reAccruableFeeType (NumFee {}) = False
+reAccruableFeeType (AmtByTbl {}) = False
+
 reAccruableFeeType _ = True
 
 

@@ -569,7 +569,7 @@ getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status
                                               case (dealDates, status) of 
                                                 (PreClosingDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
                                                 (GenericDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
-                                                (AccruedGenericDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
+                                                -- (AccruedGenericDates {}, PreClosing _) -> sortBy sortActionOnDate $ DealClosed closingDate:a 
                                                 _ -> sortBy sortActionOnDate a
                              _actionDates = __actionDates++[HitStatedMaturity endDate]
                            in 

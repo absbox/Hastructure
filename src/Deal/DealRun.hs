@@ -1,9 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Deal.DealRun (
-   run
-   ,accrueRC
-) where
+module Deal.DealRun ( run ) where
 
 import qualified Data.Set as S
 import qualified Data.DList as DL
@@ -149,29 +146,6 @@ setBondNewRate t d ras b@(L.MultiIntBond bn _ _ iis _ bal currentRates _ dueInts
     in
       return $ b' { L.bndRates = newRates } 
 
--- ^ accure rate cap 
-accrueRC :: Ast.Asset a => TestDeal a -> Date -> [RateAssumption] -> RateCap -> Either ErrorRep RateCap
-accrueRC t d rs rc@RateCap{rcNetCash = amt, rcStrikeRate = strike,rcIndex = index
-                        ,rcStartDate = sd, rcEndDate = ed, rcNotional = notional
-                        ,rcLastStlDate = mlsd
-                        ,rcStmt = mstmt} 
-  | d > ed || d < sd = return rc 
-  | otherwise = do
-                  r <- AP.lookupRate0 rs index d
-                  balance <- case notional of
-                               Fixed bal -> Right . toRational $ bal
-                               Base ds -> queryCompound t d (patchDateToStats d ds)
-                               Schedule ts -> return $ getValByDate ts Inc d
-
-                  let accRate = max 0 $ r - fromRational (getValByDate strike Inc d) -- `debug` ("Rate from curve"++show (getValByDate strike Inc d))
-                  let addAmt = case mlsd of 
-                                 Nothing -> IR.calcInt (fromRational balance) sd d accRate DC_ACT_365F
-                                 Just lstD -> IR.calcInt (fromRational balance) lstD d accRate DC_ACT_365F
-
-                  let newAmt = amt + addAmt  -- `debug` ("Accrue AMT"++ show addAmt)
-                  let newStmt = appendStmt (IrsTxn d newAmt addAmt 0 0 0 SwapAccrue) mstmt 
-                  return $ rc { rcLastStlDate = Just d ,rcNetCash = newAmt, rcStmt = newStmt }
-
 updateRateSwapBal :: Ast.Asset a => TestDeal a -> Date -> HE.RateSwap -> Either String HE.RateSwap
 updateRateSwapBal t d rs@HE.RateSwap{ HE.rsNotional = base }
   =  case base of 
@@ -301,25 +275,6 @@ appendCollectedCF d t@TestDeal { pool = ResecDeal uds } poolInflowMap
 		          poolInflowMap
    in 
      t {pool = newPt} 
-
--- ^ accrue all liabilities of deal to date d
-accrueDeal :: Ast.Asset a => Date -> [RateAssumption] -> TestDeal a -> Either ErrorRep (TestDeal a)
-accrueDeal d ras t@TestDeal{fees = feeMap, bonds = bondMap, liqProvider = liqMap
-                            , rateSwap = rsMap, rateCap = rcMap, accounts = accMap}
-  = let
-      liqMap' = (Map.map (CE.accrueLiqProvider d)) <$> liqMap
-      rsMap' = (Map.map (HE.accrueIRS d)) <$> rsMap
-    in 
-      do
-        bondMap' <- sequenceA (Map.map (calcDueInt t d) bondMap) 
-        feeMap' <- sequenceA $ Map.map (\v -> if (reAccruableFeeType (F.feeType v)) then calcDueFee t d v else pure v) feeMap
-        rcMap' <- traverse (Map.traverseWithKey (\_ -> accrueRC t d ras)) rcMap
-        return t { fees = feeMap' ,
-                   bonds = bondMap',
-                   liqProvider = liqMap',
-                   rateSwap = rsMap',
-                   rateCap = rcMap'
-                   }
 
 
 run :: Ast.Asset a => TestDeal a -> Map.Map PoolId CF.PoolCashflow -> Maybe [ActionOnDate] -> Maybe [RateAssumption] -> Maybe ([Pre],[Pre])

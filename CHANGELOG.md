@@ -10,7 +10,6 @@
 
 ## 0.51.5
 ### 2025-08-20
-* NEW: New accrue-type waterfall action
 * ENHANCE: add assumption validation on `prepayment` `default` `recovery` .
 * FIX: pricing IRR: engine will use wrong position when `Buy Bond`
 
@@ -20,7 +19,7 @@
 * NEW: new asset `ProjectedByFactor` and `ProjectedCashflow` .
 * ENHANCE: refactor on waterfall action, throw error when `name` is missing from the deal object
 * ENHANCE: throw error when divide by zero
-* ENHANCE: refactor on `credit support` for `liquidity suppport.
+* ENHANCE: refactor on `credit support` for `liquidity suppport`.
 * FIX: fix zero cashflow when holding position is too small
 
 ## 0.50.0

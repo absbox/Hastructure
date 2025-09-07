@@ -167,7 +167,6 @@ sortActionOnDate a1 a2
                   (SettleIRSwap _ _ ,CalcIRSwap _ _) -> GT  -- reset interest swap should be first
                   (_ , CalcIRSwap _ _) -> GT -- reset interest swap should be first
                   (CalcIRSwap _ _ ,_) -> LT  -- reset interest swap should be first
-                  (_ , CalcIRSwap _ _) -> GT -- reset interest swap should be first
                   (StepUpBondRate {} ,_) -> LT  -- step up bond rate should be first
                   (_ , StepUpBondRate {}) -> GT -- step up bond rate should be first
                   (ResetBondRate {} ,_) -> LT  -- reset bond rate should be first
@@ -201,7 +200,7 @@ data DateDesp = PreClosingDates CutoffDate ClosingDate (Maybe RevolvingDate) Sta
               | CurrentDates (Date,Date) (Maybe Date) StatedDate (Date,PoolCollectionDates) (Date,DistributionDates)
               -- Dict based 
               | GenericDates (Map.Map DateType DatePattern)
-              | AccruedGenericDates (Map.Map DateType DatePattern)
+              -- | AccruedGenericDates (Map.Map DateType DatePattern)
               deriving (Show,Eq, Generic,Ord)
 
 type PoolCollectionActions = [ActionOnDate]
@@ -246,26 +245,26 @@ populateDealDates (GenericDates m) st
           _ 
             -> Left $ "Missing required dates in GenericDates in deal status" ++ (show st) ++ "but got"
 
-populateDealDates (AccruedGenericDates m) st 
-  = let 
-      requiredFields (PreClosing _) = (CutoffDate, ClosingDate, FirstPayDate, StatedMaturityDate , DistributionDates, CollectionDates) 
-      requiredFields _  = (LastCollectDate, LastPayDate, NextPayDate, StatedMaturityDate, DistributionDates, CollectionDates) 
-      isCustomWaterfallKey (CustomExeDates _) _ = True
-      isCustomWaterfallKey _ _ = False
-      custWaterfall = Map.toList $ Map.filterWithKey isCustomWaterfallKey m
-    in 
-      do 
-        vals <- lookupTuple6 (requiredFields st) m
-        case vals of
-          (SingletonDate lastCollect, SingletonDate lastPayDate, SingletonDate nextPayDate , SingletonDate statedDate, bondDp, poolDp)
-            -> let 
-                  pa = [ AccruePoolCollection _d "" | _d <- genSerialDatesTill2 EE lastCollect poolDp statedDate ]
-                  ba = [ AccrueRunWaterfall _d "" | _d <- genSerialDatesTill2 IE nextPayDate bondDp statedDate ]
-                  cu = [ AccrueRunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall, _d <- genSerialDatesTill2 EE lastCollect custDp statedDate ]
-                in 
-                  return (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu)
-          _ 
-            -> Left $ "Missing required dates in GenericDates in deal status" ++ (show st) ++ "but got"
+-- populateDealDates (AccruedGenericDates m) st 
+--   = let 
+--       requiredFields (PreClosing _) = (CutoffDate, ClosingDate, FirstPayDate, StatedMaturityDate , DistributionDates, CollectionDates) 
+--       requiredFields _  = (LastCollectDate, LastPayDate, NextPayDate, StatedMaturityDate, DistributionDates, CollectionDates) 
+--       isCustomWaterfallKey (CustomExeDates _) _ = True
+--       isCustomWaterfallKey _ _ = False
+--       custWaterfall = Map.toList $ Map.filterWithKey isCustomWaterfallKey m
+--     in 
+--       do 
+--         vals <- lookupTuple6 (requiredFields st) m
+--         case vals of
+--           (SingletonDate lastCollect, SingletonDate lastPayDate, SingletonDate nextPayDate , SingletonDate statedDate, bondDp, poolDp)
+--             -> let 
+--                   pa = [ AccruePoolCollection _d "" | _d <- genSerialDatesTill2 EE lastCollect poolDp statedDate ]
+--                   ba = [ AccrueRunWaterfall _d "" | _d <- genSerialDatesTill2 IE nextPayDate bondDp statedDate ]
+--                   cu = [ AccrueRunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall, _d <- genSerialDatesTill2 EE lastCollect custDp statedDate ]
+--                 in 
+--                   return (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu)
+--           _ 
+--             -> Left $ "Missing required dates in GenericDates in deal status" ++ (show st) ++ "but got"
 
 
 

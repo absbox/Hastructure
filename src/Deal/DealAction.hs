@@ -4,7 +4,7 @@
 module Deal.DealAction (performActionWrap,performAction,calcDueFee
                        ,testTrigger,RunContext(..),updateLiqProvider
                        ,calcDueInt,priceAssetUnion
-                       ,priceAssetUnionList,inspectVars,inspectListVars) 
+                       ,priceAssetUnionList,inspectVars,inspectListVars,accrueRC,accrueDeal) 
   where
 
 import qualified Accounts as A
@@ -101,43 +101,48 @@ allocAmtToBonds theOrder amt bndsWithDue =
 
 
 calcDueFee :: Ast.Asset a => TestDeal a -> Date -> F.Fee -> Either ErrorRep F.Fee
+
+-- ^ one-off fee, can be accrued multiple times
 calcDueFee t calcDay f@(F.Fee fn (F.FixFee amt) fs fd fdDay fa _ _)
-  | isJust fdDay = return f 
+  | isJust fdDay = return f  -- Nothing change if it has been calculated before
   | calcDay >= fs && isNothing fdDay = return $ f { F.feeDue = amt, F.feeDueDate = Just calcDay} 
   | otherwise = return f
 
+-- ^ annualised fee: patch start date as last fee due date
 calcDueFee t calcDay f@(F.Fee fn (F.AnnualRateFee feeBase r) fs fd Nothing fa lpd _)
   | calcDay >= fs = calcDueFee t calcDay f {F.feeDueDate = Just fs }
-  | otherwise = return f 
+  | otherwise = return f
 
 -- ^ annualized % fee base on pool balance amount
-calcDueFee t@TestDeal{pool = pool} calcDay f@(F.Fee fn (F.AnnualRateFee feeBase _r) fs fd (Just _fdDay) fa lpd _)
+calcDueFee t calcDay f@(F.Fee fn (F.AnnualRateFee feeBase _r) fs fd (Just fdDay) fa lpd _)
   = let 
-      accrueStart = _fdDay
-      patchedDs = patchDatesToStats t accrueStart calcDay feeBase
+      patchedDs = patchDatesToStats t fdDay calcDay feeBase
     in 
       do
         r <- queryCompound t calcDay _r 
         baseBal <- queryCompound t calcDay patchedDs
         let newDue = baseBal * r 
-        return f { F.feeDue=fd+ fromRational newDue, F.feeDueDate = Just calcDay }
+        return f { F.feeDue= fd + fromRational newDue, F.feeDueDate = Just calcDay }
 
+-- ^ percentage fee base on a formula rate
 calcDueFee t calcDay f@(F.Fee fn (F.PctFee ds _r ) fs fd fdDay fa lpd _)
-  = let 
-      lastBegDay = fromMaybe fs fdDay
-    in
-      do
+  | calcDay <= fs = return f
+  | otherwise 
+    = do
         r <-  queryCompound t calcDay _r
         baseBal <- queryCompound t calcDay (patchDateToStats calcDay ds)
         return f { F.feeDue = fd + fromRational (baseBal * r), F.feeDueDate = Just calcDay }
 
+-- ^ time series based fee, can be accrued multiple times
 calcDueFee t calcDay f@(F.Fee fn (F.FeeFlow ts)  fs fd _ fa mflpd _)
-  = return f{ F.feeDue = newFeeDue ,F.feeDueDate = Just calcDay ,F.feeType = F.FeeFlow futureDue} 
-    where
+  = let 
       (currentNewDue,futureDue) = splitTsByDate ts calcDay 
       cumulativeDue = sumValTs currentNewDue
       newFeeDue =  cumulativeDue + fd  
+    in 
+      return f{ F.feeDue = newFeeDue ,F.feeDueDate = Just calcDay ,F.feeType = F.FeeFlow futureDue}
 
+-- ^ fee based on a recurring date pattern, exempt by reAccruableFeeType check
 calcDueFee t calcDay f@(F.Fee fn (F.RecurFee p amt)  fs fd mLastAccDate fa _ _)
   | periodGaps == 0 = return f 
   | otherwise = return f { F.feeDue = amt * fromIntegral periodGaps + fd
@@ -148,21 +153,24 @@ calcDueFee t calcDay f@(F.Fee fn (F.RecurFee p amt)  fs fd mLastAccDate fa _ _)
                       Just lastAccDate -> genSerialDatesTill2 NO_IE lastAccDate p calcDay 
     periodGaps = length accDates 
 
+-- ^ fee based on an integer number, exempt by reAccruableFeeType check
 calcDueFee t calcDay f@(F.Fee fn (F.NumFee p s amt) fs fd Nothing fa lpd _)
   | calcDay >= fs = calcDueFee t calcDay f {F.feeDueDate = Just fs }
   | otherwise = return f 
 
-calcDueFee t calcDay f@(F.Fee fn (F.NumFee p s amt) fs fd (Just _fdDay) fa lpd _)
-  | _fdDay == calcDay = return f 
+-- ^ fee based on an integer number, exempt by reAccruableFeeType check
+calcDueFee t calcDay f@(F.Fee fn (F.NumFee p s amt) fs fd (Just fdDay) fa lpd _)
+  | fdDay == calcDay = return f 
   | periodGap == 0 = return f 
   | otherwise = do 
                   baseCount <- queryCompound t calcDay (patchDateToStats calcDay s)
                   let newFeeDueAmt = (fromRational baseCount) * amt * fromIntegral periodGap -- `debug` ("amt"++show amt++">>"++show baseCount++">>"++show periodGap)
                   return f { F.feeDue = fd+newFeeDueAmt , F.feeDueDate = Just calcDay } 
   where 
-    dueDates = projDatesByPattern p _fdDay (pred calcDay)
+    dueDates = projDatesByPattern p fdDay (pred calcDay)
     periodGap = length dueDates  -- `debug` ("Due Dates"++ show dueDates)
 
+-- ^ fee based on target balance difference
 calcDueFee t calcDay f@(F.Fee fn (F.TargetBalanceFee dsDue dsPaid) fs fd _ fa lpd _)
   = do 
       let dsDueD = patchDateToStats calcDay dsDue 
@@ -170,25 +178,30 @@ calcDueFee t calcDay f@(F.Fee fn (F.TargetBalanceFee dsDue dsPaid) fs fd _ fa lp
       dueAmt <- max 0 <$> (liftA2) (-) (queryCompound t calcDay dsDueD) (queryCompound t calcDay dsPaidD)
       return f { F.feeDue = fromRational dueAmt, F.feeDueDate = Just calcDay} 
 
+-- ^ fee based on a collection period
 calcDueFee t@TestDeal{ pool = pool } calcDay f@(F.Fee fn (F.ByCollectPeriod amt) fs fd fdday fa lpd _)
-  = return $ f {F.feeDue = dueAmt + fd, F.feeDueDate = Just calcDay}
-    where 
+  = let  
       txnsDates = getDate <$> getAllCollectedTxnsList t (Just [PoolConsol])
       pastPeriods = case fdday of 
                       Nothing ->  subDates II fs calcDay txnsDates
                       Just lastFeeDueDay -> subDates EI lastFeeDueDay calcDay txnsDates
       dueAmt = fromRational $ mulBInt amt (length pastPeriods)
+    in 
+      return $ f {F.feeDue = dueAmt + fd, F.feeDueDate = Just calcDay}
 
+-- ^ fee based on a table lookup, exempt by reAccruableFeeType check
 calcDueFee t calcDay f@(F.Fee fn (F.AmtByTbl _ ds tbl) fs fd Nothing fa lpd _)
   = calcDueFee t calcDay f {F.feeDueDate = Just fs }
+
 calcDueFee t calcDay f@(F.Fee fn (F.AmtByTbl _ ds tbl) fs fd (Just fdday) fa lpd _)
   | fdday == calcDay = return f
-  | otherwise = do
-      lookupVal <- queryCompound t calcDay (patchDateToStats calcDay ds)
-      let dueAmt = fromMaybe 0.0 $ lookupTable tbl Up ( fromRational lookupVal >=)
-      return f {F.feeDue = dueAmt + fd, F.feeDueDate = Just calcDay}
+  | otherwise = 
+      do
+        lookupVal <- queryCompound t calcDay (patchDateToStats calcDay ds)
+        let dueAmt = fromMaybe 0.0 $ lookupTable tbl Up (fromRational lookupVal >=)
+        return f {F.feeDue = dueAmt + fd, F.feeDueDate = Just calcDay}
 
-
+-- ^ fee based on a pool period number
 calcDueFee t calcDay f@(F.Fee fn (F.FeeFlowByPoolPeriod pc) fs fd fdday fa lpd stmt)
   = do 
       currentPoolPeriod <- queryCompound t calcDay (DealStatInt PoolCollectedPeriod)
@@ -196,12 +209,14 @@ calcDueFee t calcDay f@(F.Fee fn (F.FeeFlowByPoolPeriod pc) fs fd fdday fa lpd s
       let dueAmt = fromMaybe 0 $ getValFromPerCurve pc Past Inc (succ (floor (fromRational currentPoolPeriod)))
       return f {F.feeDue = max 0 (dueAmt - fromRational feePaidAmt) + fd, F.feeDueDate = Just calcDay}
 
+-- ^ fee based on a bond period number
 calcDueFee t calcDay f@(F.Fee fn (F.FeeFlowByBondPeriod pc) fs fd fdday fa lpd stmt)
   = do 
       currentBondPeriod <- queryCompound t calcDay (DealStatInt BondPaidPeriod)
       feePaidAmt <- queryCompound t calcDay (FeePaidAmt [fn])
       let dueAmt = fromMaybe 0 $ getValFromPerCurve pc Past Inc (succ (floor (fromRational currentBondPeriod)))
       return f {F.feeDue = max 0 (dueAmt - fromRational feePaidAmt) + fd, F.feeDueDate = Just calcDay} 
+
 
 disableLiqProvider :: Ast.Asset a => TestDeal a -> Date -> CE.LiqFacility -> CE.LiqFacility
 disableLiqProvider _ d liq@CE.LiqFacility{CE.liqEnds = Just endDate } 
@@ -294,6 +309,50 @@ calcDuePrin t d b =
     do
       tBal <- calcBondTargetBalance t d b
       return $ b {L.bndDuePrin = max 0 (bondBal - tBal) }
+
+-- ^ accure rate cap 
+accrueRC :: Ast.Asset a => TestDeal a -> Date -> [RateAssumption] -> HE.RateCap -> Either ErrorRep HE.RateCap
+accrueRC t d rs rc@HE.RateCap{HE.rcNetCash = amt, HE.rcStrikeRate = strike,HE.rcIndex = index
+                        ,HE.rcStartDate = sd, HE.rcEndDate = ed, HE.rcNotional = notional
+                        ,HE.rcLastStlDate = mlsd
+                        ,HE.rcStmt = mstmt} 
+  | d > ed || d < sd = return rc 
+  | otherwise = do
+                  r <- AP.lookupRate0 rs index d
+                  balance <- case notional of
+                               HE.Fixed bal -> Right . toRational $ bal
+                               HE.Base ds -> queryCompound t d (patchDateToStats d ds)
+                               HE.Schedule ts -> return $ getValByDate ts Inc d
+
+                  let accRate = max 0 $ r - fromRational (getValByDate strike Inc d) -- `debug` ("Rate from curve"++show (getValByDate strike Inc d))
+                  let addAmt = case mlsd of 
+                                 Nothing -> IR.calcInt (fromRational balance) sd d accRate DC_ACT_365F
+                                 Just lstD -> IR.calcInt (fromRational balance) lstD d accRate DC_ACT_365F
+
+                  let newAmt = amt + addAmt  -- `debug` ("Accrue AMT"++ show addAmt)
+                  let newStmt = appendStmt (IrsTxn d newAmt addAmt 0 0 0 SwapAccrue) mstmt 
+                  return $ rc { HE.rcLastStlDate = Just d ,HE.rcNetCash = newAmt, HE.rcStmt = newStmt }
+
+
+-- ^ accrue all liabilities of deal to date d
+accrueDeal :: Ast.Asset a => Date -> [RateAssumption] -> TestDeal a -> Either ErrorRep (TestDeal a)
+accrueDeal d ras t@TestDeal{fees = feeMap, bonds = bondMap, liqProvider = liqMap
+                            , rateSwap = rsMap, rateCap = rcMap, accounts = accMap}
+  = let
+      liqMap' = (Map.map (CE.accrueLiqProvider d)) <$> liqMap
+      rsMap' = (Map.map (HE.accrueIRS d)) <$> rsMap
+    in 
+      do
+        bondMap' <- sequenceA (Map.map (calcDueInt t d) bondMap) 
+        feeMap' <- sequenceA $ Map.map (\v -> if (F.reAccruableFeeType (F.feeType v)) then calcDueFee t d v else pure v) feeMap
+        rcMap' <- traverse (Map.traverseWithKey (\_ -> accrueRC t d ras)) rcMap
+        return t { fees = feeMap' ,
+                   bonds = bondMap',
+                   liqProvider = liqMap',
+                   rateSwap = rsMap',
+                   rateCap = rcMap'
+                   }
+
 
 
 priceAssetUnion :: ACM.AssetUnion -> Date -> PricingMethod  -> AP.AssetPerf -> Maybe [RateAssumption] 
@@ -533,6 +592,7 @@ updateSupport d (Just support) bal t =
 performActionWrap :: Ast.Asset a => Date -> (TestDeal a, RunContext a, DL.DList ResultComponent) 
                   -> W.Action -> Either ErrorRep (TestDeal a, RunContext a, DL.DList ResultComponent)
 
+
 performActionWrap d (t, rc, logs) (W.BuyAsset ml pricingMethod accName pId) 
   = performActionWrap d (t, rc, logs) (W.BuyAssetFrom ml pricingMethod accName (Just "Consol") pId)
 
@@ -551,8 +611,7 @@ performActionWrap d
                                 ,revolvingInterestRateAssump = mRates}
                   ,logs)
                   (W.BuyAssetFrom ml pricingMethod accName mRevolvingPoolName pId) 
-  = 
-    let 
+  = let 
       revolvingPoolName = fromMaybe "Consol" mRevolvingPoolName
       (assetForSale::RevolvingPool, perfAssumps::AP.ApplyAssumptionType) =  rMap Map.! revolvingPoolName  -- `debug` ("Getting pool"++ revolvingPoolName) 
 

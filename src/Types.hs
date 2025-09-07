@@ -207,7 +207,7 @@ data DateType = ClosingDate             -- ^ deal closing day
               | NextCollectDate
               | FirstCollectDate        -- ^ first collection day for pool
               | LastCollectDate         -- ^ last collection day for pool
-              | LastPayDate            -- ^ last payment day for bond/waterfall 
+              | LastPayDate             -- ^ last payment day for bond/waterfall 
               | StatedMaturityDate      -- ^ sated maturity date, all cashflow projection/deal action stops by
               | DistributionDates       -- ^ distribution date for waterfall
               | CollectionDates         -- ^ collection date for pool
