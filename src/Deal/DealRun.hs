@@ -550,28 +550,20 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
               let newlog = FinancialReport sd ed bsReport cashReport
               run t poolFlowMap (Just ads) rates calls rAssump $ DL.snoc log newlog -- `debug` ("new log"++ show ed++ show newlog)
 
-        FireTrigger d cyc n -> 
-          let 
-            triggerFired = case mTrgMap of 
-                               Nothing -> error "trigger is empty for override" 
-                               Just tm -> Map.adjust (Map.adjust (set trgStatusLens True) n) cyc tm
-            triggerEffects = do
-                                tm <- mTrgMap
-                                cycM <- Map.lookup cyc tm
-                                trg <- Map.lookup n cycM
-                                return $ trgEffects trg
-            
-            runContext = RunContext poolFlowMap rAssump rates
-          in 
-            do 
-              (newT, rc@(RunContext newPool _ _), adsFromTrigger, newLogsFromTrigger) 
-                <- case triggerEffects of 
-                    Nothing -> return (t, runContext, ads, DL.empty) -- `debug` "Nothing found on effects"
-                    Just efs -> runEffects (t, runContext, ads, DL.empty) d efs
-              let (oldStatus,newStatus) = (status t,status newT)
-              let stChangeLogs = DL.fromList [DealStatusChangeTo d oldStatus newStatus "by Manual fireTrigger" |  oldStatus /= newStatus] 
-              run newT {triggers = Just triggerFired} newPool (Just ads) rates calls rAssump $ DL.concat [log,stChangeLogs,newLogsFromTrigger]
-        
+        FireTrigger d cyc n ->  
+          do 
+            let runContext = RunContext poolFlowMap rAssump rates
+            theTrigger <- case (Map.lookup cyc =<< mTrgMap) >>= Map.lookup n of 
+                            Nothing -> Left $ "Failed to find trigger "++ n ++" at "++ show cyc ++" for manual fireTrigger"
+                            Just trg -> return trg
+            (newT, rc@(RunContext newPool _ _), adsFromTrigger, newLogsFromTrigger) <- runEffects (t, runContext, ads, DL.empty) d (trgEffects theTrigger)
+            let (oldStatus,newStatus) = (status t,status newT)
+            let stChangeLogs = DL.fromList [DealStatusChangeTo d oldStatus newStatus "by Manual fireTrigger" |  oldStatus /= newStatus]
+            let triggerFired = case mTrgMap of 
+                                Nothing -> error "trigger is empty for override" 
+                                Just tm -> Map.adjust (Map.adjust (set trgStatusLens True) n) cyc tm
+            run newT {triggers = Just triggerFired} newPool (Just ads) rates calls rAssump $ DL.concat [log,stChangeLogs,newLogsFromTrigger]
+      
         MakeWhole d spd walTbl -> 
             let 
               schedulePoolFlowMap = case pt of 

@@ -152,6 +152,8 @@ patchDateToStats d t
       AvgRatio ss -> AvgRatio $ [ patchDateToStats d ds | ds <- ss ]
       _ -> t -- `debug` ("Failed to patch date to stats"++show t)
 
+
+-- ^ convert a user input formula with a formula with two dates for internal
 patchDatesToStats :: P.Asset a => TestDeal a -> Date -> Date -> DealStats -> DealStats
 patchDatesToStats t d1 d2 ds 
   = case ds of 
