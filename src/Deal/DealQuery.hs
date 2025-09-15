@@ -56,22 +56,23 @@ debug = flip trace
 calcTargetAmount :: P.Asset a => TestDeal a -> Date -> A.Account -> Either ErrorRep Balance
 calcTargetAmount t d (A.Account _ _ _ Nothing _ ) = return 0
 calcTargetAmount t d (A.Account _ _ _ (Just r) _ ) =
-   eval r 
-   where
-     eval :: A.ReserveAmount -> Either ErrorRep Balance
-     eval ra = case ra of
-       A.PctReserve ds _rate -> do 
-                                  v <- queryCompound t d (patchDateToStats d ds)
-                                  return (fromRational (v * _rate))
-       A.FixReserve amt -> return amt
-       A.Either p ra1 ra2 -> do 
-                               q <- testPre d t p
-                               if q then 
-                                 eval ra1
-                               else 
-                                 eval ra2 
-       A.Max ras -> maximum' <$> traverse eval ras
-       A.Min ras -> minimum' <$> traverse eval ras
+  let
+    eval :: A.ReserveAmount -> Either ErrorRep Balance
+    eval ra = case ra of
+      A.PctReserve ds _rate -> do 
+                                v <- queryCompound t d (patchDateToStats d ds)
+                                return (fromRational (v * _rate))
+      A.FixReserve amt -> return amt
+      A.Either p ra1 ra2 -> do 
+                              q <- testPre d t p
+                              if q then 
+                                eval ra1
+                              else 
+                                eval ra2 
+      A.Max ras -> maximum' <$> traverse eval ras
+      A.Min ras -> minimum' <$> traverse eval ras
+  in 
+    eval r
 
 -- | calculate target bond balance for a bond 
 calcBondTargetBalance :: P.Asset a => TestDeal a -> Date -> L.Bond -> Either ErrorRep Balance
@@ -93,6 +94,7 @@ calcBondTargetBalance t d (L.BondGroup bMap mPt) =
                                  Just v -> return v
                                  Nothing -> Left "Failed to find value in calcTargetBalance"
     _ -> Left $ "not support principal type for bond group"++ show mPt
+
 calcBondTargetBalance t d b = 
   case L.bndType b of
     L.Sequential -> return 0
@@ -213,11 +215,13 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
   case s of
     Sum _s -> sum <$> sequenceA [ queryCompound t d __s | __s <- _s]
     Substract dss -> queryCompound t d (Subtract dss)
+    Subtract [] -> Left $ "Date:"++show d++"Can not subtract empty list"
     Subtract (ds:dss) -> 
       do
         a <- queryCompound t d ds 
         bs <- queryCompound t d (Sum dss) 
         return $ a - bs
+    Avg [] -> Left $ "Date:"++show d++"Can not average empty list"
     Avg dss ->  (/ (toRational (length dss))) <$> (sum <$> sequenceA (queryCompound t d <$> dss )) 
     Max ss -> maximum' [ queryCompound t d s | s <- ss ]
     Min ss -> minimum' [ queryCompound t d s | s <- ss ]
@@ -233,17 +237,17 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
     Excess (s1:ss) -> do 
                         q1 <- queryCompound t d s1 
                         q2 <- queryCompound t d (Sum ss) -- `debug` ("Excess"++show (queryCompound t s1)++"ss"++show ( queryCompound t (Sum ss)))
-                        return (max 0 (q1 -q2))
+                        return (max 0 (q1-q2))
     CapWith s cap -> min (queryCompound t d s) (queryCompound t d cap)
     Abs s -> abs <$> queryCompound t d s
     Round ds rb -> do 
-                      q <- queryCompound t d ds
-                      return $ roundingBy rb q
+                    q <- queryCompound t d ds
+                    return $ roundingBy rb q
     DivideRatio s1 s2 -> queryCompound t d (Divide s1 s2)
     AvgRatio ss -> queryCompound t d (Avg ss)
     Constant v -> return v
     -- rate query
-    BondFactor -> queryCompound t d (Divide CurrentBondBalance  OriginalBondBalance) 
+    BondFactor -> queryCompound t d (Divide CurrentBondBalance OriginalBondBalance) 
     BondFactorOf bn -> 
       queryCompound t d (Divide (CurrentBondBalanceOf [bn]) (OriginalBondBalanceOf [bn])) 
     PoolFactor mPns -> 
@@ -348,17 +352,9 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
         return $ toRational (sum vs)
 
 
-    ReserveExcessAt _d ans ->
-      do 
-        q1 <- queryCompound t d (AccBalance ans)
-        q2 <- queryCompound t d (ReserveBalance ans)
-        return $ max 0 (q1 - q2)
+    ReserveExcessAt _d ans -> queryCompound t d (Excess [AccBalance ans, ReserveBalance ans])
 
-    ReserveGapAt _d ans ->
-      do 
-        q1 <- queryCompound t d (AccBalance ans)
-        q2 <- queryCompound t d (ReserveBalance ans)
-        return $ max 0 (q2 - q1)
+    ReserveGapAt _d ans -> queryCompound t d (Excess [ReserveBalance ans, AccBalance ans])
 
     -- CurrentBondBalance -> Right . toRational $ Map.foldr (\x acc -> getCurBalance x + acc) 0.0 bndMap
     CurrentBondBalance -> return $ sum $ toRational . getCurBalance <$> Map.elems bndMap
@@ -650,10 +646,7 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
               Nothing -> Right . toRational $ sum [ LD.ledgBalance lg | lg <- lgs ]
 
     BondBalanceGapAt d bName -> 
-      do 
-        tbal <- queryCompound t d (BondBalanceTarget [bName])
-        cbal <- queryCompound t d (CurrentBondBalanceOf [bName])
-        return $ max 0 $ cbal - tbal  -- `debug` (show d ++">"++ "tbal"++show tbal++"cbal"++show cbal)
+      queryCompound t d (Excess [CurrentBondBalanceOf [bName], BondBalanceTarget [bName]])
 
     BondBalanceTarget bNames ->
       do

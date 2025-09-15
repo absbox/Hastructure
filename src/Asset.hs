@@ -7,10 +7,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Asset ( Asset(..),
-       buildAssumptionPpyDefRecRate,buildAssumptionPpyDelinqDefRecRate
-       ,calcRecoveriesFromDefault,getCurBalance
-       ,priceAsset,applyHaircut,buildPrepayRates,buildDefaultRates,getObligorFields
-       ,getObligorTags,getObligorId,getRecoveryLagAndRate,getDefaultDelinqAssump,getOriginInfo
+      buildAssumptionPpyDefRecRate,buildAssumptionPpyDelinqDefRecRate
+      ,calcRecoveriesFromDefault,getCurBalance
+      ,priceAsset,applyHaircut,buildPrepayRates,buildDefaultRates,getObligorFields
+      ,getObligorTags,getObligorId,getRecoveryLagAndRate,getDefaultDelinqAssump,getOriginInfo
 ) where
 
 import qualified Data.Time as T
@@ -18,9 +18,9 @@ import qualified Data.Text as Text
 import Text.Read (readMaybe)
 
 import Lib (Period(..)
-           ,Ts(..),periodRateFromAnnualRate,toDate
-           ,getIntervalDays,zipWith9,mkTs,periodsBetween
-           ,mkRateTs,daysBetween, getIntervalFactors)
+          ,Ts(..),periodRateFromAnnualRate,toDate
+          ,getIntervalDays,zipWith9,mkTs,periodsBetween
+          ,mkRateTs,daysBetween, getIntervalFactors)
 
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
 import qualified Assumptions as A
@@ -110,6 +110,7 @@ class (Show a,IR.UseRate a) => Asset a where
                         in 
                           T.addDays offset $ Asset.getOriginDate ast
 
+  -- | Get Obligor info if any modeled
   getObligor :: a -> Maybe Obligor
   getObligor a = 
       case getOriginInfo a of 
@@ -118,7 +119,7 @@ class (Show a,IR.UseRate a) => Asset a where
         LoanOriginalInfo{obligor = x } -> x
         LeaseInfo{obligor =  x } -> x
         ReceivableInfo{obligor = x } -> x
-
+  -- | Get Obligor tags if any modeled
   getObligorTags :: a -> Set.Set String
   getObligorTags a = 
       case getOriginInfo a of 
@@ -127,7 +128,7 @@ class (Show a,IR.UseRate a) => Asset a where
         LeaseInfo{obligor = Just obr } -> Set.fromList (obligorTag obr)
         ReceivableInfo{obligor = Just obr } -> Set.fromList (obligorTag obr)
         _ -> mempty
-
+  -- | Get Obligor Id if any modeled
   getObligorId :: a -> Maybe String
   getObligorId a = 
       case getOriginInfo a of 
@@ -136,7 +137,7 @@ class (Show a,IR.UseRate a) => Asset a where
         LeaseInfo{obligor = Just obr } -> Just (obligorId obr)
         ReceivableInfo{obligor = Just obr } -> Just (obligorId obr)
         _ -> Nothing
-
+  -- | Get Obligor fields if any modeled
   getObligorFields :: a -> Maybe (Map.Map String (Either String Double))
   getObligorFields a = 
     let 
@@ -162,7 +163,7 @@ applyExtraStress (Just ExtraStress{A.defaultFactors= mDefFactor
     (Just ppyFactor,Just defFactor) -> (getTsVals $ multiplyTs Exc (zipTs ds ppy) ppyFactor
                                        ,getTsVals $ multiplyTs Exc (zipTs ds def) defFactor)
 
-
+-- ^ convert annual CPR to single month mortality
 cpr2smm :: Rate -> Rate
 cpr2smm r = toRational $ 1 - (1 - fromRational r :: Double) ** (1/12)
 
@@ -286,9 +287,10 @@ buildAssumptionPpyDefRecRate a ds (A.MortgageAssump mDa mPa mRa mESa)
 
 getDefaultDelinqAssump :: Maybe A.AssetDelinquencyAssumption -> [Date] -> ([Rate],Int,Rate)
 getDefaultDelinqAssump Nothing ds = (replicate (length ds) 0.0, 0, 0.0)  
-getDefaultDelinqAssump (Just (A.DelinqCDR r (lag,pct))) ds = (map (Util.toPeriodRateByInterval r) (getIntervalDays ds)
-                                                    ,lag 
-                                                    ,pct)
+getDefaultDelinqAssump (Just (A.DelinqCDR r (lag,pct))) ds 
+  = (map (Util.toPeriodRateByInterval r) (getIntervalDays ds)
+    ,lag 
+    ,pct)
 
 getDefaultLagAndRate :: Maybe A.RecoveryAssumption -> (Rate,Int)
 getDefaultLagAndRate Nothing = (0,0)
@@ -312,15 +314,16 @@ buildAssumptionPpyDelinqDefRecRate a ds (A.MortgageDeqAssump mDeqDefault mPa mRa
         prepayRates <- buildPrepayRates a ds mPa
         return (prepayRates,delinqRates,(defaultPct,defaultLag),recoveryRate, recoveryLag)
 
-
+-- TODO : fix recovery rate/lag
 calcRecoveriesFromDefault :: Balance -> Rate -> [Rate] -> [Amount]
 calcRecoveriesFromDefault bal recoveryRate recoveryTiming
-  = mulBR recoveryAmt <$> recoveryTiming
-    where
+  = let
       recoveryAmt = mulBR bal recoveryRate
+    in 
+      mulBR recoveryAmt <$> recoveryTiming
 
 priceAsset :: Asset a => a -> Date -> PricingMethod -> A.AssetPerf -> Maybe [RateAssumption] -> CutoffType 
-           -> Either String PriceResult
+           -> Either ErrorRep PriceResult
 priceAsset m d (PVCurve curve) assumps mRates cType
   = let 
       cr = getCurrentRate m
@@ -346,7 +349,7 @@ priceAsset m d (PVCurve curve) assumps mRates cType
             duration = fromRational $ calcDuration DC_ACT_365F d (zip ds amts) curve
             convexity = fromRational $ calcConvexity DC_ACT_365F d (zip ds amts) curve
           in
-            Right $ AssetPrice pv wal duration convexity accruedInt
+            return $ AssetPrice pv wal duration convexity accruedInt
         Left x -> Left x
 
 priceAsset m d (BalanceFactor currentFactor defaultedFactor) assumps mRates cType
@@ -363,7 +366,7 @@ priceAsset m d (BalanceFactor currentFactor defaultedFactor) assumps mRates cTyp
                amts = CF.tsTotalCash <$> txns 
                wal = calcWAL ByYear cb d (zip amts ds) -- `debug` ("pricing"++ show d++ show ds++ show amts)
            in  
-             Right $ AssetPrice val wal (-1) (-1) (-1)  
+             return $ AssetPrice val wal (-1) (-1) (-1)  
          Left x -> Left x
       
 priceAsset m d (PvRate r) assumps mRates cType
@@ -391,5 +394,5 @@ priceAsset m d (PvRate r) assumps mRates cType
                 duration = fromRational $ calcDuration DC_ACT_365F d (zip ds amts) curve
                 convexity = fromRational $ calcConvexity DC_ACT_365F d (zip ds amts) curve
             in
-              Right $ AssetPrice pv wal duration convexity accruedInt
+              return $ AssetPrice pv wal duration convexity accruedInt
           Left x -> Left x

@@ -55,10 +55,10 @@ debug = flip trace
 type AssetPerf = (AssetPerfAssumption,AssetDelinqPerfAssumption,AssetDefaultedPerfAssumption)
 type StratPerfByIdx = ([Int],AssetPerf)
 
-lookupAssumptionByIdx :: [StratPerfByIdx] -> Int -> Either String AssetPerf
+lookupAssumptionByIdx :: [StratPerfByIdx] -> Int -> Either ErrorRep AssetPerf
 lookupAssumptionByIdx sbi i
   = case find (\(indxs,_) -> Set.member i  (Set.fromList indxs) ) sbi of
-        Just (_, aps ) ->  Right aps
+        Just (_, aps ) ->  return aps
         Nothing -> Left ("Lookup assumption by ID: Can't find idx"++ show i ++"in starfication list"++ show sbi)
 
 type ObligorTagStr = String

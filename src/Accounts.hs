@@ -30,16 +30,25 @@ import qualified Data.DList as DL
 import Debug.Trace
 debug = flip trace
 
-data InterestInfo = BankAccount IRate DatePattern Date                                      -- ^ fix reinvest return rate
-                  | InvestmentAccount Types.Index Spread DatePattern DatePattern Date IRate -- ^ float type: index, spread, sweep dates, rate reset , last accrue day, last reset rate
-                  deriving (Show, Generic,Eq,Ord)
+data InterestInfo 
+  -- | fix reinvest return rate
+  = BankAccount IRate DatePattern Date     
+  -- | float type: index, spread, sweep dates, rate reset , last accrue day, last reset rate                                 
+  | InvestmentAccount Types.Index Spread DatePattern DatePattern Date IRate 
+  deriving (Show, Generic, Eq, Ord)
 
-data ReserveAmount = PctReserve DealStats Rate               -- ^ target amount with reference to % of formula
-                   | FixReserve Balance                      -- ^ target amount with fixed balance amount    
-                   | Either Pre ReserveAmount ReserveAmount  -- ^ target amount depends on a test, if true, then use first one ,otherwise use second one
-                   | Max [ReserveAmount]                     -- ^ use higher of all reserve formulas
-                   | Min [ReserveAmount]                     -- ^ use lower of all reserve formulas
-                   deriving (Show, Eq, Generic, Ord)
+data ReserveAmount 
+  -- | target amount with reference to % of formula
+  = PctReserve DealStats Rate
+  -- | target amount with fixed balance amount                
+  | FixReserve Balance     
+  -- | target amount depends on a test, if true, then use first one ,otherwise use second one                    
+  | Either Pre ReserveAmount ReserveAmount
+  -- | use higher of all reserve formulas  
+  | Max [ReserveAmount]               
+  -- | use lower of all reserve formulas      
+  | Min [ReserveAmount]                     
+  deriving (Show, Eq, Generic, Ord)
 
 data Account = Account {
     accBalance :: Balance                 -- ^ account current balance
@@ -47,7 +56,7 @@ data Account = Account {
     ,accInterest :: Maybe InterestInfo    -- ^ account reinvestment interest
     ,accType :: Maybe ReserveAmount       -- ^ target info if a reserve account
     ,accStmt :: Maybe Statement           -- ^ transactional history
-} deriving (Show, Generic,Eq, Ord)
+} deriving (Show, Generic, Eq, Ord)
 
 -- | build interest earn actions
 buildEarnIntAction :: [Account] -> Date -> [(String,Dates)] -> [(String,Dates)]

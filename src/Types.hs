@@ -47,7 +47,7 @@ module Types
   ,_BondTxn ,_InspectBal, _IrrResult,DueType(..)
   ,EvalExpr(..),ErrorRep,Accruable(..),Payable(..),Drawable(..)
   ,SupportAvailType(..),updateSupportAvailType
-  )
+  ,JRational)
   where
 
 import qualified Data.Text as Text
@@ -84,6 +84,8 @@ import Data.Decimal
 import Data.Ix
 import Data.List (intercalate, findIndex, find)
 import Debug.Trace
+import Data.Scientific (scientific)
+import Data.Text (unpack)
 debug = flip trace
 
 
@@ -1290,6 +1292,8 @@ $(deriveJSON defaultOptions ''HowToPay)
 
 
 
+
+
 instance ToJSONKey DealCycle where
   toJSONKey = toJSONKeyText (T.pack . show)
 
@@ -1336,3 +1340,23 @@ $(deriveJSON defaultOptions ''Direction)
 -- $(deriveJSONGADT ''EvalExpr)
 makePrisms ''Txn
 $(concat <$> traverse (deriveJSON defaultOptions) [''Limit] )
+
+
+
+
+-- newtype wrapper (no orphan instance)
+newtype JRational = JRational { unJRationalMicro :: Rational }
+  deriving (Eq, Show, Read, Ord, Generic)
+
+-- encode as a JSON Number with 6 fractional digits (Micro)
+instance ToJSON JRational where
+  toJSON (JRational r) = Number $ scientific (round (r * 1000000)) (-6)
+
+-- decode either a numeric JSON value or a numeric string into Rational
+instance FromJSON JRational where
+  parseJSON (Number s) = pure $ JRational (toRational s)
+  parseJSON (String t) =
+    case reads (unpack t) of
+      [(d, "")] -> pure $ JRational (toRational (d :: Double))
+      _ -> fail "Invalid Micro string"
+  parseJSON _ = fail "Expected number or string for JRational"
