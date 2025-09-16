@@ -25,6 +25,7 @@ import qualified CreditEnhancement as CE
 import qualified Triggers as Trg
 import Lib
 import Types
+import Deal.DealCollection (CollectionRule(..))
 
 import qualified Data.Map as Map
 import qualified Data.Time as T
@@ -86,8 +87,8 @@ baseCase = D.TestDeal {
                                  (W.PayInt Nothing "General" ["A"] Nothing)
                                  ,(W.PayPrin Nothing "General" ["A"] Nothing)
    ])]
- ,D.collects = [W.Collect Nothing W.CollectedInterest "General"
-             ,W.Collect Nothing W.CollectedPrincipal "General"]
+ ,D.collects = [Collect Nothing W.CollectedInterest "General"
+             ,Collect Nothing W.CollectedPrincipal "General"]
 }
 
 resecDeal = D.TestDeal {
@@ -121,11 +122,11 @@ resecDeal = D.TestDeal {
                          ]
            )
   ,D.pool = D.ResecDeal (Map.fromList [(DealBondFlow "base case" "A" (toDate "20200101") 0.25
-                                        , D.UnderlyingDeal baseCase CF.emptyCashflow CF.emptyCashflow Nothing)])
+                                        , D.UnderlyingDeal baseCase (Just CF.emptyCashflow) (Just CF.emptyCashflow) Nothing)])
    ,D.waterfall = Map.fromList [(W.DistributionDay Amortizing, [
                                  (W.PayInt Nothing "General" ["A"] Nothing)
                                  ,(W.PayPrin Nothing "General" ["A"] Nothing)
    ])]
- ,D.collects = [W.Collect Nothing W.CollectedInterest "General"
-             ,W.Collect Nothing W.CollectedPrincipal "General"]
+ ,D.collects = [Collect Nothing W.CollectedInterest "General"
+             ,Collect Nothing W.CollectedPrincipal "General"]
 }

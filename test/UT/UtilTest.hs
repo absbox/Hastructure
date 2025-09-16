@@ -1,7 +1,9 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module UT.UtilTest(daycountTests1,daycountTests2,daycountTests3,daycountTests4
                   ,tsTest,ts2Test,ts3Test,dateVectorPatternTest,paddingTest,dateSliceTest
                   ,capTest,roundingTest,sliceTest,splitTsTest,tableTest,lastOftest,paySeqTest
-                  ,scaleListTest)--,daycountTests3,daycountTests4)
+                  ,scaleListTest,mapUpdateTest)--,daycountTests3,daycountTests4)
 where
 
 import Test.Tasty
@@ -18,6 +20,8 @@ import Stmt
 import Data.Fixed
 import qualified Data.DList as DL
 import Data.Ratio ((%))
+import qualified Data.Map as Map
+import Data.Either
 
 import Debug.Trace
 debug = flip trace
@@ -614,21 +618,21 @@ paySeqTest =
   testGroup "write off on bond" [
     testCase "write off on bond 1" $
     assertEqual "only 1st bond is written off by 70"
-    (Right ([bnd1 {L.bndBalance = 30,L.bndStmt = Just (Statement (DL.fromList ([BondTxn d1 30.00 0.00 0.00 0.000000 0.00 0.00 0.00 Nothing (WriteOff "A" 70.00)])))}
+    (Right ([bnd1 {L.bndBalance = 30,L.bndStmt = Just (Statement (DL.fromList ([BondTxn d1 30.00 0.00 0.00 0.08 0.00 0.00 0.00 Nothing (WriteOff "A" 70.00)])))}
             , bnd2],0))
-    (paySeqM d1 70 L.bndBalance (L.writeOff d1) (Right []) [bnd1,bnd2])
+    (paySeqM d1 70 L.bndBalance (writeOff d1 DuePrincipal) (Right []) [bnd1,bnd2])
     ,testCase "write off on bond 2" $
     assertEqual "2st bond is written off by 70"
-    (Right ([bnd1 {L.bndBalance = 0,L.bndStmt = Just (Statement  (DL.fromList ([BondTxn d1 0.00 0.00 0.00 0.000000 0.00 0.00 0.00 Nothing (WriteOff "A" 100.00)])))}
-            , bnd2{L.bndBalance = 70,L.bndStmt = Just (Statement (DL.fromList ([BondTxn d1 70.00 0.00 0.00 0.000000 0.00 0.00 0.00 Nothing (WriteOff "B" 30.00)])))}
+    (Right ([bnd1 {L.bndBalance = 0,L.bndStmt = Just (Statement  (DL.fromList ([BondTxn d1 0.00 0.00 0.00 0.08 0.00 0.00 0.00 Nothing (WriteOff "A" 100.00)])))}
+            , bnd2{L.bndBalance = 70,L.bndStmt = Just (Statement (DL.fromList ([BondTxn d1 70.00 0.00 0.00 0.08 0.00 0.00 0.00 Nothing (WriteOff "B" 30.00)])))}
             ],0))
-    (paySeqM d1 130 L.bndBalance (L.writeOff d1) (Right []) [bnd1,bnd2])
+    (paySeqM d1 130 L.bndBalance (writeOff d1 DuePrincipal) (Right []) [bnd1,bnd2])
     ,testCase "write off on all bonds " $
     assertEqual "over write off"
-    (Right ([bnd1 {L.bndBalance = 0,L.bndStmt = Just (Statement (DL.fromList ([BondTxn d1 0.00 0.00 0.00 0.000000 0.00 0.00 0.00 Nothing (WriteOff "A" 100.00)])))}
-            , bnd2{L.bndBalance = 0,L.bndStmt = Just (Statement (DL.fromList ([BondTxn d1 0.00 0.00 0.00 0.000000 0.00 0.00 0.00 Nothing (WriteOff "B" 100.00)])))}
+    (Right ([bnd1 {L.bndBalance = 0,L.bndStmt = Just (Statement (DL.fromList ([BondTxn d1 0.00 0.00 0.00 0.08 0.00 0.00 0.00 Nothing (WriteOff "A" 100.00)])))}
+            , bnd2{L.bndBalance = 0,L.bndStmt = Just (Statement (DL.fromList ([BondTxn d1 0.00 0.00 0.00 0.08 0.00 0.00 0.00 Nothing (WriteOff "B" 100.00)])))}
             ],30))
-    (paySeqM d1 230 L.bndBalance (L.writeOff d1) (Right []) [bnd1,bnd2])
+    (paySeqM d1 230 L.bndBalance (writeOff d1 DuePrincipal) (Right []) [bnd1,bnd2])
   ]
 
 scaleListTest = 
@@ -644,4 +648,50 @@ scaleListTest =
         assertEqual "scale list"
         []
         $ scaleByFstElement 50 []
+    ]
+
+
+mapUpdateTest = 
+  let 
+    m = Map.fromList [(1,100.0),(2,200.0),(3,300.0)]
+    fn::(Double->Either String Double) = \x -> Right (x * 0.5)
+    fn'::(Double->Either String Double) = \x -> Left "error"
+  in 
+    testGroup "adjustM"
+    [ testCase "adjustM - Test" $
+        assertEqual "adjustM - Test - 1" 
+        (Right (Map.fromList [(1,100.0),(2,200.0),(3,150.0)]))
+        (adjustM fn 3 m)
+    , testCase "adjustM - Test" $
+        assertEqual "adjustM - Test - 2"
+        (Left "error")
+        (adjustM fn' 3 m)
+    , testCase "adjustM - Test" $
+        assertEqual "adjustM - Test - 3"
+        (Right (Map.fromList [(1,100.0),(2,100.0),(3,150.0)]))
+        (adjustMs fn [2,3] m)
+    , testCase "adjustM - Test" $
+        assertEqual "adjustM - Test - 4"
+        (Left "error")
+        (adjustMs fn' [2] m)
+    , testCase "adjustM - Test" $
+        assertEqual "adjustM - Test - 5"
+        (Right m)
+        (adjustMs fn [4] m)
+    , testCase "mapInMapM - Test" $
+        assertEqual "mapInMapM - Test - 1"
+        (Right (Map.fromList [(1,100.0),(2,200.0),(3,150.0)]))
+        (mapInMapM fn [3] m)
+    , testCase "mapInMapM - Test" $
+        assertEqual "mapInMapM - Test - 1 - 1"
+        (Right (Map.fromList [(1,50.0),(2,100.0),(3,300.0)]))
+        (mapInMapM fn [1,2] m)
+    , testCase "mapInMapM - Test" $
+        assertEqual "mapInMapM - Test - 2"
+        True
+        (isLeft (mapInMapM fn [4] m))
+    , testCase "mapInMapM - Test" $
+        assertEqual "mapInMapM - Test - 3"
+        True
+        (isLeft (mapInMapM fn' [3] m))
     ]

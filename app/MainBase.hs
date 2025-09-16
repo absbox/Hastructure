@@ -24,7 +24,6 @@ where
 import Prelude ()
 import Prelude.Compat
 import System.Environment
-import Control.Monad.Catch       (MonadCatch, MonadThrow (..))
 import Control.Monad.IO.Class    (liftIO)
 import Control.Monad (mapM)
 import Control.Exception (Exception,throwIO,throw)
@@ -34,7 +33,7 @@ import Data.Aeson
 import Data.Aeson.Types
 import Data.Aeson.TH
 import Data.Aeson.Encode.Pretty (encodePretty)
-import Data.Attoparsec.ByteString
+-- import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
 import Data.List
 import qualified Data.DList as DL
@@ -54,9 +53,9 @@ import qualified Data.ByteString.Char8 as BS
 import Network.Wai
 import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Cors
-import qualified Data.Aeson.Parser
+-- import qualified Data.Aeson.Parser
 import Language.Haskell.TH
-import Network.HTTP.Types.Status
+-- import Network.HTTP.Types.Status
 import Servant.OpenApi
 import Servant
 import Servant.Types.SourceT (source)
@@ -65,6 +64,7 @@ import Servant.API.ContentTypes (contentType)
 import Types
 import qualified Deal as D
 import qualified Deal.DealBase as DB
+import qualified Deal.DealCollection as DC
 import qualified Deal.DealQuery as Q
 import qualified Asset as Ast
 import qualified Pool as P
@@ -104,7 +104,7 @@ data DealType = MDeal (DB.TestDeal AB.Mortgage)
               | RDeal (DB.TestDeal AB.Lease) 
               | FDeal (DB.TestDeal AB.FixedAsset) 
               | VDeal (DB.TestDeal AB.Receivable)
-              | PDeal (DB.TestDeal AB.ProjectedCashflow) 
+              | PDeal (DB.TestDeal AB.ProjectedCashFlow) 
               | UDeal (DB.TestDeal AB.AssetUnion)
               deriving(Show, Generic)
 
@@ -116,7 +116,7 @@ data PoolTypeWrap = LPool (DB.PoolType AB.Loan)
                   | RPool (DB.PoolType AB.Lease)
                   | FPool (DB.PoolType AB.FixedAsset)
                   | VPool (DB.PoolType AB.Receivable)
-                  | PPool (DB.PoolType AB.ProjectedCashflow)
+                  | PPool (DB.PoolType AB.ProjectedCashFlow)
                   | UPool (DB.PoolType AB.AssetUnion)
                   deriving(Show, Generic)
 
@@ -204,7 +204,7 @@ instance ToSchema AB.LeaseStepUp
 instance ToSchema AB.Lease
 instance ToSchema AB.FixedAsset
 instance ToSchema AB.Receivable
-instance ToSchema AB.ProjectedCashflow
+instance ToSchema AB.ProjectedCashFlow
 instance ToSchema CutoffFields
 instance ToSchema (P.Pool AB.Mortgage)
 instance ToSchema (P.Pool AB.Loan)
@@ -213,7 +213,7 @@ instance ToSchema (P.Pool AB.Lease)
 instance ToSchema (P.Pool AB.FixedAsset)
 instance ToSchema (P.Pool AB.Receivable)
 instance ToSchema (P.Pool AB.AssetUnion)
-instance ToSchema (P.Pool AB.ProjectedCashflow)
+instance ToSchema (P.Pool AB.ProjectedCashFlow)
 instance ToSchema AB.AssetUnion
 instance ToSchema PoolId
 instance ToSchema DealStatus
@@ -254,7 +254,7 @@ instance ToSchema W.ActionWhen
 instance ToSchema W.ExtraSupport
 instance ToSchema W.Action
 instance ToSchema W.BookType
-instance ToSchema W.CollectionRule
+instance ToSchema DC.CollectionRule
 instance ToSchema C.CallOption
 instance ToSchema CE.LiqCreditCalc
 instance ToSchema CE.LiqFacility
@@ -327,7 +327,7 @@ instance ToSchema (DB.TestDeal AB.Loan)
 instance ToSchema (DB.TestDeal AB.Installment)
 instance ToSchema (DB.TestDeal AB.Lease)
 instance ToSchema (DB.TestDeal AB.Receivable)
-instance ToSchema (DB.TestDeal AB.ProjectedCashflow)
+instance ToSchema (DB.TestDeal AB.ProjectedCashFlow)
 instance ToSchema (DB.TestDeal AB.AssetUnion)
 instance ToSchema (DB.TestDeal AB.FixedAsset)
 instance ToSchema (DB.PoolType AB.Mortgage)
@@ -336,7 +336,7 @@ instance ToSchema (DB.PoolType AB.Installment)
 instance ToSchema (DB.PoolType AB.Lease)
 instance ToSchema (DB.PoolType AB.FixedAsset)
 instance ToSchema (DB.PoolType AB.Receivable)
-instance ToSchema (DB.PoolType AB.ProjectedCashflow)
+instance ToSchema (DB.PoolType AB.ProjectedCashFlow)
 instance ToSchema (DB.PoolType AB.AssetUnion)
 instance ToSchema (DB.UnderlyingDeal AB.Mortgage)
 instance ToSchema (DB.UnderlyingDeal AB.Loan)
@@ -344,11 +344,12 @@ instance ToSchema (DB.UnderlyingDeal AB.Installment)
 instance ToSchema (DB.UnderlyingDeal AB.Lease)
 instance ToSchema (DB.UnderlyingDeal AB.FixedAsset)
 instance ToSchema (DB.UnderlyingDeal AB.Receivable)
-instance ToSchema (DB.UnderlyingDeal AB.ProjectedCashflow)
+instance ToSchema (DB.UnderlyingDeal AB.ProjectedCashFlow)
 instance ToSchema (DB.UnderlyingDeal AB.AssetUnion)
 instance ToSchema ResultComponent
 instance ToSchema PriceResult
 instance ToSchema DealType
+instance ToSchema SupportAvailType
 
 -- $(concat <$> traverse (deriveJSON defaultOptions) [''DealType,''RootFindResp])
 $(deriveJSON defaultOptions ''DealType)
@@ -367,3 +368,6 @@ instance ToSchema PoolTypeWrap
 instance ToSchema RunPoolReq
 instance ToSchema RunAssetReq
 instance ToSchema RootFindResp
+
+
+

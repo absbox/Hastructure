@@ -14,8 +14,7 @@ module Lib
     ,getValOnByDate,getIntValOnByDate,sumValTs,subTsBetweenDates,splitTsByDate
     ,paySeqLiabilitiesAmt,getIntervalDays,getIntervalFactors
     ,zipWith8,zipWith9,zipWith10,zipWith11,zipWith12
-    ,weightedBy, mkTs
-    ,mkRateTs,paySeqLiabResi
+    ,weightedBy, mkTs ,mkRateTs,paySeqLiabResi ,centiToDecimal
     ) where
 
 import qualified Data.Time as T
@@ -34,6 +33,7 @@ import Types
 import Control.Lens
 import Data.List.Lens
 import Control.Lens.TH
+import Data.Decimal
 import Debug.Trace
 debug = flip trace
 
@@ -50,30 +50,36 @@ addD :: Date -> T.CalendarDiffDays -> Date
 addD d calendarMonth = T.addGregorianDurationClip T.calendarMonth d
 
 getIntervalDays :: [Date] -> [Int]
-getIntervalDays ds = zipWith daysBetweenI (init ds) (tail ds)
+getIntervalDays [] = []
+getIntervalDays (d:ds) = zipWith daysBetweenI (init (d:ds)) ds
+
 
 -- get fractional years from a set of dates
 getIntervalFactors :: [Date] -> [Rate]
 getIntervalFactors ds = (\x -> toRational x / 365) <$> getIntervalDays ds -- `debug` ("Interval Days"++show(ds))
 
+
+centiToDecimal :: Centi -> Decimal
+centiToDecimal c = Decimal 2 (round c * 100)
+
 -- | 
 prorataFactors :: [Balance] -> Balance -> [Balance]
 prorataFactors bals amt =
-  case s of 
-    0.0 -> replicate (length bals) 0.0
-    _ -> let 
-           weights = map (\x -> toRational x / s) bals -- `debug` ("bals"++show bals++">>s>>"++show s++"amt to pay"++show amtToPay)
-           outPut = (\y -> fromRational (y * amtToPay)) <$> weights -- `debug` ("Weights->>"++ show weights)
-           eps = amt - sum outPut
-         in 
-           if eps == 0.00 then
-              outPut
-           else
-              over (ix 0) (+ eps) outPut
-          
-  where
+  let 
     s = toRational $ sum bals
     amtToPay = toRational $ min s (toRational amt)
+  in 
+    case s of 
+      0.0 -> replicate (length bals) 0.0
+      _ -> let 
+             weights = map (\x -> toRational x / s) bals 
+             outPut = (\y -> fromRational (y * amtToPay)) <$> weights 
+             eps = amt - sum outPut
+           in 
+             if eps == 0.00 then
+                outPut
+             else
+                over (ix 0) (+ eps) outPut
 
 -- 
 

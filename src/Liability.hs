@@ -4,23 +4,26 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE DataKinds #-}
+
 
 module Liability
   (Bond(..),BondType(..),OriginalInfo(..)
-  ,payInt,payPrin,consolStmt,isPaidOff,getCurBalance
+  ,isPaidOff
   ,priceBond,pv,InterestInfo(..),RateReset(..)
-  ,getDueInt,weightAverageBalance,calcZspread,payYield,getTotalDueInt
-  ,buildRateResetDates,isAdjustble,StepUp(..),isStepUp,getDayCountFromInfo
-  ,calcWalBond,patchBondFactor,fundWith,writeOff,InterestOverInterestType(..)
+  ,getDueInt,weightAverageBalance,calcZspread,getTotalDueInt
+  ,buildRateResetDates,isAdjustable,StepUp(..),isStepUp,getDayCountFromInfo
+  ,calcWalBond,patchBondFactor,InterestOverInterestType(..)
   ,getCurBalance,setBondOrigDate
   ,bndOriginInfoLens,bndIntLens,getBeginRate,_Bond,_BondGroup
   ,totalFundedBalance,getIndexFromInfo,buildStepUpDates
-  ,accrueInt,stepUpInterestInfo,payIntByIndex,_MultiIntBond
+  ,accrueInt,stepUpInterestInfo,_MultiIntBond
   ,getDueIntAt,getDueIntOverIntAt,getDueIntOverInt,getTotalDueIntAt
   ,getCurRate,bondCashflow,getOutstandingAmount,valueBond,getTxnRate
   ,getAccrueBegDate,getTxnInt,adjInterestInfoByRate,adjInterestInfoBySpread
   ,interestInfoTraversal,getOriginBalance,curRatesTraversal
   ,backoutAccruedInt,extractIrrResult,adjustBalance
+  ,_Bond,_MultiIntBond,_BondGroup
   )
   where
 
@@ -57,14 +60,14 @@ import Numeric.RootFinding
 debug = flip trace
 
 -- | test if a bond may changes its interest rate
-isAdjustble :: InterestInfo -> Bool 
-isAdjustble Floater {} = True
-isAdjustble RefRate {} = True
-isAdjustble Fix {} = False
-isAdjustble (CapRate r _ ) = isAdjustble r
-isAdjustble (FloorRate r _ ) = isAdjustble r
-isAdjustble (WithIoI r _) = isAdjustble r
-isAdjustble (RefBal _ r) = isAdjustble r
+isAdjustable :: InterestInfo -> Bool 
+isAdjustable Floater {} = True
+isAdjustable RefRate {} = True
+isAdjustable Fix {} = False
+isAdjustable (CapRate r _ ) = isAdjustable r
+isAdjustable (FloorRate r _ ) = isAdjustable r
+isAdjustable (WithIoI r _) = isAdjustable r
+isAdjustable (RefBal _ r) = isAdjustable r
 
 
 isStepUp :: Bond -> Bool
@@ -230,6 +233,7 @@ data Bond = Bond {
             | BondGroup (Map.Map String Bond) (Maybe BondType)      -- ^ bond group
             deriving (Show, Eq, Generic, Ord, Read)            
 
+
 interestInfoTraversal :: Traversal' Bond InterestInfo
 interestInfoTraversal f (Bond bn bt oi ii su bal r dp di dioi did lip lpp stmt) 
   = (\ii' -> Bond bn bt oi ii' su bal r dp di dioi did lip lpp stmt) <$> f ii
@@ -246,6 +250,7 @@ curRatesTraversal f (MultiIntBond bn bt oi iis sus bal rs dp dis diois did lips 
 curRatesTraversal f (BondGroup bMap x)
   = BondGroup <$> traverse (curRatesTraversal f) bMap <*> pure x
 
+
 adjustBalance :: Balance -> Bond -> Bond
 adjustBalance bal b@Bond{bndBalance = _, bndOriginInfo = oi } 
   = b {bndBalance = bal, bndOriginInfo = oi {originBalance = bal}}
@@ -256,8 +261,8 @@ bndmStmt = lens getter setter
     getter Bond{bndStmt = mStmt} = mStmt
     getter MultiIntBond{bndStmt = mStmt} = mStmt
     -- getter BondGroup{bndStmt = mStmt} = mStmt
-    setter Bond{bndStmt = _} mStmt = Bond{bndStmt = mStmt}
-    setter MultiIntBond{bndStmt = _} mStmt = MultiIntBond{bndStmt = mStmt}
+    setter b@Bond{bndStmt = _} mStmt = b {bndStmt = mStmt}
+    setter b@MultiIntBond{bndStmt = _} mStmt = b {bndStmt = mStmt}
     -- setter BondGroup{bndStmt = _} mStmt = BondGroup{bndStmt = mStmt}
 
 bondCashflow :: Bond -> ([Date], [Amount])
@@ -267,16 +272,31 @@ bondCashflow b =
     (S.getDate <$> t, S.getTxnAmt <$> t)
 
 -- ^ remove empty transaction frgetBondByName :: Ast.Assetom a bond
-consolStmt :: Bond -> Bond
-consolStmt (BondGroup bMap x) = BondGroup (consolStmt <$> bMap) x
-consolStmt b
-  | S.hasEmptyTxn b = b
-  | otherwise = let 
-                  txn:txns = S.getAllTxns b
-                  combinedBondTxns = foldl S.consolTxn [txn] txns    
-                  droppedTxns = dropWhile S.isEmptyTxn combinedBondTxns 
-                in 
-                  b {bndStmt = Just (S.Statement (DL.fromList (reverse droppedTxns)))}
+instance S.HasStmt Bond where
+  consolStmt b@(BondGroup bMap x) = BondGroup (Map.map S.consolStmt bMap) x
+  consolStmt b
+    | S.hasEmptyTxn b = b
+    | otherwise = let 
+                    txn:txns = S.getAllTxns b
+                    combinedBondTxns = foldl S.consolTxn [txn] txns -- `debug` ("txns"++ show txn++">>"++ show txns)  
+                    droppedTxns = dropWhile S.isEmptyTxn combinedBondTxns 
+                    newStmt = Just (S.Statement (DL.fromList (reverse droppedTxns)))
+                  in 
+                    b & bndmStmt .~ newStmt
+  -- consolStmt (BondGroup bMap x) = BondGroup (consolStmt <$> bMap) x
+  getAllTxns Bond{bndStmt = Nothing} = []
+  getAllTxns Bond{bndStmt = Just (S.Statement txns)} = DL.toList txns
+  getAllTxns MultiIntBond{bndStmt = Nothing} = []
+  getAllTxns MultiIntBond{bndStmt = Just (S.Statement txns)} = DL.toList txns
+  getAllTxns (BondGroup bMap _) = concatMap S.getAllTxns $ Map.elems bMap
+
+  hasEmptyTxn Bond{bndStmt = Nothing} = True
+  hasEmptyTxn Bond{bndStmt = Just (S.Statement txn)} = txn == DL.empty
+  hasEmptyTxn MultiIntBond{bndStmt = Nothing} = True
+  hasEmptyTxn MultiIntBond{bndStmt = Just (S.Statement txn)} = txn == DL.empty
+  hasEmptyTxn (BondGroup bMap _) = all S.hasEmptyTxn $ Map.elems bMap
+  hasEmptyTxn _ = False
+
 
 setBondOrigDate :: Date -> Bond -> Bond
 setBondOrigDate d b@Bond{bndOriginInfo = oi} = b {bndOriginInfo = oi{originDate = d}}
@@ -289,124 +309,261 @@ patchBondFactor (BondGroup bMap x) = BondGroup (patchBondFactor <$> bMap) $ x
 patchBondFactor bnd
   | S.hasEmptyTxn bnd = bnd
   | (originBalance (bndOriginInfo bnd)) == 0 = bnd
-  | otherwise = let 
-                  oBal = originBalance (bndOriginInfo bnd)
-                  toFactor (BondTxn d b i p r0 c e f Nothing t) = (BondTxn d b i p r0 c e f (Just (fromRational (divideBB b oBal))) t)
-                  -- newStmt = S.Statement $ toFactor <$> (S.getAllTxns bnd)
-                  newBnd = case bndStmt bnd of 
-                              Nothing -> bnd 
-                              Just (S.Statement txns) -> bnd {bndStmt = Just (S.Statement (toFactor <$> txns)) }
-                in 
-                  newBnd
-
-payInt :: Date -> Amount -> Bond -> Bond
--- pay 0 interest, do nothing
-payInt d 0 b = b
-
--- pay interest
-payInt d amt bnd@(Bond bn bt oi iinfo _ bal r duePrin dueInt dueIoI dueIntDate lpayInt lpayPrin stmt)
-  = bnd {bndDueInt=newDue, bndStmt=newStmt, bndLastIntPay = Just d, bndDueIntOverInt = newDueIoI}
-  where
-    rs = Lib.paySeqLiabilitiesAmt amt [dueIoI, dueInt] -- `debug` ("date"++ show d++"due "++show dueIoI++">>"++show dueInt)
-    newDueIoI = dueIoI - head rs
-    newDue = dueInt - rs !! 1 -- `debug` ("Avail fund"++ show amt ++" int paid out plan"++ show rs)
-    newStmt = case bt of 
-                Equity -> S.appendStmt (BondTxn d bal amt 0 r amt newDue newDueIoI Nothing (S.PayYield bn)) stmt 
-                _ -> S.appendStmt (BondTxn d bal amt 0 r amt newDue newDueIoI Nothing (S.PayInt [bn])) stmt  -- `debug` ("date after"++ show d++"due "++show newDueIoI++">>"++show newDue)
-
--- pay multi-int bond ,IOI first and then interest due, sequentially
-payInt d amt bnd@(MultiIntBond bn bt oi iinfo _ bal rs duePrin dueInts dueIoIs dueIntDate lpayInt lpayPrin stmt)
-  = bnd {bndDueInts=newDues, bndStmt=newStmt
-        , bndLastIntPays = Just (replicate l d), bndDueIntOverInts = newDueIoIs}
-  where
-    l = length iinfo
-    ioiPaid = Lib.paySeqLiabilitiesAmt amt dueIoIs
-    afterIoI = amt - sum ioiPaid
-    duePaid = Lib.paySeqLiabilitiesAmt afterIoI dueInts
-    newDueIoIs = zipWith (-) dueIoIs ioiPaid
-    newDues = zipWith (-) dueInts duePaid
-    newDueIoI = sum newDueIoIs
-    newDue = sum newDues
-    newStmt = case bt of 
-                Equity -> S.appendStmt (BondTxn d bal amt 0 (sum rs) amt newDue newDueIoI Nothing (S.PayYield bn)) stmt 
-                _ -> S.appendStmt (BondTxn d bal amt 0 (sum rs) amt newDue newDueIoI Nothing (S.PayInt [bn])) stmt  -- `debug` ("date after"++ show d++"due "++show newDueIoI++">>"++show newDue)
-
-payIntByIndex :: Date -> Int -> Amount -> Bond -> Bond
--- pay 0 interest, do nothing
-payIntByIndex d _ 0 b = b
-payIntByIndex d idx amt bnd@(MultiIntBond bn bt oi iinfo _ bal rs duePrin dueInts dueIoIs dueIntDate lpayInt lpayPrin stmt) 
-  = let
-      dueIoI = dueIoIs !! idx 
-      dueInt = dueInts !! idx -- `debug` ("date"++ show d++"in pay index fun"++ show amt)
-      [newDueIoI,newDue] = Lib.paySeqLiabResi amt [dueIoI, dueInt] -- `debug` ("date"++ show d++" before pay due "++show dueIoI++">>"++show dueInt)
-      newStmt = S.appendStmt (BondTxn d bal amt 0 (sum rs) amt newDue newDueIoI Nothing (S.PayInt [bn])) stmt -- `debug` ("date after"++ show d++"due(ioi) "++show newDueIoI++">> due "++show newDue)
-      od = getOriginDate bnd
-      ods = replicate (length iinfo) od
-    in 
-      bnd {bndDueInts = dueInts & ix idx .~ newDue
-          ,bndDueIntOverInts = dueIoIs & ix idx .~ newDueIoI
-          ,bndStmt = newStmt
-          ,bndLastIntPays = case lpayInt of 
-                              Nothing -> Just $ ods & ix idx .~ d
-                              Just ds -> Just $ ds & ix idx .~ d}
-
-
--- ^ pay interest to single bond regardless any interest due
-payYield :: Date -> Amount -> Bond -> Bond 
-payYield d amt bnd@(Bond bn bt oi iinfo _ bal r duePrin dueInt dueIoI dueIntDate lpayInt lpayPrin stmt)
-  = bnd {bndDueInt = newDue,bndDueIntOverInt=newDueIoI, bndStmt= newStmt}
-  where
-    [newDue,newDueIoI] = paySeqLiabResi amt [dueIoI, dueInt]
-    newStmt = S.appendStmt (BondTxn d bal amt 0 r amt newDue newDueIoI Nothing (S.PayYield bn)) stmt 
-
-
--- ^ pay principal to single bond principal with limit of principal due
-payPrin :: Date -> Amount -> Bond -> Bond
--- ^ no cash payment , do nothing
-payPrin d 0 bnd = bnd
--- ^ no oustanding balance , do nothing
-payPrin d _ bnd@(Bond bn bt oi iinfo _ 0 r 0 0 dueIoI dueIntDate lpayInt lpayPrin stmt) = bnd
-
-payPrin d amt bnd = bnd {bndDuePrin =newDue, bndBalance = newBal , bndStmt=newStmt} 
-  where
-    newBal = (bndBalance bnd) - amt
-    newDue = (bndDuePrin bnd) - amt 
-    bn = bndName bnd
-    stmt = bndStmt bnd
-    dueIoI = getDueIntOverInt bnd
-    dueInt = getDueInt bnd
-    r = getCurRate bnd
-    newStmt = S.appendStmt (BondTxn d newBal 0 amt r amt dueInt dueIoI Nothing (S.PayPrin [bn] )) stmt 
-
-
-writeOff :: Date -> Amount -> Bond -> Either String Bond
-writeOff d 0 b = Right b
-writeOff d amt _bnd 
-  | bndBalance _bnd < amt = Left $ "Insufficient balance to write off "++ show amt ++ show " bond name "++ show (bndName _bnd)
   | otherwise = 
+      let 
+          oBal = originBalance (bndOriginInfo bnd)
+          toFactor (BondTxn d b i p r0 c e f Nothing t) = (BondTxn d b i p r0 c e f (Just (fromRational (divideBB b oBal))) t)
+          -- newStmt = S.Statement $ toFactor <$> (S.getAllTxns bnd)
+          newBnd = case bndStmt bnd of 
+                      Nothing -> bnd 
+                      Just (S.Statement txns) -> bnd {bndStmt = Just (S.Statement (toFactor <$> txns)) }
+      in 
+        newBnd
+
+-- payInt :: Date -> Amount -> Bond -> Bond
+-- pay 0 interest, do nothing
+-- payInt d 0 b = b
+-- 
+-- -- pay interest
+-- payInt d amt bnd@(Bond bn bt oi iinfo _ bal r duePrin dueInt dueIoI dueIntDate lpayInt lpayPrin stmt)
+--   = bnd {bndDueInt=newDue, bndStmt=newStmt, bndLastIntPay = Just d, bndDueIntOverInt = newDueIoI}
+--   where
+--     rs = Lib.paySeqLiabilitiesAmt amt [dueIoI, dueInt] -- `debug` ("date"++ show d++"due "++show dueIoI++">>"++show dueInt)
+--     newDueIoI = dueIoI - head rs
+--     newDue = dueInt - rs !! 1 -- `debug` ("Avail fund"++ show amt ++" int paid out plan"++ show rs)
+--     newStmt = case bt of 
+--                 Equity -> S.appendStmt (BondTxn d bal amt 0 r amt newDue newDueIoI Nothing (S.PayYield bn)) stmt 
+--                 _ -> S.appendStmt (BondTxn d bal amt 0 r amt newDue newDueIoI Nothing (S.PayInt [bn])) stmt  -- `debug` ("date after"++ show d++"due "++show newDueIoI++">>"++show newDue)
+-- 
+-- -- pay multi-int bond ,IOI first and then interest due, sequentially
+-- payInt d amt bnd@(MultiIntBond bn bt oi iinfo _ bal rs duePrin dueInts dueIoIs dueIntDate lpayInt lpayPrin stmt)
+--   = bnd {bndDueInts=newDues, bndStmt=newStmt , bndLastIntPays = Just (replicate l d), bndDueIntOverInts = newDueIoIs}
+--   where
+--     l = length iinfo
+--     ioiPaid = Lib.paySeqLiabilitiesAmt amt dueIoIs
+--     afterIoI = amt - sum ioiPaid
+--     duePaid = Lib.paySeqLiabilitiesAmt afterIoI dueInts
+--     newDueIoIs = zipWith (-) dueIoIs ioiPaid
+--     newDues = zipWith (-) dueInts duePaid
+--     newDueIoI = sum newDueIoIs
+--     newDue = sum newDues
+--     newStmt = S.appendStmt (BondTxn d bal amt 0 (sum rs) amt newDue newDueIoI Nothing (S.PayInt [bn])) stmt
+-- 
+-- payIntByIndex :: Date -> Int -> Amount -> Bond -> Bond
+-- -- pay 0 interest, do nothing
+-- payIntByIndex d _ 0 b = b
+-- payIntByIndex d idx amt bnd@(MultiIntBond bn bt oi iinfo _ bal rs duePrin dueInts dueIoIs dueIntDate lpayInt lpayPrin stmt) 
+--   = let
+--       dueIoI = dueIoIs !! idx 
+--       dueInt = dueInts !! idx -- `debug` ("date"++ show d++"in pay index fun"++ show amt)
+--       [newDueIoI,newDue] = Lib.paySeqLiabResi amt [dueIoI, dueInt] -- `debug` ("date"++ show d++" before pay due "++show dueIoI++">>"++show dueInt)
+--       newStmt = S.appendStmt (BondTxn d bal amt 0 (sum rs) amt newDue newDueIoI Nothing (S.PayInt [bn])) stmt -- `debug` ("date after"++ show d++"due(ioi) "++show newDueIoI++">> due "++show newDue)
+--       od = getOriginDate bnd
+--       ods = replicate (length iinfo) od
+--     in 
+--       bnd {bndDueInts = dueInts & ix idx .~ newDue
+--           ,bndDueIntOverInts = dueIoIs & ix idx .~ newDueIoI
+--           ,bndStmt = newStmt
+--           ,bndLastIntPays = case lpayInt of 
+--                               Nothing -> Just $ ods & ix idx .~ d
+--                               Just ds -> Just $ ds & ix idx .~ d}
+
+
+-- ^ pay interest to single bond regardless any interest due, for equity tranche
+
+-- AllInterest = DueTotalOf [DueInterest Nothing, DueArrears]
+
+
+instance Payable Bond where
+
+
+  getDueBal d (Just (DueTotalOf [])) b = 0
+  getDueBal d (Just (DueTotalOf (dt:dts))) b = (getDueBal d (Just dt) b) + (getDueBal d (Just (DueTotalOf dts)) b)
+  getDueBal d (Just (DueInterest Nothing)) b = getDueInt b
+  getDueBal d (Just (DueInterest (Just idx))) b@MultiIntBond{bndDueInts=dis} = dis !! idx
+  getDueBal d (Just DueArrears) b = getDueIntOverInt b
+  
+  getDueBal d (Just DuePrincipal) b = bndDuePrin b
+
+  pay d DuePrincipal 0 b = return b
+  pay d DuePrincipal _ bnd@(Bond {bndBalance = 0}) = return bnd
+  pay d DuePrincipal _ bnd@(MultiIntBond {bndBalance = 0}) = return bnd
+  pay d DuePrincipal amt bnd
+    | amt > (bndBalance bnd) = Left $ "Payment amount is greater than bond balance "++ show (bndBalance bnd) ++ " bond name "++ show (bndName bnd)
+    | otherwise
+        = let 
+            newBal = (bndBalance bnd) - amt
+            newDue = (bndDuePrin bnd) - amt 
+            bn = bndName bnd
+            stmt = bndStmt bnd
+            dueIoI = getDueIntOverInt bnd
+            dueInt = getDueInt bnd
+            r = getCurRate bnd
+            newStmt = S.appendStmt (BondTxn d newBal 0 amt r amt dueInt dueIoI Nothing (S.PayPrin [bn] )) stmt 
+          in 
+            return $ bnd {bndDuePrin = newDue, bndBalance = newBal , bndStmt = newStmt}
+  pay d DueResidual amt bnd
+    = let 
+        bal = bndBalance bnd
+        dueIoI = getDueIntOverInt bnd
+        dueInt = getDueInt bnd
+        r = getCurRate bnd
+        bn = bndName bnd
+        stmt = bndStmt bnd
+        newStmt = S.appendStmt (BondTxn d bal amt 0 r amt dueInt dueIoI Nothing (S.PayYield bn)) stmt 
+      in 
+        return bnd { bndStmt = newStmt}
+        
+  pay d (DueInterest _) 0 b = return b
+  pay d (DueInterest Nothing) amt bnd@(Bond bn bt oi iinfo _ bal r duePrin dueInt dueIoI dueIntDate lpayInt lpayPrin stmt)
+    | amt > dueInt = Left $ "Payment amount is greater than due interest "++ show dueInt ++ " bond name "++ show (bndName bnd)
+    | otherwise = 
+        let
+          newDue = dueInt - amt
+          newStmt = S.appendStmt (BondTxn d bal amt 0 r amt newDue dueIoI Nothing (S.PayInt [bn])) stmt 
+        in
+          return $ bnd {bndDueInt = newDue, bndStmt = newStmt, bndLastIntPay = Just d}
+  pay d (DueInterest Nothing) amt bnd@(MultiIntBond bn bt oi iinfo _ bal rs duePrin dueInts dueIoIs dueIntDate lpayInt lpayPrin stmt)
+    | sum dueInts < amt = Left $ "Payment amount is greater than total due interest "++ show (sum dueInts) ++ " bond name "++ show (bndName bnd)
+    | otherwise 
+      = let
+          l = length iinfo
+          duePaid = Lib.paySeqLiabilitiesAmt amt dueInts
+          newDues = zipWith (-) dueInts duePaid
+          newDue = sum newDues
+          newStmt = S.appendStmt (BondTxn d bal amt 0 (sum rs) amt newDue (sum dueIoIs) Nothing (S.PayInt [bn])) stmt
+        in 
+          return $ bnd {bndDueInts=newDues, bndStmt=newStmt , bndLastIntPays = Just (replicate l d) }
+
+  pay d (DueInterest (Just _)) amt Bond{bndName = bn} = Left $ "Cannot pay interest by index on a non-multi-int bond" ++ show bn
+  pay d (DueInterest (Just idx)) amt bnd@(MultiIntBond bn bt oi iinfo _ bal rs duePrin dueInts dueIoIs dueIntDate lpayInt lpayPrin stmt) 
+    | length iinfo <= (succ idx) = Left $ "Index "++ show idx ++ " is out of range for bond name "++ show (bndName bnd)
+    | amt > (dueInts !! idx) = Left $ "Payment amount is greater than due interest "++ show (dueInts !! idx) ++ " bond name "++ show (bndName bnd)
+    | otherwise 
+      = let
+          dueInt = dueInts !! idx 
+          paidInt = min amt dueInt
+          newDue = dueInt - paidInt
+          od = getOriginDate bnd
+          ods = replicate (length iinfo) od
+          newStmt = S.appendStmt (BondTxn d bal amt 0 (sum rs) amt newDue (sum dueIoIs) Nothing (S.PayInt [bn])) stmt
+        in 
+          return $ bnd {bndDueInts = dueInts & ix idx .~ newDue
+                      ,bndStmt = newStmt
+                      ,bndLastIntPays = case lpayInt of 
+                                          Nothing -> Just $ ods & ix idx .~ d
+                                          Just ds -> Just $ ds & ix idx .~ d}
+  
+  pay d DueArrears 0 b = return b
+  pay d DueArrears amt bnd@(Bond bn bt oi iinfo _ bal r duePrin dueInt dueIoI dueIntDate lpayInt lpayPrin stmt) 
+    | amt > dueIoI = Left $ "Payment amount is greater than due interest over interest "++ show dueIoI ++ " bond name "++ bn
+    | otherwise = 
+        let
+          newDueIoI = dueIoI - amt
+          newStmt = S.appendStmt (BondTxn d bal amt 0 r amt dueInt newDueIoI Nothing (S.PayInt [bn])) stmt 
+        in
+          return $ bnd {bndDueIntOverInt = newDueIoI, bndStmt = newStmt, bndLastIntPay = Just d}
+
+  pay d DueArrears amt bnd@(MultiIntBond bn bt oi iinfo _ bal rs duePrin dueInts dueIoIs dueIntDate lpayInt lpayPrin stmt)
+    | amt > sum dueIoIs = Left $ "Payment amount is greater than total due interest over interest "++ show (sum dueIoIs) ++ " bond name "++ bn
+    | otherwise 
+      = let
+          l = length iinfo
+          duePaid = Lib.paySeqLiabilitiesAmt amt dueIoIs
+          newDueIoIs = zipWith (-) dueIoIs duePaid
+          newDueIoI = sum newDueIoIs
+          newStmt = S.appendStmt (BondTxn d bal amt 0 (sum rs) amt (sum dueInts) newDueIoI Nothing (S.PayInt [bn])) stmt
+        in 
+          return $ bnd {bndDueIntOverInts=newDueIoIs, bndStmt=newStmt , bndLastIntPays = Just (replicate l d) }
+
+  pay d (DueTotalOf []) _ b = return b
+  pay d (DueTotalOf (dt:dts)) amt b = 
     let 
-      bnd = accrueInt d _bnd
-      newBal = bndBalance bnd - amt
-      dueIoI = getDueIntOverInt bnd
-      dueInt = getDueInt bnd
-      bn = bndName bnd
-      stmt = bndStmt bnd
-      newStmt = S.appendStmt (BondTxn d newBal 0 0 0 0 dueInt dueIoI Nothing (S.WriteOff bn amt )) stmt 
+      dueAmt = getDueBal d (Just dt) b
+      amtToPay = min amt dueAmt
+      amtLeft = amt - amtToPay
     in 
-      Right $ bnd {bndBalance = newBal , bndStmt=newStmt}
+      do 
+        b' <- pay d dt amtToPay b 
+        case amtLeft of 
+          0 -> return b'
+          _ -> pay d (DueTotalOf dts) amtLeft b'
+  
+  pay d dt _ b = Left $ "Unsupported due type "++ show dt ++ " for bond"++ show (bndName b)
+
+
+  writeOff d (DueInterest Nothing) amt b@(MultiIntBond {}) = Left "Must provide index to write off interest from multi-int bond"
+  writeOff d (DueInterest (Just _)) amt b@(Bond {}) = Left "Cannot write off interest by index on a non-multi-int bond"
+
+  writeOff d (DueInterest Nothing) amt b@(Bond {bndDueInt = dueInt, bndStmt = mStmt}) 
+    | amt > dueInt = Left $ "Cannot write off interest "++ show amt ++ " which is greater than due interest "++ show dueInt ++ " bond name "++ show (bndName b)
+    | otherwise = 
+        let
+          newTxn = BondTxn d (bndBalance b) 0 0 (bndRate b) 0 (dueInt - amt) (bndDueIntOverInt b) Nothing (S.WriteOff (bndName b) amt)
+        in
+          return $ b {bndDueInt = dueInt - amt, bndStmt = S.appendStmt newTxn mStmt} 
+
+  writeOff d (DueInterest (Just idx)) amt b@(MultiIntBond {bndDueInts = dueInts, bndStmt = mStmt}) 
+    | length dueInts <= (succ idx) || amt > (dueInts !! idx) = Left $ "Cannot write off interest "++ show amt ++ " which is greater than due interest "++ show (dueInts !! idx) ++ " bond name "++ show (bndName b)  
+    | otherwise = 
+        let
+          newTxn = BondTxn d (bndBalance b) 0 0 (bndRate b) 0 (sum dueInts - amt) (bndDueIntOverInt b) Nothing (S.WriteOff (bndName b) amt)
+        in
+          return $ b {bndDueInts = dueInts & ix idx %~ (\x -> x - amt), bndStmt = S.appendStmt newTxn mStmt} 
+
+  writeOff d DuePrincipal amt b@(Bond {bndDuePrin = duePrin, bndBalance = bal, bndStmt = mStmt}) 
+    | amt > bal = Left $ "Cannot write off principal "++ show amt ++ " which is greater than bond balance "++ show bal ++ " bond name "++ show (bndName b)
+    | otherwise = 
+        let
+          newTxn = BondTxn d (bal - amt) 0 0 (bndRate b) 0 (bndDueInt b) (bndDueIntOverInt b) Nothing (S.WriteOff (bndName b) amt)
+        in
+          return $ b {bndDuePrin = max 0 (duePrin - amt)
+                      , bndBalance = bal - amt
+                      , bndStmt = S.appendStmt newTxn mStmt}
+
+  writeOff d DuePrincipal amt b@(MultiIntBond {bndDuePrin = duePrin, bndBalance = bal, bndStmt = mStmt}) 
+    | amt > bal = Left $ "Cannot write off principal "++ show amt ++ " which is greater than bond balance "++ show bal ++ " bond name "++ show (bndName b)
+    | otherwise = 
+        let 
+          newTxn = BondTxn d (bal - amt) 0 0 (sum (bndRates b)) 0 (sum (bndDueInts b)) (sum (bndDueIntOverInts b)) Nothing (S.WriteOff (bndName b) amt)
+        in 
+          return $ b {bndDuePrin = max 0 (duePrin - amt)
+                      , bndBalance = bal - amt
+                      , bndStmt = S.appendStmt newTxn mStmt}
+
+  writeOff d (DueTotalOf []) amt b = return b
+  writeOff d (DueTotalOf (dt:dts)) amt b = 
+    let 
+      dueAmt = getDueBal d (Just dt) b
+      amtToWriteOff = min amt dueAmt
+      amtLeft = amt - amtToWriteOff
+    in 
+      do 
+        b' <- writeOff d dt amtToWriteOff b 
+        case amtLeft of 
+          0 -> return b'
+          _ -> writeOff d (DueTotalOf dts) amtLeft b'
+
+  writeOff d DueFee amt b = Left "Cannot write off fee from bond"
+  writeOff d DueResidual amt b = Left "Cannot write off residual from bond"
+  writeOff d _ amt b@(BondGroup {}) = Left "Cannot write off on a bond group"
 
 -- TODO: should increase the original balance of the bond?
-fundWith :: Date -> Amount -> Bond -> Bond
-fundWith d 0 b = b
-fundWith d amt _bnd = bnd {bndBalance = newBal, bndStmt=newStmt } 
-  where
-    bnd = accrueInt d _bnd
-    dueIoI = getDueIntOverInt bnd
-    dueInt = getDueInt bnd
-    bn = bndName bnd
-    stmt = bndStmt bnd
-    newBal = bndBalance bnd + amt
-    newStmt = S.appendStmt (BondTxn d newBal 0 (negate amt) 0 0 dueInt dueIoI Nothing (S.FundWith bn amt )) stmt 
+instance Drawable Bond where
+  draw d amt txn bond 
+    | amt < 0 = Left $ "Cannot draw negative amount "++ show amt ++ " from bond "++ show (bndName bond)
+    | amt == 0 = return bond
+    | otherwise = let 
+                    bond' = accrueInt d bond
+                    dueIoI = getDueIntOverInt bond'
+                    dueInt = getDueInt bond'
+                    stmt = bndStmt bond'
+                    newBal = bndBalance bond' + amt
+                    newStmt = S.appendStmt (BondTxn d newBal 0 (negate amt) (getCurRate bond') 0 dueInt dueIoI Nothing txn) stmt 
+                  in 
+                    return $ bond' {bndBalance = newBal, bndStmt=newStmt } 
+
+  availForDraw d bond = Unlimit
 
 
 -- ^ get interest rate for due interest
@@ -423,11 +580,11 @@ accrueInt :: Date -> Bond -> Bond
 accrueInt d b@Bond{bndInterestInfo = ii,bndDueIntDate = mDueIntDate, bndDueInt= dueInt
                   , bndDueIntOverInt = dueIoI, bndRate = r, bndBalance = bal} 
   | d == beginDate = b
+  | d < beginDate = b
   | otherwise = let 
                   dc = (fromMaybe DC_ACT_365F) (getDayCountFromInfo ii)
                   r2 = getIoI ii r
                   period = yearCountFraction dc beginDate d
-                  -- newDue = mulBR bal $ toRational r * period 
                   newDue = IR.calcInt bal beginDate d r dc
                   newIoiDue = mulBR dueInt (toRational r2 * period)
                 in 
@@ -504,14 +661,13 @@ getTxnInt _ = 0.0
 
 
 -- ^ get present value of a bond
-priceBond :: Date -> Ts -> Bond -> PriceResult
-priceBond d rc b@(Bond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing ) = PriceResult 0 0 0 0 0 0 []
-priceBond d rc b@(MultiIntBond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing ) = PriceResult 0 0 0 0 0 0 []
+priceBond :: Date -> Ts -> Bond -> Either ErrorRep PriceResult
+priceBond d rc b@(Bond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing) = return $  PriceResult 0 0 0 0 0 0 []
+priceBond d rc b@(MultiIntBond _ _ _ _ _ _ _ _ _ _ _ _ _ Nothing ) = return $ PriceResult 0 0 0 0 0 0 []
 priceBond d rc bnd
-  | all (==0) (S.getTxnAmt <$> futureCfs) = PriceResult 0 0 0 0 0 0 []
+  | all (==0) (S.getTxnAmt <$> futureCfs) = return $ PriceResult 0 0 0 0 0 0 []
   | otherwise 
       = let
-          presentValue = pv3 rc d (getDate <$> futureCfs) (getTxnAmt <$> futureCfs)
           cutoffBalance = case S.getTxnAsOf txns d of
                               Nothing ->  (S.getTxnBegBalance . head) txns
                               Just _txn -> S.getTxnBegBalance _txn
@@ -521,8 +677,12 @@ priceBond d rc bnd
           wal = calcWalBond d bnd
           duration = calcDuration DC_ACT_365F d (zip futureCfDates futureCfFlow) rc
           convexity = calcConvexity DC_ACT_365F d (zip futureCfDates futureCfFlow) rc
+
         in 
-          PriceResult presentValue (fromRational (100* (safeDivide' presentValue obal))) (realToFrac wal) (realToFrac duration) (realToFrac convexity) accruedInt futureCfs -- `debug` ("Acc int"++ show accruedInt )
+          do 
+            presentValue <- pv4 (d, rc) $ zip (getDate <$> futureCfs) (getTxnAmt <$> futureCfs)
+            pctFaceVal <- safeDivide' "Divide prenset value to original bond balance" presentValue obal
+            return $ PriceResult presentValue (fromRational (100* pctFaceVal)) (realToFrac wal) (realToFrac duration) (realToFrac convexity) accruedInt futureCfs
   where 
     cr = getCurRate bnd
     bal = getCurBalance bnd
@@ -580,7 +740,7 @@ tryCalcZspread tradePrice originBalance priceDay futureCfs riskFreeCurve spread
       fromRational (faceVal - tradePrice)
 
 
-calcZspread :: (Rational,Date) -> Bond -> Ts -> Either String Spread
+calcZspread :: (Rational,Date) -> Bond -> Ts -> Either ErrorRep Spread
 calcZspread _ b@Bond{bndStmt = Nothing} _ = Left "No Cashflow for bond"
 calcZspread _ b@MultiIntBond{bndStmt = Nothing} _ = Left "No Cashflow for bond"
 calcZspread (tradePrice,priceDay) b riskFreeCurve =
@@ -595,7 +755,7 @@ calcZspread (tradePrice,priceDay) b riskFreeCurve =
       def = RiddersParam { riddersMaxIter = itertimes, riddersTol = RelTol 0.00001 }
     in
       case ridders def (0.0001,100) (tryCalcZspread tradePrice oBalance priceDay (zip ds cashflow) riskFreeCurve) of
-        Root r -> Right (fromRational (toRational r))
+        Root r -> return (fromRational (toRational r))
         _ -> Left $ "Failed to find Z spread with "++ show itertimes ++ " times try"
 
 -- ^ get total funded balance (from transaction) of a bond
@@ -608,7 +768,7 @@ totalFundedBalance b
       isFundingTxn _ = False
       fundingTxns = S.filterTxn isFundingTxn txns
     in 
-      sum $ (\(BondTxn d b i p r0 c di dioi f t) -> abs p) <$> fundingTxns
+      sum $ (\(BondTxn _ _ _ p _ _ _ _ _ _) -> abs p) <$> fundingTxns
 
 buildRateResetDates :: Bond -> StartDate -> EndDate -> [Date]
 buildRateResetDates (BondGroup bMap _) sd ed  =  concat $ (\x -> buildRateResetDates x sd ed) <$> Map.elems bMap
@@ -627,8 +787,6 @@ buildRateResetDates b@MultiIntBond{bndInterestInfos = iis} sd ed
     in 
       -- TODO: perf: sort and distinct
       concat $ (floaterRateResetDates . getDpFromIntInfo) <$> iis
-
-
 
 buildStepUpDates :: Bond -> StartDate -> EndDate -> [Date]
 buildStepUpDates (BondGroup bMap _) sd ed  =  concat $ (\x -> buildStepUpDates x sd ed) <$> Map.elems bMap
@@ -712,8 +870,8 @@ instance Liable Bond where
   getOutstandingAmount b = getTotalDueInt b + getCurBalance b
 
 instance IR.UseRate Bond where 
-  isAdjustbleRate :: Bond -> Bool
-  isAdjustbleRate Bond{bndInterestInfo = iinfo} = isAdjustble iinfo
+  isAdjustableRate :: Bond -> Bool
+  isAdjustableRate Bond{bndInterestInfo = iinfo} = isAdjustable iinfo
   -- getIndex Bond{bndInterestInfo = iinfo }
   getIndexes Bond{bndInterestInfo = iinfo}  = getIndexFromInfo iinfo
   getIndexes (BondGroup bMap _)  = if Data.List.null combined then Nothing else Just combined
@@ -721,23 +879,7 @@ instance IR.UseRate Bond where
   getIndexes MultiIntBond{bndInterestInfos = iis} 
     = Just $ concat $ concat <$> getIndexFromInfo <$> iis
 
--- txnsLens :: Lens' Bond [Txn]
--- txnsLens = bndStmtLens . _Just . S.statementTxns
-instance S.HasStmt Bond where 
   
-  getAllTxns Bond{bndStmt = Nothing} = []
-  getAllTxns Bond{bndStmt = Just (S.Statement txns)} = DL.toList txns
-  getAllTxns MultiIntBond{bndStmt = Nothing} = []
-  getAllTxns MultiIntBond{bndStmt = Just (S.Statement txns)} = DL.toList txns
-  getAllTxns (BondGroup bMap _) = concat $ S.getAllTxns <$> Map.elems bMap
-
-  hasEmptyTxn Bond{bndStmt = Nothing} = True
-  hasEmptyTxn Bond{bndStmt = Just (S.Statement txn)} = txn == DL.empty
-  hasEmptyTxn MultiIntBond{bndStmt = Nothing} = True
-  hasEmptyTxn MultiIntBond{bndStmt = Just (S.Statement txn)} = txn == DL.empty
-  hasEmptyTxn (BondGroup bMap _) = all S.hasEmptyTxn $ Map.elems bMap
-  hasEmptyTxn _ = False
-
 
 makeLensesFor [("bndType","bndTypeLens"),("bndOriginInfo","bndOriginInfoLens"),("bndInterestInfo","bndIntLens"),("bndStmt","bndStmtLens")] ''Bond
 makeLensesFor [("bndOriginDate","bndOriginDateLens"),("bndOriginBalance","bndOriginBalanceLens"),("bndOriginRate","bndOriginRateLens")] ''OriginalInfo

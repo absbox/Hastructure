@@ -76,7 +76,7 @@ projectInstallmentFlow (startBal, lastPaidDate, (originRepay,originInt), startRa
 
 instance Asset Installment where
   calcCashflow inst@(Installment (LoanOriginalInfo ob or ot p sd ptype _) cb rt st) asOfDay _
-    = Right $ CF.CashFlowFrame (begBal,asOfDay,Nothing) flows 
+    = return $ CF.CashFlowFrame (begBal,asOfDay,Nothing) flows 
      where 
         lastPayDate:cf_dates = lastN (rt+1) $ sd:getPaymentDates inst 0
         opmt = divideBI ob ot  
@@ -94,7 +94,6 @@ instance Asset Installment where
         int_flow =  case ptype of 
                       F_P -> replicate rt cfee
                       PO_FirstN n -> lastN rt $ replicate n 0.0 ++ replicate (ot-n) cfee 
-        -- initRow = CF.LoanFlow lastPayDate cb 0.0 0.0 0.0 0.0 0.0 0.0 0.0 Nothing
         _flows = let 
                   _rt = succ rt 
                  in 
@@ -153,14 +152,15 @@ instance Asset Installment where
             ppyRates <- Ast.buildPrepayRates inst (lastPayDate:cfDates) prepayAssump
             defRates <- Ast.buildDefaultRates inst (lastPayDate:cfDates) defaultAssump
             let (txns,_,_) = projectInstallmentFlow (cb,lastPayDate,(opmt,ofee),orate,currentFactor,pt,ot) (cfDates,defRates,ppyRates,remainTerms) 
-            let (futureTxns,historyM) = CF.cutoffTrs asOfDay (patchLossRecovery (DL.toList txns) recoveryAssump)
+            txns' <- patchLossRecovery (DL.toList txns) recoveryAssump
+            let (futureTxns,historyM) = CF.cutoffTrs asOfDay txns'
             let begBal = CF.buildBegBal futureTxns
-            return $ (applyHaircut ams (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns), historyM)
+            return (applyHaircut ams (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns), historyM)
 
   -- ^ project with defaulted at a date
   projCashflow inst@(Installment (LoanOriginalInfo ob or ot p sd ptype _) cb rt (Defaulted (Just defaultedDate))) 
                asOfDay 
-               (_,_,(A.DefaultedRecovery rr lag timing))
+               (_,_,A.DefaultedRecovery rr lag timing)
                mRates
     = let 
          (cf_dates1,cf_dates2) = splitAt lag $ genDates defaultedDate p (lag+length timing)
@@ -171,14 +171,14 @@ instance Asset Installment where
          futureTxns = cutBy Inc Future asOfDay $ beforeRecoveryTxn++_txns
          begBal = CF.buildBegBal futureTxns
       in 
-         Right $ (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns ,Map.empty)
+         return (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns ,Map.empty)
       where 
         cr = getOriginRate inst
   
   -- ^ project cashflow with defaulted status
   projCashflow inst@(Installment _ cb rt (Defaulted Nothing)) asOfDay assumps _
-    = Right $ (CF.CashFlowFrame (cb, asOfDay, Nothing) $ [CF.LoanFlow asOfDay cb 0 0 0 0 0 0 (getOriginRate inst) Nothing],Map.empty)
-        
+    = return (CF.CashFlowFrame (cb, asOfDay, Nothing) $ [CF.LoanFlow asOfDay cb 0 0 0 0 0 0 (getOriginRate inst) Nothing],Map.empty)
+
   projCashflow a b c d = Left $ "Failed to match when proj mortgage with assumption >>" ++ show a ++ show b ++ show c ++ show d
   
   splitWith (Installment (LoanOriginalInfo ob or ot p sd _type _obligor) cb rt st) rs

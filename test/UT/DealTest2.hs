@@ -7,6 +7,7 @@ import Test.Tasty.HUnit
 import Deal
 
 import Deal.DealQuery (queryCompound)
+import Deal.DealCollection (CollectionRule(..))
 import qualified Accounts as A
 import qualified Stmt as S
 import qualified Pool as P
@@ -130,7 +131,7 @@ td = D.TestDeal {
                                  ,(W.PayInt Nothing "General" ["A"] Nothing)
                                  ,(W.PayPrin Nothing "General" ["A"] Nothing)
    ])]
- ,D.collects = [W.Collect Nothing W.CollectedCash "General"]
+ ,D.collects = [Collect Nothing W.CollectedCash "General"]
  ,D.custom = Nothing
  ,D.liqProvider = Nothing
  ,D.triggers = Nothing

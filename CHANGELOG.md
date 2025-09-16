@@ -2,6 +2,26 @@
 
 <!-- towncrier release notes start -->
 
+## 0.51.6
+### 2025-09-05
+* NEW: add new integer formula `activeBondNumber`
+* NEW: refactor interpolation pricing curve from `linear` to `Hermite` way
+
+
+## 0.51.5
+### 2025-08-20
+* ENHANCE: add assumption validation on `prepayment` `default` `recovery` .
+* FIX: pricing IRR: engine will use wrong position when `Buy Bond`
+
+
+## 0.51.2
+### 2025-08-02
+* NEW: new asset `ProjectedByFactor` and `ProjectedCashflow` .
+* ENHANCE: refactor on waterfall action, throw error when `name` is missing from the deal object
+* ENHANCE: throw error when divide by zero
+* ENHANCE: refactor on `credit support` for `liquidity suppport`.
+* FIX: fix zero cashflow when holding position is too small
+
 ## 0.50.0
 ### 2025-07-14
 * NEW: add `stopBy` in run assumption ,which stop deal run by a list of `Condition`

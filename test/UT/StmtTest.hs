@@ -128,17 +128,17 @@ txnTest =
             assertEqual "View balance test(supportTxn)"
             20 $
             viewBalanceAsOf (toDate "20221201") 
-                            [SupportTxn (toDate "20221115") (Just 100) 20 0 0 0 Empty
-                            ,SupportTxn (toDate "20221215") (Just 20) 30 0 0 0 Empty
+                            [SupportTxn (toDate "20221115") (ByAvailAmount 100) 20 0 0 0 Empty
+                            ,SupportTxn (toDate "20221215") (ByAvailAmount 20) 30 0 0 0 Empty
                             ]
       ,testCase " view balance test" $ 
             assertEqual "View balance test( same day txns)"
             30 $
             viewBalanceAsOf (toDate "20221201") 
-                            [SupportTxn (toDate "20220915") (Just 100) 20 0 0 0 Empty
-                            ,SupportTxn (toDate "20221015") (Just 90) 10 0 0 0 Empty
-                            ,SupportTxn (toDate "20221015") (Just 80) 30 0 0 0 Empty
-                            ,SupportTxn (toDate "20221215") (Just 70) 30 0 0 0 Empty
+                            [SupportTxn (toDate "20220915") (ByAvailAmount 100) 20 0 0 0 Empty
+                            ,SupportTxn (toDate "20221015") (ByAvailAmount 90) 10 0 0 0 Empty
+                            ,SupportTxn (toDate "20221015") (ByAvailAmount 80) 30 0 0 0 Empty
+                            ,SupportTxn (toDate "20221215") (ByAvailAmount 70) 30 0 0 0 Empty
                             ]
 
     ]

@@ -9,7 +9,7 @@ import Lib
 import Types
 import Util
 import Stmt
-import Deal (accrueRC)
+import Deal.DealAction (accrueRC)
 import Data.Ratio 
 import UT.DealTest (td2)
 import Hedge (RateSwap(..),RateCap(..),RateSwapBase(..),rcNetCash)

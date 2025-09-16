@@ -9,13 +9,13 @@
 module Deal.DealBase (TestDeal(..),SPV(..),dealBonds,dealFees,dealAccounts,dealPool,PoolType(..),getIssuanceStats
                      ,getAllAsset,getAllAssetList,getAllCollectedFrame,getLatestCollectFrame,getAllCollectedTxns
                      ,getIssuanceStatsConsol,getAllCollectedTxnsList
-                     ,getPoolIds,getBondByName, UnderlyingDeal(..), uDealFutureTxn,viewDealAllBonds,DateDesp(..),ActionOnDate(..)
+                     ,getPoolIds,getBondByName, UnderlyingDeal(..),viewDealAllBonds,DateDesp(..),ActionOnDate(..)
                      ,sortActionOnDate,dealBondGroups
                      ,viewDealBondsByNames,poolTypePool,viewBondsInMap,bondGroupsBonds
                      ,increaseBondPaidPeriod,increasePoolCollectedPeriod
                      ,DealStatFields(..),getDealStatInt,isPreClosing,populateDealDates
-                     ,bondTraversal,findBondByNames,updateBondInMap
-		     ,_MultiPool,_ResecDeal,uDealFutureCf,uDealFutureScheduleCf
+                     ,bondTraversal,findBondByNames,updateBondInMap,traverseBondMap,traverseBondMapByFn
+                     ,_MultiPool,_ResecDeal,uDealFutureCf,uDealFutureScheduleCf
                      )                      
   where
 import qualified Accounts as A
@@ -39,6 +39,8 @@ import Types
 import Revolving
 import Triggers
 
+import Deal.DealCollection (CollectionRule(..))
+
 import qualified Data.Map as Map
 import qualified Data.Time as T
 import qualified Data.Set as S
@@ -54,6 +56,7 @@ import Data.Aeson.Types
 import GHC.Generics
 import Control.Lens hiding (element)
 import Control.Lens.TH
+import Control.Monad (foldM)
 import Data.IntMap (filterWithKey)
 import qualified Data.Text as T
 import Text.Read (readMaybe)
@@ -88,6 +91,8 @@ data ActionOnDate = EarnAccInt Date AccName              -- ^ sweep bank account
                   | ResetLiqProviderRate Date String     -- ^ accure interest/premium amount for liquidity provider
                   | PoolCollection Date String           -- ^ collect pool cashflow and deposit to accounts
                   | RunWaterfall Date String             -- ^ execute waterfall on distribution date
+                  | AccrueRunWaterfall Date String       -- ^ accrue all liabilities, execute waterfall on distribution date
+                  | AccruePoolCollection Date String     -- ^ accrue all liabilities, collect pool cashflow and deposit to accounts
                   | DealClosed Date                      -- ^ actions to perform at the deal closing day, and enter a new deal status
                   | FireTrigger Date DealCycle String    -- ^ fire a trigger
                   | InspectDS Date [DealStats]           -- ^ inspect formulas
@@ -144,6 +149,8 @@ instance TimeSeries ActionOnDate where
     getDate (FundBond d _ _ _ _) = d
     getDate (HitStatedMaturity d) = d
     getDate (StopRunTest d _) = d
+    getDate (AccrueRunWaterfall d _) = d
+    getDate (AccruePoolCollection d _) = d
     getDate x = error $ "Failed to match"++ show x
 
 
@@ -160,7 +167,6 @@ sortActionOnDate a1 a2
                   (SettleIRSwap _ _ ,CalcIRSwap _ _) -> GT  -- reset interest swap should be first
                   (_ , CalcIRSwap _ _) -> GT -- reset interest swap should be first
                   (CalcIRSwap _ _ ,_) -> LT  -- reset interest swap should be first
-                  (_ , CalcIRSwap _ _) -> GT -- reset interest swap should be first
                   (StepUpBondRate {} ,_) -> LT  -- step up bond rate should be first
                   (_ , StepUpBondRate {}) -> GT -- step up bond rate should be first
                   (ResetBondRate {} ,_) -> LT  -- reset bond rate should be first
@@ -170,7 +176,9 @@ sortActionOnDate a1 a2
                   (ResetLiqProvider {} ,_) -> LT  -- reset liq be first
                   (_ , ResetLiqProvider {}) -> GT -- reset liq be first
                   (PoolCollection {}, RunWaterfall {}) -> LT -- pool collection should be executed before waterfall
+                  (AccruePoolCollection {}, AccrueRunWaterfall {}) -> LT -- pool collection should be executed before waterfall
                   (RunWaterfall {}, PoolCollection {}) -> GT -- pool collection should be executed before waterfall
+                  (AccrueRunWaterfall {}, AccruePoolCollection {}) -> GT -- pool collection should be executed before waterfall
                   (_,_) -> EQ 
   | otherwise = compare d1 d2
   where 
@@ -192,70 +200,71 @@ data DateDesp = PreClosingDates CutoffDate ClosingDate (Maybe RevolvingDate) Sta
               | CurrentDates (Date,Date) (Maybe Date) StatedDate (Date,PoolCollectionDates) (Date,DistributionDates)
               -- Dict based 
               | GenericDates (Map.Map DateType DatePattern)
+              -- | AccruedGenericDates (Map.Map DateType DatePattern)
               deriving (Show,Eq, Generic,Ord)
 
+type PoolCollectionActions = [ActionOnDate]
+type BondDistributionActions = [ActionOnDate]
+type CustomActions = [ActionOnDate]
 
-populateDealDates :: DateDesp -> DealStatus -> Either String (Date,Date,Date,[ActionOnDate],[ActionOnDate],Date,[ActionOnDate])
+populateDealDates :: DateDesp -> DealStatus -> Either ErrorRep (Date,Date,Date,PoolCollectionActions,BondDistributionActions,Date,CustomActions)
 populateDealDates (PreClosingDates cutoff closing mRevolving end (firstCollect,poolDp) (firstPay,bondDp)) _
-  = Right (cutoff,closing,firstPay,pa,ba,end, []) 
-    where 
+  = let 
       pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 IE firstCollect poolDp end ]
       ba = [ RunWaterfall _d "" | _d <- genSerialDatesTill2 IE firstPay bondDp end ]
+    in 
+      return (cutoff,closing,firstPay,pa,ba,end, []) 
 
 populateDealDates (CurrentDates (lastCollect,lastPay) mRevolving end (nextCollect,poolDp) (nextPay,bondDp)) _
-  = Right (lastCollect, lastPay,head futurePayDates, pa, ba, end, []) 
-    where 
+  = let 
       futurePayDates = genSerialDatesTill2 IE nextPay bondDp end 
       ba = [ RunWaterfall _d "" | _d <- futurePayDates]
       futureCollectDates = genSerialDatesTill2 IE nextCollect poolDp end 
       pa = [ PoolCollection _d "" | _d <- futureCollectDates]
+    in 
+      return (lastCollect, lastPay,head futurePayDates, pa, ba, end, []) 
 
-populateDealDates (GenericDates m) 
-                  (PreClosing _)
+populateDealDates (GenericDates m) st 
   = let 
-      requiredFields = (CutoffDate, ClosingDate, FirstPayDate, StatedMaturityDate
-                        , DistributionDates, CollectionDates) 
-      vals = lookupTuple6 requiredFields m
-      
+      requiredFields (PreClosing _) = (CutoffDate, ClosingDate, FirstPayDate, ClosingDate, StatedMaturityDate , DistributionDates, CollectionDates) 
+      requiredFields _  = (LastCollectDate, LastPayDate, NextPayDate, NextCollectDate, StatedMaturityDate, DistributionDates, CollectionDates) 
       isCustomWaterfallKey (CustomExeDates _) _ = True
       isCustomWaterfallKey _ _ = False
       custWaterfall = Map.toList $ Map.filterWithKey isCustomWaterfallKey m
     in 
-      case vals of
-        (Just (SingletonDate coffDate), Just (SingletonDate closingDate), Just (SingletonDate fPayDate)
-          , Just (SingletonDate statedDate), Just bondDp, Just poolDp)
-          -> let 
-                pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 IE closingDate poolDp statedDate ]
-                ba = [ RunWaterfall _d "" | _d <- genSerialDatesTill2 IE fPayDate bondDp statedDate ]
-                cu = [ RunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall
-                                                , _d <- genSerialDatesTill2 EE closingDate custDp statedDate ]
-              in 
-                Right (coffDate, closingDate, fPayDate, pa, ba, statedDate, cu)
-        _ 
-          -> Left "Missing required dates in GenericDates in deal status PreClosing"
+      do 
+        vals <- lookupTuple7 (requiredFields st) m
+        case vals of
+          (SingletonDate lastCollect, SingletonDate lastPayDate, SingletonDate nextPayDate, SingletonDate nextCollectDate , SingletonDate statedDate, bondDp, poolDp)
+            -> let 
+                  pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 IE nextCollectDate poolDp statedDate ]
+                  ba = [ RunWaterfall _d "" | _d <- genSerialDatesTill2 IE nextPayDate bondDp statedDate ]
+                  cu = [ RunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall, _d <- genSerialDatesTill2 EE lastCollect custDp statedDate ]
+                in 
+                  return (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu) 
+          _ 
+            -> Left $ "Missing required dates in GenericDates in deal status" ++ (show st) ++ "but got"
 
-populateDealDates (GenericDates m) _ 
-  = let 
-      requiredFields = (LastCollectDate, LastPayDate, NextPayDate, StatedMaturityDate
-                        , DistributionDates, CollectionDates) 
-      vals = lookupTuple6 requiredFields m
-      
-      isCustomWaterfallKey (CustomExeDates _) _ = True
-      isCustomWaterfallKey _ _ = False
-      custWaterfall = Map.toList $ Map.filterWithKey isCustomWaterfallKey m
-    in 
-      case vals of
-        (Just (SingletonDate lastCollect), Just (SingletonDate lastPayDate), Just (SingletonDate nextPayDate)
-          , Just (SingletonDate statedDate), Just bondDp, Just poolDp)
-          -> let 
-                pa = [ PoolCollection _d "" | _d <- genSerialDatesTill2 EE lastCollect poolDp statedDate ]
-                ba = [ RunWaterfall _d "" | _d <- genSerialDatesTill2 IE nextPayDate bondDp statedDate ]
-                cu = [ RunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall
-                                                , _d <- genSerialDatesTill2 EE lastCollect custDp statedDate ]
-              in 
-                Right (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu) -- `debug` ("custom action"++ show cu)
-        _ 
-          -> Left "Missing required dates in GenericDates in deal status PreClosing"
+-- populateDealDates (AccruedGenericDates m) st 
+--   = let 
+--       requiredFields (PreClosing _) = (CutoffDate, ClosingDate, FirstPayDate, StatedMaturityDate , DistributionDates, CollectionDates) 
+--       requiredFields _  = (LastCollectDate, LastPayDate, NextPayDate, StatedMaturityDate, DistributionDates, CollectionDates) 
+--       isCustomWaterfallKey (CustomExeDates _) _ = True
+--       isCustomWaterfallKey _ _ = False
+--       custWaterfall = Map.toList $ Map.filterWithKey isCustomWaterfallKey m
+--     in 
+--       do 
+--         vals <- lookupTuple6 (requiredFields st) m
+--         case vals of
+--           (SingletonDate lastCollect, SingletonDate lastPayDate, SingletonDate nextPayDate , SingletonDate statedDate, bondDp, poolDp)
+--             -> let 
+--                   pa = [ AccruePoolCollection _d "" | _d <- genSerialDatesTill2 EE lastCollect poolDp statedDate ]
+--                   ba = [ AccrueRunWaterfall _d "" | _d <- genSerialDatesTill2 IE nextPayDate bondDp statedDate ]
+--                   cu = [ AccrueRunWaterfall _d custName | (CustomExeDates custName, custDp) <- custWaterfall, _d <- genSerialDatesTill2 EE lastCollect custDp statedDate ]
+--                 in 
+--                   return (lastCollect, lastPayDate, nextPayDate, pa, ba, statedDate, cu)
+--           _ 
+--             -> Left $ "Missing required dates in GenericDates in deal status" ++ (show st) ++ "but got"
 
 
 
@@ -284,7 +293,7 @@ data TestDeal a = TestDeal { name :: DealName
                             ,bonds :: Map.Map BondName L.Bond
                             ,pool ::  PoolType a 
                             ,waterfall :: Map.Map W.ActionWhen W.DistributionSeq
-                            ,collects :: [W.CollectionRule]
+                            ,collects :: [CollectionRule]
                             ,stats :: (BalDealStatMap,RDealStatMap,BDealStatMap,IDealStatMap)
                             ,liqProvider :: Maybe (Map.Map String CE.LiqFacility)
                             ,rateSwap :: Maybe (Map.Map String HE.RateSwap)
@@ -297,35 +306,22 @@ data TestDeal a = TestDeal { name :: DealName
 
 data UnderlyingDeal a = UnderlyingDeal {
   deal :: TestDeal a
-  ,futureCf :: CF.CashFlowFrame
-  ,futureScheduleCf :: CF.CashFlowFrame
+  ,futureCf :: Maybe CF.CashFlowFrame
+  ,futureScheduleCf :: Maybe CF.CashFlowFrame
   ,issuanceStat :: Maybe (Map.Map CutoffFields Balance)
 } deriving (Generic,Eq,Ord,Show)
 
-uDealFutureScheduleCf :: Ast.Asset a => Lens' (UnderlyingDeal a) CF.CashFlowFrame
+uDealFutureScheduleCf :: Ast.Asset a => Lens' (UnderlyingDeal a) (Maybe CF.CashFlowFrame)
 uDealFutureScheduleCf = lens getter setter
   where 
     getter = futureScheduleCf
     setter ud newCf = ud {futureScheduleCf = newCf}
 
-uDealFutureCf :: Ast.Asset a => Lens' (UnderlyingDeal a) CF.CashFlowFrame
+uDealFutureCf :: Ast.Asset a => Lens' (UnderlyingDeal a) (Maybe CF.CashFlowFrame)
 uDealFutureCf = lens getter setter
   where 
     getter = futureCf
     setter ud newCf = ud {futureCf = newCf}
-
-uDealFutureTxn :: Ast.Asset a => Lens' (UnderlyingDeal a) [CF.TsRow]
-uDealFutureTxn = lens getter setter
-  where 
-    getter ud = view CF.cashflowTxn $ futureCf ud
-    setter ud newTxn = ud {futureCf = CF.CashFlowFrame (0,toDate "19000101",Nothing) newTxn}
-        -- let 
-        --    mOriginalCfFrame = futureCf ud 
-        -- in 
-        --    case mOriginalCfFrame of 
-        --      
-        --      (CF.CashFlowFrame (begBal,begDate,mInt) txns) -> ud {futureCf = CF.CashFlowFrame (0,toDate "19000101",Nothing) newTxn }
-
 
 data PoolType a = MultiPool (Map.Map PoolId (P.Pool a))
                 | ResecDeal (Map.Map PoolId (UnderlyingDeal a))
@@ -349,23 +345,22 @@ instance SPV (TestDeal a) where
   getBondStmtByName t bns
     = Map.map L.bndStmt bndsM
       where
-      bndsM = Map.map L.consolStmt $ getBondsByName t bns
+      bndsM = Map.map consolStmt $ getBondsByName t bns
 
   getNextBondPayDate t
     = case populateDealDates (dates t) (status t) of
         Right _dates -> view _3 _dates 
-        Left _ -> error "Failed to populate dates"
+        Left err -> error $ "failed to get next bond pay date: Failed to populate dates" ++ show err
 
   getBondBegBal t bn 
-    = 
-      case b of 
+    = case b of 
         Nothing -> 0
         Just bnd ->
           case L.bndStmt bnd of
-            Nothing -> L.getCurBalance bnd  -- `debug` ("Getting beg bal nothing"++bn)
+            Nothing -> L.getCurBalance bnd  
             Just (Statement txns) 
               | DL.empty == txns  -> L.getCurBalance bnd  
-              | otherwise -> getTxnBegBalance $ head (DL.toList txns) -- `debug` ("Getting beg bal"++bn++"Last smt"++show (head stmts))
+              | otherwise -> getTxnBegBalance $ head (DL.toList txns)
       where
           b = find (\x -> ((L.bndName x) == bn)) (viewDealAllBonds t) 
 
@@ -422,13 +417,13 @@ viewBondsInMap t@TestDeal{ bonds = bndMap }
       Map.fromList $ zip bndNames bnds
 
 -- ^ support bond group
+-- TODO: it shall raise error if bond name not found
 viewDealBondsByNames :: Ast.Asset a => TestDeal a -> [BondName] -> [L.Bond]
 viewDealBondsByNames _ [] = []
 viewDealBondsByNames t@TestDeal{bonds= bndMap } bndNames
   = let 
       -- bonds and bond groups
       bnds = filter (\b -> L.bndName b `elem` bndNames) $ viewDealAllBonds t
-      -- bndsFromGrp = $ Map.filter (\L.BondGroup {} -> True)  bndMap
       bndsFromGrp = Map.foldrWithKey
                       (\k (L.BondGroup bMap _) acc -> 
                         if k `elem` bndNames 
@@ -442,7 +437,7 @@ viewDealBondsByNames t@TestDeal{bonds= bndMap } bndNames
       bnds ++ bndsFromGrp
 
 -- ^ find bonds with first match
-findBondByNames :: Map.Map String L.Bond -> [BondName] -> Either String [L.Bond]
+findBondByNames :: Map.Map String L.Bond -> [BondName] -> Either ErrorRep [L.Bond]
 findBondByNames bMap bNames
   = let 
       (firstMatch, notMatched) = Map.partitionWithKey (\k _ -> k `elem` bNames) bMap
@@ -451,9 +446,83 @@ findBondByNames bMap bNames
       (secondMatch, notMatched2) = Map.partitionWithKey (\k _ -> k `elem` remainNames) $ Map.unions listOfBondGrps
     in 
       if Map.null notMatched2 then 
-        Right $ Map.elems firstMatch ++ Map.elems secondMatch
+        return $ Map.elems firstMatch ++ Map.elems secondMatch
       else
         Left $ "Failed to find bonds by names:"++ show (Map.keys notMatched2)
+
+-- perform an action to bonds and perserve the bond structure
+traverseBondMap' :: [BondName] -> (L.Bond -> Either ErrorRep L.Bond) -> Map.Map BondName L.Bond -> Either ErrorRep (Map.Map BondName L.Bond, [BondName])
+traverseBondMap' bNames f bMap
+  = let 
+      fn (acc,bNames') (bName, bnd) 
+        = do 
+            (bnd,newBNames) <- case (bName `elem` bNames') of
+                                True -> 
+                                  case bnd of
+                                    L.BondGroup subMap pt -> 
+                                      do
+                                        subMap' <- traverse f subMap
+                                        return (L.BondGroup subMap' pt, delete bName bNames')
+                                    _ -> 
+                                        do
+                                          updatedBnd <- f bnd
+                                          return (updatedBnd, delete bName bNames')
+                                False -> 
+                                  case bnd of
+                                    L.BondGroup subMap pt -> 
+                                      do
+                                        (subMap',bNames'') <- foldM fn (Map.empty,bNames') (Map.toList subMap)
+                                        return $ (L.BondGroup subMap' pt, bNames'')
+                                    _ -> return (bnd, bNames')
+            return $ (Map.insert bName bnd acc, newBNames)
+    in 
+      (foldM fn (Map.empty,bNames) (Map.toList bMap)) 
+
+traverseBondMap :: [BondName] -> (L.Bond -> Either ErrorRep L.Bond) -> Map.Map BondName L.Bond -> Either ErrorRep (Map.Map BondName L.Bond)
+traverseBondMap bNames f bMap =
+  case traverseBondMap' bNames f bMap of
+    Right (bMap', remainNames) 
+      | null remainNames -> return bMap'
+      | otherwise -> Left $ "Failed to find bonds by names:"++ show remainNames
+    Left err -> Left err
+
+
+traverseBondMapByFn' :: Map.Map BondName (L.Bond -> Either ErrorRep L.Bond) -> Map.Map BondName L.Bond -> Either ErrorRep (Map.Map BondName L.Bond, Map.Map BondName (L.Bond -> Either ErrorRep L.Bond))
+traverseBondMapByFn' bNamesFns bMap
+  = let 
+      fn (acc, bFnMap) (bName, bnd) 
+        = do 
+            (newBnd,newBMap) <- case (Map.member bName bFnMap) of
+                                True ->
+                                  case bnd of
+                                    L.BondGroup subMap pt -> 
+                                      do
+                                        subMap' <- traverse (bFnMap Map.! bName) subMap
+                                        return (L.BondGroup subMap' pt, Map.delete bName bFnMap)
+                                    _ -> 
+                                        do
+                                          updatedBnd <- (bFnMap Map.! bName) bnd
+                                          return (updatedBnd, Map.delete bName bFnMap)
+                                False -> 
+                                  case bnd of
+                                    L.BondGroup subMap pt -> 
+                                      do
+                                        (subMap',bFnMap') <- foldM fn (Map.empty,bFnMap) (Map.toList subMap)
+                                        return $ (L.BondGroup subMap' pt, bFnMap')
+                                    _ -> return (bnd, bFnMap)
+            return $ (Map.insert bName newBnd acc, newBMap)
+    in 
+      (foldM fn (Map.empty,bNamesFns) (Map.toList bMap)) 
+
+traverseBondMapByFn :: Map.Map BondName (L.Bond -> Either ErrorRep L.Bond) -> Map.Map BondName L.Bond -> Either ErrorRep (Map.Map BondName L.Bond)
+traverseBondMapByFn bFnMap bMap =
+  case traverseBondMapByFn' bFnMap bMap of
+    Right (bMap', remains) 
+      | null remains -> return bMap'
+      | otherwise -> Left $ "Failed to find bonds by names:"++ show (Map.keys remains)
+    Left err -> Left err
+
+
 
 -- ^ not support bond group
 dealBonds :: Ast.Asset a => Lens' (TestDeal a) (Map.Map BondName L.Bond)
@@ -517,54 +586,11 @@ poolTypeUnderDeal = lens getter setter
     getter = \case ResecDeal dm -> dm
     setter (ResecDeal dm) newDm = ResecDeal newDm
 
--- schedulePoolFlowLens = poolTypePool . mapped . P.futureScheduleCfLens 
--- schedulePoolFlowAggLens = schedulePoolFlowLens . _1 . _1
--- scheduleBondFlowLens = poolTypeUnderDeal . mapped . uDealFutureScheduleCf
-
-
--- dealInputCashflow :: Ast.Asset a => Lens' (TestDeal a) (Map.Map PoolId CF.PoolCashflow)
--- dealInputCashflow = lens getter setter
---   where
---     getter d = case pool d of
---                 MultiPool pm -> Map.map (P.futureScheduleCf) pm
---                 ResecDeal uds -> Map.map futureScheduleCf uds
---     setter d newCfMap = case pool d of
---                           MultiPool pm -> 
--- 			    let 
---                               newPm = Map.mapWithKey (\k p -> set (P.poolFutureScheduleCf) (newCfMap Map.! k) p) pm
---                             in
---                               set dealPool (MultiPool newPm) d
---                           ResecDeal pm -> 
---                             let 
---                               newPm = Map.mapWithKey (\k ud ->gset uDealFutureScheduleCf (newCfMap Map.! k) ud) pm
---                             in
---                               set dealPool (ResecDeal newPm) d
-
--- dealCashflow :: Ast.Asset a => Lens' (TestDeal a) (Map.Map PoolId (Maybe CF.CashFlowFrame))
--- dealCashflow = lens getter setter
---   where 
---     getter d = case pool d of
---                 MultiPool pm -> Map.map P.futureCf pm
---                 ResecDeal uds -> Map.map futureCf uds
---     setter d newCfMap = case pool d of 
---                           MultiPool pm -> let 
---                                             newPm = Map.mapWithKey (\k p -> set P.poolFutureCf (newCfMap Map.! k) p) pm
---                                           in 
---                                             set dealPool (MultiPool newPm) d
---                           ResecDeal pm ->
---                             let 
---                               newPm = Map.mapWithKey 
--- 			                (\k ud -> set uDealFutureCf (newCfMap Map.! k) ud)
--- 					pm
---                             in
---                               set dealPool (ResecDeal newPm) d
-
 getPoolIds :: Ast.Asset a => TestDeal a -> [PoolId]
 getPoolIds t@TestDeal{pool = pt} 
   = case pt of
       MultiPool pm -> Map.keys pm
       ResecDeal pm -> Map.keys pm
-      _ -> error "failed to match pool type in pool ids"
 
 -- ^ to handle with bond group, with flag to good deep if it is a bond group
 getBondByName :: Ast.Asset a => TestDeal a -> Bool -> BondName -> Maybe L.Bond
@@ -591,7 +617,7 @@ getIssuanceStats t@TestDeal{pool = pt} mPoolId
                                           Nothing -> pm
                                           Just pns -> Map.filterWithKey (\k _ -> k `elem` pns ) pm
                       in
-                        Map.map (fromMaybe Map.empty . P.issuanceStat) selectedPools
+                        Map.map ((fromMaybe Map.empty) . P.issuanceStat) selectedPools
 
 getIssuanceStatsConsol :: Ast.Asset a => TestDeal a -> Maybe [PoolId] -> Map.Map CutoffFields Balance
 getIssuanceStatsConsol t mPns 
@@ -620,7 +646,7 @@ getAllCollectedFrame t@TestDeal{pool = poolType} mPid =
   let 
     mCf = case poolType of 
             MultiPool pm -> Map.map (view (P.poolFutureCf . _Just . _1 )) pm -- `debug` ("MultiPool" ++ show pm)
-            ResecDeal uds -> Map.map futureCf uds
+            ResecDeal uds -> Map.map (fromMaybe CF.emptyCashflow . futureCf) uds
   in 
     case mPid of 
       Nothing -> mCf  -- `debug` ("Nothing when collecting cfs"++show mCf)

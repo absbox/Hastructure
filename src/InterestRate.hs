@@ -6,7 +6,7 @@
 module InterestRate
   (ARM(..),RateType(..),runInterestRate2,runInterestRate,UseRate(..)
   ,getRateResetDates,getDayCount,calcInt, calcIntRate,calcIntRateCurve
-  ,getSpread,_getSpread)
+  ,getSpread,_getSpread,calcIntRates)
   
   where
 
@@ -87,13 +87,17 @@ runInterestRate2 arm (d,sr) floater resetDates rc
   = mkRateTs $ zip (d:resetDates) resultRates -- `debug` ("Result Rate"++show resultRates)
     where 
      resultRates = runInterestRate arm sr floater resetDates rc 
-     
+
 calcIntRate :: Date -> Date -> IRate -> DayCount -> IRate
 calcIntRate startDate endDate intRate dayCount =
   let 
     yf = yearCountFraction dayCount startDate endDate
   in 
     intRate * fromRational yf
+
+calcIntRates :: DayCount -> IRate -> [Date] -> [IRate]
+calcIntRates dc r ds 
+  = [ calcIntRate sd ed r dc |  (sd,ed) <- zip (init ds) (tail ds) ]
 
 calcIntRateCurve :: DayCount -> IRate -> [Date] -> [IRate]
 calcIntRateCurve dc r ds 
@@ -107,7 +111,7 @@ calcInt bal startDate endDate intRate dayCount =
     mulBR bal (yfactor * toRational intRate)
 
 class UseRate x where 
-  isAdjustbleRate :: x -> Bool
+  isAdjustableRate :: x -> Bool
   -- get first index available,if not found return Nothing
   getIndex :: x -> Maybe Index
   getIndexes :: x -> Maybe [Index]

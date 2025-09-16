@@ -4,7 +4,18 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Types
   (DayCount(..),DateType(..)
@@ -14,7 +25,7 @@ module Types
   ,PerPoint(..),PerCurve(..),getValFromPerCurve
   ,Period(..), Threshold(..)
   ,RangeType(..),CutoffType(..),DealStatus(..)
-  ,Balance,Index(..)
+  ,Balance,Index(..),AccrueAmt
   ,Cmp(..),TimeHorizion(..)
   ,Date,Dates,TimeSeries(..),IRate,Amount,Rate,StartDate,EndDate,Lag
   ,Spread,Floor,Cap,Interest,Principal,Cash,Default,Loss,Rental,PrepaymentPenalty
@@ -31,9 +42,12 @@ module Types
   ,PricingMethod(..),CustomDataType(..),ResultComponent(..),DealStatType(..)
   ,ActionWhen(..),DealStatFields(..)
   ,getDealStatType,getPriceValue,preHasTrigger
+  ,DealStatRtn,Queryable(..) 
   ,MyRatio,HowToPay(..),BondPricingMethod(..),InvestorAction(..)
-  ,_BondTxn ,_InspectBal, _IrrResult
-  )
+  ,_BondTxn ,_InspectBal, _IrrResult,DueType(..)
+  ,EvalExpr(..),ErrorRep,Accruable(..),Payable(..),Drawable(..)
+  ,SupportAvailType(..),updateSupportAvailType
+  ,JRational)
   where
 
 import qualified Data.Text as Text
@@ -53,9 +67,12 @@ import Control.Lens.TH
 
 import Text.Read (readMaybe, get)
 import Data.Aeson (ToJSON, toJSON, Value(String))
+import Data.Aeson.GADT.TH
+
 import Data.Ratio (Ratio, numerator, denominator)
 import Data.Text (pack)
 import Control.DeepSeq (NFData,rnf)
+import Control.Monad (foldM)
 
 import Data.Scientific (fromRationalRepetend,formatScientific, Scientific,FPFormat(Fixed))
 
@@ -65,15 +82,10 @@ import Data.Aeson.Types
 import Data.Fixed hiding (Ratio)
 import Data.Decimal
 import Data.Ix
-
-
 import Data.List (intercalate, findIndex, find)
--- import Cashflow (CashFlowFrame)
-
--- import Web.Hyperbole hiding (All,Fixed)
-
 import Debug.Trace
--- import qualified Cashflow as CF
+import Data.Scientific (scientific)
+import Data.Text (unpack)
 debug = flip trace
 
 
@@ -95,11 +107,9 @@ type EndDate = Date
 type LastIntPayDate = Date
 
 type Balance = Centi
--- type Balance = Decimal
 type Amount = Balance
 type Principal = Balance
 type Valuation = Balance
-
 type Interest = Balance
 type Default = Balance
 type Loss = Balance
@@ -116,12 +126,14 @@ type CumLoss = Balance
 type CumRecovery = Balance
 type AccruedInterest = Balance
 
-type PerFace = Micro
 type WAL = Balance
+
+type PerFace = Micro
 type Duration = Micro
 type Convexity = Micro
 type Yield = Micro
 type IRR = Micro
+type AccrueAmt = Micro
 
 type Rate = Rational  -- general Rate like pool factor
 type PrepaymentRate = Rate
@@ -136,6 +148,8 @@ type Cap = Micro
 type RemainTerms = Int
 type BorrowerNum = Int
 type Lag = Int
+
+type ErrorRep = String
 
 
 data Index = LPR5Y
@@ -195,7 +209,7 @@ data DateType = ClosingDate             -- ^ deal closing day
               | NextCollectDate
               | FirstCollectDate        -- ^ first collection day for pool
               | LastCollectDate         -- ^ last collection day for pool
-              | LastPayDate            -- ^ last payment day for bond/waterfall 
+              | LastPayDate             -- ^ last payment day for bond/waterfall 
               | StatedMaturityDate      -- ^ sated maturity date, all cashflow projection/deal action stops by
               | DistributionDates       -- ^ distribution date for waterfall
               | CollectionDates         -- ^ collection date for pool
@@ -388,6 +402,17 @@ data InvestorAction = Buy
                     deriving (Show,Ord,Read,Generic,Eq)
 
 
+data SupportAvailType = ByAvailAmount Balance 
+                      | Unlimit
+                      deriving (Show, Eq, Ord, Generic, Read)
+
+updateSupportAvailType :: (Balance -> Balance) -> SupportAvailType -> SupportAvailType
+updateSupportAvailType f (ByAvailAmount b) = ByAvailAmount (f b)
+updateSupportAvailType _ Unlimit = Unlimit
+
+
+$(deriveJSON defaultOptions ''SupportAvailType)
+
 class TimeSeries ts where 
     cmp :: ts -> ts -> Ordering
     cmp t1 t2 = compare (getDate t1) (getDate t2)
@@ -511,34 +536,34 @@ data BondPricingMethod = BondBalanceFactor Rate
 
 -- ^ condition which can be evaluated to a boolean value
 data Pre = IfZero DealStats
-        | If Cmp DealStats Balance
-        | IfRate Cmp DealStats Micro
-        | IfCurve Cmp DealStats Ts
-        | IfByPeriodCurve Cmp DealStats DealStats (PerCurve Balance)
-        | IfRateCurve Cmp DealStats Ts
-        | IfRateByPeriodCurve Cmp DealStats DealStats (PerCurve Rate)
-        | IfIntCurve Cmp DealStats Ts
-        -- Integer
-        | IfInt Cmp DealStats Int
-        | IfIntBetween DealStats RangeType Int Int
-        | IfIntIn DealStats [Int]
-        -- Dates
-        | IfDate Cmp Date
-        | IfDateBetween RangeType Date Date
-        | IfDateIn Dates
-        -- Bool
-        | IfBool DealStats Bool
-        -- compare deal status 
-        | If2 Cmp DealStats DealStats
-        | IfRate2 Cmp DealStats DealStats
-        | IfInt2 Cmp DealStats DealStats
-        -- | IfRateCurve DealStats Cmp Ts
-        | IfDealStatus DealStatus
-        | Always Bool
-        | IfNot Pre
-        | Any [Pre]
-        | All [Pre]                            -- ^ 
-        deriving (Show,Generic,Eq,Ord,Read)
+         | If Cmp DealStats Balance
+         | IfRate Cmp DealStats Micro
+         | IfCurve Cmp DealStats Ts
+         | IfByPeriodCurve Cmp DealStats DealStats (PerCurve Balance)
+         | IfRateCurve Cmp DealStats Ts
+         | IfRateByPeriodCurve Cmp DealStats DealStats (PerCurve Rate)
+         | IfIntCurve Cmp DealStats Ts
+         -- Integer
+         | IfInt Cmp DealStats Int
+         | IfIntBetween DealStats RangeType Int Int
+         | IfIntIn DealStats [Int]
+         -- Dates
+         | IfDate Cmp Date
+         | IfDateBetween RangeType Date Date
+         | IfDateIn Dates
+         -- Bool
+         | IfBool DealStats Bool
+         -- compare deal status 
+         | If2 Cmp DealStats DealStats
+         | IfRate2 Cmp DealStats DealStats
+         | IfInt2 Cmp DealStats DealStats
+         -- | IfRateCurve DealStats Cmp Ts
+         | IfDealStatus DealStatus
+         | Always Bool
+         | IfNot Pre
+         | Any [Pre]
+         | All [Pre]                            -- ^ 
+         deriving (Show,Generic,Eq,Ord,Read)
 
 
 data Table a b = ThresholdTable [(a,b)]
@@ -584,11 +609,14 @@ data TxnComment = PayInt [BondName]
                 | TxnComments [TxnComment]
                 deriving (Eq, Show, Ord ,Read, Generic)
 
+type FeeDue = Balance
+type FeeArrears = Balance
+
 -- ^ transaction record in each entity
 data Txn = BondTxn Date Balance Interest Principal IRate Cash DueInt DueIoI (Maybe Float) TxnComment     -- ^ bond transaction record for interest and principal 
          | AccTxn Date Balance Amount TxnComment                                                         -- ^ account transaction record 
-         | ExpTxn Date Balance Amount Balance TxnComment                                                 -- ^ expense transaction record
-         | SupportTxn Date (Maybe Balance) Balance DueInt DuePremium Cash TxnComment                     -- ^ liquidity provider transaction record
+         | ExpTxn Date FeeDue Amount FeeArrears TxnComment                                                 -- ^ expense transaction record
+         | SupportTxn Date SupportAvailType Balance DueInt DuePremium Cash TxnComment                     -- ^ liquidity provider transaction record
          | IrsTxn Date Balance Amount IRate IRate Balance TxnComment                                     -- ^ interest swap transaction record
          | EntryTxn Date Balance Amount TxnComment                                                       -- ^ ledger book entry
          | TrgTxn Date Bool TxnComment
@@ -611,13 +639,12 @@ data DealStats = CurrentBondBalance
                | OriginalBondBalanceOf [BondName]
                | BondTotalFunding [BondName]
                | OriginalPoolBalance (Maybe [PoolId])
-               | DealIssuanceBalance (Maybe [PoolId])
                | UseCustomData String
                | PoolCumCollection [PoolSource] (Maybe [PoolId])
                | PoolCumCollectionTill Int [PoolSource] (Maybe [PoolId])
                | PoolCurCollection [PoolSource] (Maybe [PoolId])
                | PoolCollectionStats Int [PoolSource] (Maybe [PoolId])
-	       | PoolWaSpread (Maybe [PoolId])
+               | PoolWaSpread (Maybe [PoolId])
                | AllAccBalance
                | AccBalance [AccName]
                | LedgerBalance [String]
@@ -685,6 +712,7 @@ data DealStats = CurrentBondBalance
                | ProjCollectPeriodNum
                | MonthsTillMaturity BondName
                | DealStatInt DealStatFields
+               | ActiveBondNum
                -- boolean type
                | TestRate DealStats Cmp Micro
                | TestAny Bool [DealStats]
@@ -735,10 +763,42 @@ data DealStats = CurrentBondBalance
                | Round DealStats (RoundingBy Rational)
                deriving (Show,Eq,Ord,Read,Generic)
 
+
+data EvalExpr a where
+     EvalSum :: (Num a, Read a, Generic a, Ord a, Eq a, Show a) => [EvalExpr a] -> EvalExpr a 
+     CurrentBondBalance' :: Balance -> EvalExpr Balance
+     EvalSubtract :: (Num a) => [EvalExpr a] -> EvalExpr a
+     -- EvalAvg :: (Num a) => [EvalExpr a] -> EvalExpr a
+     -- EvalMax :: (Num a) => [EvalExpr a] -> EvalExpr a
+     -- EvalMin :: (Num a) => [EvalExpr a] -> EvalExpr a
+     -- EvalMultiply :: (Num a) => [EvalExpr a] -> EvalExpr a
+     -- EvalDivide :: (Num a, Fractional a) => EvalExpr a -> EvalExpr a -> EvalExpr a
+     -- EvalFloorAndCap :: (Num a) => EvalExpr a -> EvalExpr a -> EvalExpr a -> EvalExpr a
+     -- EvalFloorWith :: (Num a) => EvalExpr a -> EvalExpr a -> EvalExpr a
+     -- EvalFloorWithZero :: (Num a) => EvalExpr a -> EvalExpr a
+     -- EvalExcess :: (Num a) => EvalExpr a -> [EvalExpr a] -> EvalExpr a
+     -- EvalCapWith :: (Num a) => EvalExpr a -> EvalExpr a -> EvalExpr a
+     -- EvalAbs :: (Num a) => EvalExpr a -> EvalExpr a
+     -- EvalRound :: (Num a) => Int -> EvalExpr a -> EvalExpr a
+     -- EvalConstant :: (Num a) => EvalExpr a
+     -- EvalBalance :: Balance -> EvalExpr Balance
+     -- EvalRate :: Rate -> EvalExpr Rate
+     -- EvalInt :: Int -> EvalExpr Int
+     -- EvalBool :: Bool -> EvalExpr Bool
+     -- deriving (Show,Eq,Ord,Read,Generic)
+
+-- deriving instance Read a => Read (EvalExpr a)
+-- deriving instance Generic a => Generic (EvalExpr a)
+
+-- instance Read (EvalExpr a) where
+--   readsPrec _ "EvalSum" = [(EvalSum [],"")]
+--   readsPrec _ "CurrentBondBalance'" = [(CurrentBondBalance', "")]
+--   readsPrec _ _ = error "EvalExpr: not implemented for other constructors"
+     
 preHasTrigger :: Pre -> [(DealCycle,String)]
 preHasTrigger (IfBool (TriggersStatus dc tName) _) = [(dc,tName)]
-preHasTrigger (Any ps) = concat $ preHasTrigger <$> ps
-preHasTrigger (All ps) = concat $ preHasTrigger <$> ps
+preHasTrigger (Any ps) = concatMap preHasTrigger ps
+preHasTrigger (All ps) = concatMap preHasTrigger ps
 preHasTrigger _ = []
 
 
@@ -746,14 +806,11 @@ data Limit = DuePct Rate            -- ^ up to % of total amount due
            | DueCapAmt Balance      -- ^ up to $ amount 
            | KeepBalAmt DealStats   -- ^ pay till a certain amount remains in an account
            | DS DealStats           -- ^ transfer with limit described by a `DealStats`
-           -- | ClearLedger BookDirection String     -- ^ when transfer, clear the ledger by transfer amount
-           -- | ClearLedgerBySeq BookDirection [String]  -- ^ clear a direction to a sequence of ledgers
-           -- | BookLedger String      -- ^ when transfer, book the ledger by the transfer amount
            | RemainBalPct Rate      -- ^ pay till remain balance equals to a percentage of `stats`
            | TillTarget             -- ^ transfer amount which make target account up reach reserve balanace
            | TillSource             -- ^ transfer amount out till source account down back to reserve balance
            | Multiple Limit Float   -- ^ factor of a limit
-           deriving (Show,Ord,Eq,Read, Generic)
+           deriving (Show,Ord,Eq,Read,Generic)
 
 data HowToPay = ByProRata
               | BySequential
@@ -812,11 +869,11 @@ data CutoffFields = IssuanceBalance              -- ^ pool issuance balance
 
 
 data PriceResult = PriceResult Valuation PerFace WAL Duration Convexity AccruedInterest [Txn]
-         | AssetPrice Valuation WAL Duration Convexity AccruedInterest
-         | OASResult PriceResult [Valuation] Spread  
-         | ZSpread Spread 
-         | IrrResult IRR [Txn]
-         deriving (Show, Eq, Generic)
+                 | AssetPrice Valuation WAL Duration Convexity AccruedInterest
+                 | OASResult PriceResult [Valuation] Spread  
+                 | ZSpread Spread 
+                 | IrrResult IRR [Txn]
+                 deriving (Show, Eq, Generic)
 
 makePrisms ''PriceResult
 
@@ -826,10 +883,10 @@ getPriceValue (PriceResult v _ _ _ _ _ _) = v
 getPriceValue x = error  $ "failed to match with type when geting price value" ++ show x
 
 
-getValuation :: PriceResult -> PerFace
-getValuation (PriceResult _ val _ _ _ _ _) = val
-getValuation (OASResult pr _ _) = getValuation pr
-getValuation pr =  error $ "not support for pricing result"++ show pr
+-- getValuation :: PriceResult -> PerFace
+-- getValuation (PriceResult _ val _ _ _ _ _) = val
+-- getValuation (OASResult pr _ _) = getValuation pr
+-- getValuation pr =  error $ "not support for pricing result"++ show pr
 
 
 class Liable lb where 
@@ -847,23 +904,48 @@ class Liable lb where
   getDueIntOverIntAt :: lb -> Int -> Balance
   getTotalDueInt :: lb -> Balance
   getTotalDueIntAt :: lb -> Int -> Balance
-
   getOutstandingAmount :: lb -> Balance
 
-  -- optional implement
-  -- getTotalDue :: [lb] -> Balance
-  -- getTotalDue lbs =  sum $ getDue <$> lbs
+
+data DueType = DueInterest (Maybe Int) -- ^ interest due
+             | DuePrincipal              -- ^ principal due
+             | DueFee                    -- ^ fee due
+             | DueResidual               -- ^ residual 
+             | DueArrears                -- ^ something that is not paid in the past
+             | DueTotalOf [DueType]      -- ^ a combination of above with sequence
+             deriving (Show, Eq, Generic)
 
 
 class Accruable ac where 
-  accrue :: Date -> ac -> ac
-  calcAccrual :: Date -> ac -> Balance
+  bookAccrual :: Date -> Balance -> ac -> ac
+  getAccrualDates :: Date -> ac -> [Date]
+  accrueTo :: Date -> ac -> ac
+  -- accrueWithDeal :: Date -> deal -> ac -> ac
+
+class Payable pa where
+  pay :: Date -> DueType -> Balance -> pa -> Either ErrorRep pa
+  getDueBal :: Date -> Maybe DueType -> pa -> Balance
+  writeOff :: Date -> DueType -> Amount -> pa -> Either ErrorRep pa
+
+class RateResettable rs where
+  getResetDates :: Date -> rs -> [Dates]
+  reset :: Date -> rs -> rs
+
+class Drawable dr where
+  draw :: Date -> Balance -> TxnComment -> dr -> Either ErrorRep dr
+  availForDraw :: Date -> dr -> SupportAvailType
 
   -- buildAccrualAction :: ac -> Date -> Date -> [ActionOnDate]
 
 -- class Resettable rs where 
 --   reset :: Date -> rs -> rs
 --   buildResetAction :: rs -> Date -> Date -> [Txn]
+
+class Collectable cl where 
+  collect :: Date -> cl -> Either ErrorRep cl
+  availForCollect :: Date -> cl -> Either ErrorRep Balance
+
+
 
 lookupTable :: Ord a => Table a b -> Direction -> (a -> Bool) -> Maybe b
 lookupTable (ThresholdTable rows) direction lkUpFunc
@@ -950,7 +1032,6 @@ data ResultComponent = CallAt Date                                          -- ^
                      | ErrorMsg String
                      | WarningMsg String
                      | EndRun (Maybe Date) String                             -- ^ end of run with a message
-                     -- | SnapshotCashflow Date String CashFlowFrame
                      deriving (Show, Generic,Eq)
 
 makePrisms ''ResultComponent
@@ -1066,11 +1147,54 @@ parseTxn t = case tagName of
       contents = head sr!!2::String
 
 
+mapKVTraversal :: Traversal' (Map.Map k a) (k, a)
+mapKVTraversal = itraversed . withIndex
+
 data DealStatType = RtnBalance 
                   | RtnRate 
                   | RtnBool 
                   | RtnInt
                   deriving (Show,Eq,Ord,Read,Generic)
+
+type DealStatRtn :: DealStats -> DealStatType
+type family DealStatRtn ds where
+  DealStatRtn (CumulativePoolDefaultedRateTill _ _) = RtnRate
+  DealStatRtn (CumulativePoolDefaultedRate _) = RtnRate
+  DealStatRtn (CumulativeNetLossRatio _) = RtnRate
+  DealStatRtn BondFactor = RtnRate
+  DealStatRtn (BondFactorOf _) = RtnRate
+  DealStatRtn (PoolFactor _) = RtnRate
+  DealStatRtn (FutureCurrentBondFactor _) = RtnRate
+  DealStatRtn (FutureCurrentPoolFactor _ _) = RtnRate
+  DealStatRtn (BondWaRate _) = RtnRate
+  DealStatRtn (PoolWaRate _) = RtnRate
+  DealStatRtn (BondRate _) = RtnRate
+  DealStatRtn (DivideRatio _ _) = RtnRate
+  DealStatRtn (AvgRatio _) = RtnRate
+  DealStatRtn (DealStatRate _) = RtnRate
+  DealStatRtn (Avg dss) = RtnRate
+  DealStatRtn (Divide ds1 ds2) = RtnRate
+  DealStatRtn (Multiply _) = RtnRate
+  DealStatRtn (Factor _ _) = RtnRate
+  DealStatRtn (PoolWaSpread _) = RtnRate
+
+  DealStatRtn (IsMostSenior _ _) = RtnBool
+  DealStatRtn (IsPaidOff _) = RtnBool
+  DealStatRtn (IsOutstanding _) = RtnBool
+  DealStatRtn (HasPassedMaturity _) = RtnBool
+  DealStatRtn (TriggersStatus _ _)= RtnBool
+  DealStatRtn (IsDealStatus _)= RtnBool
+  DealStatRtn (TestRate _ _ _) = RtnBool
+  DealStatRtn (TestAny _ _) = RtnBool
+  DealStatRtn (TestAll _ _) = RtnBool
+  DealStatRtn (DealStatBool _) = RtnBool
+  
+  DealStatRtn  (Max (s:dss)) = DealStatRtn s
+  DealStatRtn (Min (s:dss)) = DealStatRtn s
+  DealStatRtn _ = RtnBalance
+
+class Queryable ds where
+  getDealStatType' :: DealStats -> DealStatType
 
 getDealStatType :: DealStats -> DealStatType
 getDealStatType (CumulativePoolDefaultedRateTill _ _) = RtnRate
@@ -1168,6 +1292,8 @@ $(deriveJSON defaultOptions ''HowToPay)
 
 
 
+
+
 instance ToJSONKey DealCycle where
   toJSONKey = toJSONKeyText (T.pack . show)
 
@@ -1209,6 +1335,28 @@ instance FromJSONKey Threshold where
 
 $(deriveJSON defaultOptions ''RateAssumption)
 $(deriveJSON defaultOptions ''Direction)
+-- $(deriveJSON defaultOptions ''(EvalExpr Balance))
 
+-- $(deriveJSONGADT ''EvalExpr)
 makePrisms ''Txn
 $(concat <$> traverse (deriveJSON defaultOptions) [''Limit] )
+
+
+
+
+-- newtype wrapper (no orphan instance)
+newtype JRational = JRational { unJRationalMicro :: Rational }
+  deriving (Eq, Show, Read, Ord, Generic)
+
+-- encode as a JSON Number with 6 fractional digits (Micro)
+instance ToJSON JRational where
+  toJSON (JRational r) = Number $ scientific (round (r * 1000000)) (-6)
+
+-- decode either a numeric JSON value or a numeric string into Rational
+instance FromJSON JRational where
+  parseJSON (Number s) = pure $ JRational (toRational s)
+  parseJSON (String t) =
+    case reads (unpack t) of
+      [(d, "")] -> pure $ JRational (toRational (d :: Double))
+      _ -> fail "Invalid Micro string"
+  parseJSON _ = fail "Expected number or string for JRational"

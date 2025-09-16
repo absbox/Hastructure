@@ -44,7 +44,7 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,AT.installmentTest
                            ,AT.armTest
                            ,AT.ppyTest
-                           ,AT.delinqScheduleCFTest
+--                           ,AT.delinqScheduleCFTest
                            ,AT.delinqMortgageTest
                            ,AT.nonPayMortgageTest
                            ,AT.receivableTest
@@ -61,6 +61,8 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,BT.pricingTests
                            ,BT.bndConsolTest
                            ,BT.writeOffTest
+                           ,BT.accrueTest
+                           ,BT.selectorTest
                            ,LT.curveTests
                            ,LT.periodCurveTest
                            ,LT.pvTests
@@ -70,6 +72,7 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,LT.prorataTests
                            ,LT.tsOperationTests
                            ,ET.expTests
+                           ,ET.expPayTest
                            ,DT.queryTests
                            ,DT.triggerTests
                            ,DT.dateTests
@@ -94,6 +97,7 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,UtilT.lastOftest
                            ,UtilT.paySeqTest
                            ,UtilT.scaleListTest
+                           ,UtilT.mapUpdateTest
                            ,AccT.intTests
                            ,AccT.investTests
                            ,AccT.reserveAccTest

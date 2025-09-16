@@ -1,13 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
@@ -18,7 +15,6 @@ module Main
 import Prelude ()
 import Prelude.Compat
 import System.Environment
-import Control.Monad.Catch       (MonadCatch, MonadThrow (..))
 import Control.Monad.IO.Class    (liftIO)
 import Control.Monad (mapM)
 import Control.Exception (Exception,throwIO,throw)
@@ -28,7 +24,7 @@ import Data.Aeson
 import Data.Aeson.Types
 import Data.Aeson.TH
 import Data.Aeson.Encode.Pretty (encodePretty)
-import Data.Attoparsec.ByteString
+-- import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
 import Data.List
 import Data.Map
@@ -50,9 +46,9 @@ import qualified Data.ByteString.Char8 as BS
 import Network.Wai
 import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Cors
-import qualified Data.Aeson.Parser
+-- import qualified Data.Aeson.Parser
 import Language.Haskell.TH
-import Network.HTTP.Types.Status
+--import Network.HTTP.Types.Status
 import Servant.OpenApi
 import Servant
 import Servant.Types.SourceT (source)
@@ -104,7 +100,7 @@ debug = flip Debug.Trace.trace
 
 
 version1 :: Version 
-version1 = Version "0.50.2"
+version1 = Version "0.51.6"
 
 
 wrapRun :: [D.ExpectReturn] -> DealType -> Maybe AP.ApplyAssumptionType -> AP.NonPerfAssumption -> RunResp
@@ -141,7 +137,6 @@ wrapRun fs (PDeal d) mAssump mNonPerfAssump
       (_d,_pflow,_rs,_p, _osPflow) <- D.runDeal d (S.fromList fs) mAssump mNonPerfAssump
       return (PDeal _d,_pflow,_rs,_p,_osPflow)
 
-wrapRun _ x _ _ = Left $ "RunDeal Failed ,due to unsupport deal type "++ show x
 
 patchCumulativeToPoolRun :: RunPoolTypeRtn_ -> RunPoolTypeRtn_
 patchCumulativeToPoolRun
@@ -149,6 +144,7 @@ patchCumulativeToPoolRun
           (\(CF.CashFlowFrame _ txns,mAssetFlow) -> 
             (CF.CashFlowFrame (0,Lib.toDate "19000101",Nothing) (CF.patchCumulative (0,0,0,0,0,0) [] txns),mAssetFlow))
 
+-- flag -> breakdown flag
 wrapRunPoolType :: Bool -> PoolTypeWrap -> Maybe AP.ApplyAssumptionType -> Maybe [RateAssumption] -> RunPoolTypeRtn
 wrapRunPoolType flag (MPool pt) assump mRates = D.runPoolType flag pt assump $ Just (AP.NonPerfAssumption{AP.interest = mRates})
 wrapRunPoolType flag (LPool pt) assump mRates = D.runPoolType flag pt assump $ Just (AP.NonPerfAssumption{AP.interest = mRates})
@@ -158,22 +154,21 @@ wrapRunPoolType flag (FPool pt) assump mRates = D.runPoolType flag pt assump $ J
 wrapRunPoolType flag (VPool pt) assump mRates = D.runPoolType flag pt assump $ Just (AP.NonPerfAssumption{AP.interest = mRates})
 wrapRunPoolType flag (PPool pt) assump mRates = D.runPoolType flag pt assump $ Just (AP.NonPerfAssumption{AP.interest = mRates})
 wrapRunPoolType flag (UPool pt) assump mRates = D.runPoolType flag pt assump $ Just (AP.NonPerfAssumption{AP.interest = mRates})
-wrapRunPoolType flag x _ _ = Left $ "RunPool Failed ,due to unsupport pool type "++ show x
 
 
 wrapRunAsset :: RunAssetReq -> RunAssetResp
 wrapRunAsset (RunAssetReq d assets Nothing mRates Nothing) 
   = do 
-      cfs <- sequenceA $ (\a -> MA.calcAssetUnion a d mRates) <$> assets
+      cfs <- traverse (\a -> MA.calcAssetUnion a d mRates) assets
       return (fst (P.aggPool Nothing [(cf,Map.empty) | cf <- cfs]), Nothing) 
 wrapRunAsset (RunAssetReq d assets (Just (AP.PoolLevel assumps)) mRates Nothing) 
   = do 
-      cfs <- sequenceA $ (\a -> MA.projAssetUnion a d assumps mRates) <$> assets
+      cfs <- traverse (\a -> MA.projAssetUnion a d assumps mRates) assets
       return (fst (P.aggPool Nothing [(cf,Map.empty) | (cf,_) <- cfs])  , Nothing) 
 wrapRunAsset (RunAssetReq d assets (Just (AP.PoolLevel assumps)) mRates (Just pm)) 
   = do 
-      cfs <- sequenceA $ (\a -> MA.projAssetUnion a d assumps mRates) <$> assets
-      pricingResult <- sequenceA $ (\a -> D.priceAssetUnion a d pm assumps mRates) <$> assets
+      cfs <- traverse (\a -> MA.projAssetUnion a d assumps mRates)  assets
+      pricingResult <- traverse (\a -> D.priceAssetUnion a d pm assumps mRates) assets
       let (assetCf,_) = P.aggPool Nothing cfs
       return (assetCf , Just pricingResult)
 
@@ -213,12 +208,11 @@ runAsset req = return $ wrapRunAsset req
 runPool :: RunPoolReq -> Handler PoolRunResp
 runPool (SingleRunPoolReq f pt passumption mRates) 
   = return $
-      patchCumulativeToPoolRun <$> (wrapRunPoolType f pt passumption mRates)
+      patchCumulativeToPoolRun <$> wrapRunPoolType f pt passumption mRates
 
 runPoolScenarios :: RunPoolReq -> Handler (Map.Map ScenarioName PoolRunResp)
 runPoolScenarios (MultiScenarioRunPoolReq f pt mAssumps mRates) 
-  = return $ Map.map (\assump -> 
-                        patchCumulativeToPoolRun <$> (wrapRunPoolType f pt (Just assump) mRates)) 
+  = return $ Map.map (\assump -> patchCumulativeToPoolRun <$> wrapRunPoolType f pt (Just assump) mRates) 
                       mAssumps
 
 runDeal :: RunDealReq -> Handler RunResp
@@ -407,7 +401,7 @@ evalRootFindStop (BalanceFormula ds targetBal) (dt,collectedFlow,logs,_,osPflow)
                 Just (EndRun (Just d) _ ) -> d
                 Nothing -> case queryClosingDate dt of
                              Right d' -> d'
-			     Left err -> error $ "Error in BalanceFormula: " ++ err
+                             Left err -> error $ "Error in BalanceFormula: " ++ err
       v = case queryDealType dt _date (Q.patchDateToStats _date ds)  of
             Right v' -> fromRational v'
             Left err -> error $ "Error in BalanceFormula: " ++ err
@@ -433,13 +427,12 @@ runRootFinderBy (RootFinderReq req@(dt,Just assumps,nonPerfAssump@AP.NonPerfAssu
         def = RiddersParam { riddersMaxIter = itertimes, riddersTol = RelTol 0.000001}
         riddersFn = case tweak of
                       SplitFixedBalance _ _ (l,h) -> ridders def (min h 0.99, max l 0.00001)
-		      StressPoolDefault (l,h)  -> ridders def (h ,max l 0.00)
-		      StressPoolPrepayment (l,h) -> ridders def (h ,max l 0.00)
-		      MaxSpreadTo _ (l,h) -> ridders def (h ,max l 0.00)
-                      _ -> error ("Unsupported tweak for root finder" ++ show tweak)
+                      StressPoolDefault (l,h)  -> ridders def (h ,max l 0.00)
+                      StressPoolPrepayment (l,h) -> ridders def (h ,max l 0.00)
+                      MaxSpreadTo _ (l,h) -> ridders def (h ,max l 0.00)
       in
         case riddersFn (rootFindAlgo req tweak stop) of
-          Root r -> Right $ RFResult r (doTweak r tweak req)
+          Root r -> return $ RFResult r (doTweak r tweak req)
           NotBracketed -> Left "Not able to bracket the root"
           SearchFailed -> Left "Not able to find the root"
 

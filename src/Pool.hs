@@ -1,13 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TupleSections #-}
 
 module Pool (Pool(..),aggPool
-       ,getIssuanceField
-       ,poolFutureCf,poolIssuanceStat
-       ,poolFutureScheduleCf
+       ,getIssuanceField ,poolIssuanceStat ,poolFutureScheduleCf
        ,poolBegStats,calcLiquidationAmount,pricingPoolFlow
        ,futureScheduleCfLens,futureCfLens, poolFutureCf
+       ,runPool
 ) where
 
 
@@ -16,15 +16,19 @@ import Lib (Period(..)
            ,getIntervalDays,zipWith9,mkTs,periodsBetween
            ,mkRateTs,daysBetween, )
 
+import Control.Parallel.Strategies
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
 import qualified Assumptions as A
 import qualified Analytics as AN
 import qualified AssetClass.AssetBase as ACM 
+import AssetClass.Mortgage
 import AssetClass.AssetCashflow
 import Asset (Asset(..))
 import qualified Data.Map as Map
 
 import Data.Ratio
+import qualified Data.Set as S
+import Data.List
 import Data.Aeson hiding (json)
 import Language.Haskell.TH
 import GHC.Generics
@@ -40,6 +44,7 @@ import Assumptions (ApplyAssumptionType)
 import Util
 import Cashflow (CashFlowFrame)
 import qualified Stmt as CF
+import Stmt
 import Debug.Trace
 debug = flip trace
 
@@ -190,7 +195,107 @@ pricingPoolFlow d pool@Pool{ futureCf = Just (mCollectedCf,_), issuanceStat = mS
           in 
             AN.pv21 discountRate d futureDates futureCfCash
 
+ -- | run a pool of assets ,use asOfDate of Pool to cutoff cashflow yields from assets with assumptions supplied
+runPool :: Asset a => Pool a -> Maybe A.ApplyAssumptionType -> Maybe [RateAssumption] 
+        -> Either String [(CF.CashFlowFrame, Map.Map CutoffFields Balance)]
+-- use interest rate assumption
+runPool (Pool as _ _ asof _ _) Nothing mRates 
+  = do 
+      cf <- sequenceA $ parMap rdeepseq  (\x -> calcCashflow x asof mRates) as 
+      return [ (x, Map.empty) | x <- cf ]
+-- asset cashflow with credit stress
+---- By pool level
+runPool (Pool as _ Nothing asof _ _) (Just (A.PoolLevel assumps)) mRates 
+  = sequenceA $ parMap rdeepseq (\x -> projCashflow x asof assumps mRates) as  
+---- By index
+runPool (Pool as _ Nothing  asof _ _) (Just (A.ByIndex idxAssumps)) mRates =
+  let
+    numAssets = length as
+  in
+    do 
+      _assumps <- traverse (A.lookupAssumptionByIdx idxAssumps) [0..(pred numAssets)] -- `debug` ("Num assets"++ show numAssets)
+      sequenceA $ parMap rdeepseq (\(x, a) -> projCashflow x asof a mRates) (zip as _assumps)
+
+---- By Obligor
+runPool (Pool as _ Nothing asof _ _) (Just (A.ByObligor obligorRules)) mRates =
+  let
+    matchAssets []   _ [] = Right [(CF.CashFlowFrame (0,epocDate,Nothing) [], Map.empty)] 
+    matchAssets cfs [] [] = sequenceA cfs
+    -- matchAssets cfs [] astList = sequenceA $ cfs ++ ((\x -> (\y -> (y, Map.empty)) <$> (Ast.calcCashflow x asof mRates)) <$> astList)
+    matchAssets cfs [] astList = let
+                                    poolCfs = parMap rdeepseq (\x -> calcCashflow x asof mRates) astList
+                                    poolCfs' = (\x -> (, Map.empty) <$> x) <$> poolCfs
+                                 in 
+                                    sequenceA $ cfs ++ poolCfs'
+    matchAssets cfs (rule:rules) astList = 
+      case rule of 
+        A.ObligorById ids assetPerf 
+          -> let 
+               idSet = S.fromList ids
+               (matchedAsts,unMatchedAsts) = partition 
+                                               (\x -> case getObligorId x of 
+                                                         Just oid -> S.member oid idSet
+                                                         Nothing -> False) 
+                                               astList
+               matchedCfs = parMap rdeepseq (\x -> projCashflow x asof assetPerf mRates) matchedAsts 
+             in 
+               matchAssets (cfs ++ matchedCfs) rules unMatchedAsts
+        A.ObligorByTag tags tagRule assetPerf ->
+          let 
+            obrTags = S.fromList tags
+
+            matchRuleFn A.TagEq s1 s2 = s1 == s2 
+            matchRuleFn A.TagSubset s1 s2 = s1 `S.isSubsetOf` s2
+            matchRuleFn A.TagSuperset s1 s2 = s2 `S.isSubsetOf` s1
+            matchRuleFn A.TagAny s1 s2 = not $ S.null $ S.intersection s1 s2
+            matchRuleFn (A.TagNot tRule) s1 s2 = not $ matchRuleFn tRule s1 s2
+            
+            (matchedAsts,unMatchedAsts) = partition (\x -> matchRuleFn tagRule (getObligorTags x) obrTags) astList
+            matchedCfs = parMap rdeepseq (\x -> projCashflow x asof assetPerf mRates) matchedAsts 
+          in 
+            matchAssets (cfs ++ matchedCfs) rules unMatchedAsts
         
+        A.ObligorByField fieldRules assetPerf -> 
+          let 
+            matchRuleFn (A.FieldIn fv fvals) Nothing = False
+            matchRuleFn (A.FieldIn fv fvals) (Just fm) = case Map.lookup fv fm of
+                                                    Just (Left v) -> v `elem` fvals
+                                                    Nothing -> False
+            matchRuleFn (A.FieldCmp fv cmp dv) (Just fm) = case Map.lookup fv fm of
+                                                        Just (Right v) -> case cmp of 
+                                                                    G -> v > dv
+                                                                    L -> v < dv
+                                                                    GE -> v >= dv
+                                                                    LE -> v <= dv
+                                                        Nothing -> False
+            matchRuleFn (A.FieldInRange fv rt dv1 dv2) (Just fm) = 
+              case Map.lookup fv fm of
+                Just (Right v) -> case rt of 
+                          II -> v <= dv2 && v >= dv1
+                          IE -> v <= dv2 && v > dv1
+                          EI -> v < dv2 && v >= dv1
+                          EE -> v < dv2 && v > dv1
+                          _ -> False
+                Nothing -> False
+            matchRuleFn (A.FieldNot fRule) fm = not $ matchRuleFn fRule fm
+
+            matchRulesFn fs fm = all (`matchRuleFn` fm) fs
+
+            (matchedAsts,unMatchedAsts) = partition (matchRulesFn fieldRules . getObligorFields) astList            
+            matchedCfs = parMap rdeepseq (\x -> projCashflow x asof assetPerf mRates) matchedAsts 
+         in 
+            matchAssets (cfs ++ matchedCfs) rules unMatchedAsts
+        A.ObligorByDefault assetPerf ->
+          matchAssets 
+            (cfs ++ (parMap rdeepseq (\x -> projCashflow x asof assetPerf mRates) astList))
+            []
+            []
+  in
+    matchAssets [] obligorRules as
+
+-- safe net to catch other cases
+runPool _a _b _c = Left $ "[Run Pool]: Failed to match" ++ show _a ++ show _b ++ show _c
+
 
 
 $(deriveJSON defaultOptions ''Pool)

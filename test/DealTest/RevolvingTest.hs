@@ -13,6 +13,7 @@ import qualified AssetClass.Mortgage as ACM
 import qualified AssetClass.AssetBase as AB
 import qualified Expense as F
 import qualified Deal.DealBase as D
+import Deal.DealCollection (CollectionRule(..))
 import qualified Deal as DR
 import qualified Liability as L
 import qualified Waterfall as W
@@ -87,9 +88,8 @@ baseCase = D.TestDeal {
                                  (W.PayInt Nothing "General" ["A"] Nothing)
                                  ,(W.PayPrin Nothing "General" ["A"] Nothing)
    ])]
- ,D.collects = [W.Collect (Just [PoolName "PoolA",PoolName "PoolB"]) W.CollectedInterest "General"
-               ,W.Collect (Just [PoolName "PoolA",PoolName "PoolB"]) W.CollectedPrincipal "General"
-             ]
+ ,D.collects = [Collect (Just [PoolName "PoolA",PoolName "PoolB"]) CollectedInterest "General"
+               ,Collect (Just [PoolName "PoolA",PoolName "PoolB"]) CollectedPrincipal "General"]
  ,D.liqProvider = Nothing
  ,D.rateCap = Nothing
  ,D.triggers = Nothing
@@ -108,10 +108,9 @@ baseTests =
                                 24
                                 AB.Current)]
     rAssump = Just (AP.AvailableAssets (R.ConstantAsset $ AB.LO <$> poolAssets)
-                                                (AP.PoolLevel ((AP.LoanAssump Nothing Nothing Nothing Nothing)
+                                                (AP.PoolLevel (AP.LoanAssump Nothing Nothing Nothing Nothing
                                                                 ,AP.DummyDelinqAssump
-                                                                ,AP.DummyDefaultAssump))
-                            )
+                                                                ,AP.DummyDefaultAssump)))
     inspectVars = [AP.InspectRpt MonthEnd [FutureCurrentPoolBalance Nothing
                                           ,FutureCurrentPoolBalance (Just [PoolName "PoolA"])
                                           ,FutureCurrentPoolBalance (Just [PoolName "PoolB"])
@@ -130,7 +129,5 @@ baseTests =
      ,testCase "empty pool flow" $
      assertEqual "empty pool flow"
      0
-     -- (P.futureCf (D.pool baseCase))
      0
    ]
-

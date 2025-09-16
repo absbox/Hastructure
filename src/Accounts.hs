@@ -6,7 +6,7 @@
 
 module Accounts (Account(..),ReserveAmount(..),draw,deposit
                 ,transfer,depositInt ,InterestInfo(..),buildEarnIntAction
-                ,accBalLens,tryDraw,buildRateResetDates,accrueInt,accTypeLens)
+                ,accBalLens,buildRateResetDates,accrueInt,accTypeLens)
     where
 import qualified Data.Time as T
 import Stmt (Statement(..),appendStmt,getTxnBegBalance,getDate
@@ -30,18 +30,25 @@ import qualified Data.DList as DL
 import Debug.Trace
 debug = flip trace
 
-data InterestInfo = BankAccount IRate DatePattern Date                
-                    -- ^ fix reinvest return rate
-                  | InvestmentAccount Types.Index Spread DatePattern DatePattern Date IRate 
-                    -- ^ float type: index, spread, sweep dates, rate reset , last accrue day, last reset rate
-                  deriving (Show, Generic,Eq,Ord)
+data InterestInfo 
+  -- | fix reinvest return rate
+  = BankAccount IRate DatePattern Date     
+  -- | float type: index, spread, sweep dates, rate reset , last accrue day, last reset rate                                 
+  | InvestmentAccount Types.Index Spread DatePattern DatePattern Date IRate 
+  deriving (Show, Generic, Eq, Ord)
 
-data ReserveAmount = PctReserve DealStats Rate               -- ^ target amount with reference to % of formula
-                   | FixReserve Balance                      -- ^ target amount with fixed balance amount    
-                   | Either Pre ReserveAmount ReserveAmount  -- ^ target amount depends on a test, if true, then use first one ,otherwise use second one
-                   | Max [ReserveAmount]                     -- ^ use higher of all reserve formulas
-                   | Min [ReserveAmount]                     -- ^ use lower of all reserve formulas
-                   deriving (Show, Eq, Generic, Ord)
+data ReserveAmount 
+  -- | target amount with reference to % of formula
+  = PctReserve DealStats Rate
+  -- | target amount with fixed balance amount                
+  | FixReserve Balance     
+  -- | target amount depends on a test, if true, then use first one ,otherwise use second one                    
+  | Either Pre ReserveAmount ReserveAmount
+  -- | use higher of all reserve formulas  
+  | Max [ReserveAmount]               
+  -- | use lower of all reserve formulas      
+  | Min [ReserveAmount]                     
+  deriving (Show, Eq, Generic, Ord)
 
 data Account = Account {
     accBalance :: Balance                 -- ^ account current balance
@@ -49,7 +56,7 @@ data Account = Account {
     ,accInterest :: Maybe InterestInfo    -- ^ account reinvestment interest
     ,accType :: Maybe ReserveAmount       -- ^ target info if a reserve account
     ,accStmt :: Maybe Statement           -- ^ transactional history
-} deriving (Show, Generic,Eq, Ord)
+} deriving (Show, Generic, Eq, Ord)
 
 -- | build interest earn actions
 buildEarnIntAction :: [Account] -> Date -> [(String,Dates)] -> [(String,Dates)]
@@ -95,42 +102,31 @@ depositInt ed a@(Account bal _ (Just intType) _ stmt)
     newTxn = AccTxn ed newBal accruedInt BankInt
 
 -- | move cash from account A to account B
-transfer :: (Account,Account) -> Date -> Amount -> (Account, Account)
-transfer (sourceAcc@(Account sBal san _ _ sStmt), targetAcc@(Account tBal tan _ _ tStmt))
-          d
-          amount
-  = (sourceAcc {accBalance = newSBal, accStmt = sourceNewStmt}
-    ,targetAcc {accBalance = newTBal, accStmt = targetNewStmt})
-  where
-    newSBal = sBal - amount
-    newTBal = tBal + amount
-    sourceNewStmt = appendStmt (AccTxn d newSBal (- amount) (Transfer san tan)) sStmt 
-    targetNewStmt = appendStmt (AccTxn d newTBal amount (Transfer san tan)) tStmt 
+transfer :: (Account, Account) -> Date -> Amount -> Either ErrorRep (Account, Account)
+transfer (sourceAcc@(Account sBal san _ _ sStmt), targetAcc@(Account tBal tan _ _ tStmt)) d amount
+  = do 
+      sourceAcc' <- draw d amount (Transfer san tan) sourceAcc
+      return (sourceAcc', deposit amount d (Transfer san tan) targetAcc)
 
 -- | deposit cash to account with a comment
 deposit :: Amount -> Date -> TxnComment -> Account -> Account
-deposit amount d source acc@(Account bal _ _ _ maybeStmt)  =
-    acc {accBalance = newBal, accStmt = newStmt}
-  where
-    newBal = bal + amount
-    newStmt = appendStmt (AccTxn d newBal amount source) maybeStmt 
+deposit amount d source acc@(Account bal _ _ _ maybeStmt) 
+  = let
+      newBal = bal + amount
+    in
+      acc {accBalance = newBal , accStmt = appendStmt (AccTxn d newBal amount source) maybeStmt }
 
--- | draw cash from account with a comment
-draw :: Amount -> Date -> TxnComment -> Account -> Account
-draw amount d txn acc@Account{ accBalance = bal ,accName = an} 
-  | bal >= amount = deposit (- amount) d txn acc  
-  | otherwise = error  $ "Date:"++ show d ++" Failed to draw "++ show amount ++" from account" ++ an
-
--- | draw cash from account with a comment,return shortfall and acccount 
-tryDraw :: Amount -> Date -> TxnComment -> Account -> ((Amount,Amount),Account)
-tryDraw amt d tc acc@(Account bal _ _ _ maybeStmt) 
-  | amt > bal = ((amt - bal, bal), acc {accBalance = 0})
-  | otherwise = ((0, amt), draw amt d tc acc)
+instance Drawable Account where 
+  availForDraw d (Account bal _ _ _ _) = ByAvailAmount bal
+  draw d 0 txn acc@(Account bal _ _ _ maybeStmt) = return acc 
+  draw d amt txn acc@(Account bal _ _ _ maybeStmt) 
+    | bal >= amt = return $ deposit (- amt) d txn acc  
+    | otherwise = Left  $ "Date:"++ show d ++" Failed to draw "++ show amt ++" from account" ++ accName acc ++ " with balance " ++ show bal
 
 
 instance QueryByComment Account where 
-    queryStmt (Account _ _ _ _ Nothing) tc = []
-    queryStmt (Account _ _ _ _ (Just (Statement txns))) tc = filter (\x -> getTxnComment x == tc) (DL.toList txns)
+  queryStmt (Account _ _ _ _ Nothing) tc = []
+  queryStmt (Account _ _ _ _ (Just (Statement txns))) tc = filter (\x -> getTxnComment x == tc) (DL.toList txns)
 
 
 -- InvestmentAccount Types.Index Spread DatePattern DatePattern Date IRate 
@@ -145,8 +141,8 @@ makeLensesFor [("accBalance","accBalLens") ,("accName","accNameLens")
 
 
 instance IR.UseRate Account where 
-  isAdjustbleRate (Account _ an (Just (InvestmentAccount _ _ _ _ _ _)) _ _) = True
-  isAdjustbleRate _ = False
+  isAdjustableRate (Account _ an (Just (InvestmentAccount _ _ _ _ _ _)) _ _) = True
+  isAdjustableRate _ = False
 
   getIndex (Account _ an (Just (InvestmentAccount idx _ _ _ _ _)) _ _) = Just idx
   getIndex _ = Nothing 

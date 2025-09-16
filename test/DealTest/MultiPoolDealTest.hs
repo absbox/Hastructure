@@ -25,6 +25,7 @@ import qualified CreditEnhancement as CE
 import qualified Triggers as Trg
 import Lib
 import Types
+import Deal.DealCollection (CollectionRule(..))
 
 import qualified Data.Map as Map
 import qualified Data.Time as T
@@ -89,9 +90,8 @@ baseCase = D.TestDeal {
                                  (W.PayInt Nothing "General" ["A"] Nothing)
                                  ,(W.PayPrin Nothing "General" ["A"] Nothing)
    ])]
- ,D.collects = [W.Collect (Just [PoolName "PoolA",PoolName "PoolB"]) W.CollectedInterest "General"
-               ,W.Collect (Just [PoolName "PoolA",PoolName "PoolB"]) W.CollectedPrincipal "General"
-             ]
+ ,D.collects = [Collect (Just [PoolName "PoolA",PoolName "PoolB"]) CollectedInterest "General"
+               ,Collect (Just [PoolName "PoolA",PoolName "PoolB"]) CollectedPrincipal "General"]
  ,D.liqProvider = Nothing
  ,D.rateCap = Nothing
  ,D.triggers = Nothing

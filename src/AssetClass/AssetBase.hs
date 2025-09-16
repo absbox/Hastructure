@@ -10,8 +10,8 @@ module AssetClass.AssetBase
   ,LeaseStepUp(..),AccrualPeriod(..),PrepayPenaltyType(..)
   ,AmortPlan(..),Loan(..),Mortgage(..),AssetUnion(..),MixedAsset(..),FixedAsset(..)
   ,AmortRule(..),Capacity(..),AssociateExp(..),AssociateIncome(..),ReceivableFeeType(..),Receivable(..)
-  ,ProjectedCashflow(..),Obligor(..),LeaseRateCalc(..)
-  ,calcAssetPrinInt, calcPmt
+  ,ProjectedCashFlow(..),Obligor(..),LeaseRateCalc(..)
+  ,calcAssetPrinInt, calcPmt ,ProjectedFlow ,ScheduleBalance
   )
   where
 
@@ -200,13 +200,14 @@ data Mortgage = Mortgage OriginalInfo Balance IRate RemainTerms (Maybe BorrowerN
               | ScheduleMortgageFlow Date [CF.TsRow] DatePattern
               deriving (Show,Generic,Eq,Ord)
 
-
 type FixRatePortion   = (Rate, IRate)
-type FloatRatePortion = (Rate, Spread, Index)
+type FloatRatePortion = (Rate, IRate, Spread, Index)
+type ScheduleBalance = (Date, Balance)
+type ScheduleFlow = (Date, Principal, Interest)
+type ProjectedFlow = Balance
 
-
-data ProjectedCashflow = ProjectedFlowFixed CF.CashFlowFrame DatePattern
-                       | ProjectedFlowMixFloater CF.CashFlowFrame DatePattern FixRatePortion [FloatRatePortion]
+data ProjectedCashFlow = ProjectedByFactor [ScheduleBalance] DatePattern FixRatePortion [FloatRatePortion]
+                       | ProjectedCashflow (Balance,Date) [ScheduleFlow] DatePattern
                        deriving (Show,Generic,Eq,Ord)
 
 
@@ -249,7 +250,7 @@ data AssetUnion = MO Mortgage
                 | LS Lease
                 | FA FixedAsset
                 | RE Receivable
-                | PF ProjectedCashflow
+                | PF ProjectedCashFlow
                 deriving (Show, Generic,Ord,Eq)
 
 
@@ -287,12 +288,15 @@ instance IR.UseRate FixedAsset where
 instance IR.UseRate Receivable where
   getIndex _ = Nothing
 
-instance IR.UseRate ProjectedCashflow where 
-  getIndex (ProjectedFlowFixed cf _) = Nothing  
-
-  getIndex (ProjectedFlowMixFloater cf _ _ (f:fs)) = Just $ (\(a,b,c) -> c) f 
-  getIndexes (ProjectedFlowMixFloater cf _ _ fs ) 
-    = Just $ (\(a,b,c) -> c) <$> fs
+instance IR.UseRate ProjectedCashFlow where 
+  getIndex (ProjectedByFactor cf _ _ []) = Nothing
+  getIndex (ProjectedByFactor cf _ _ (f:fs)) = Just $ (\(_,a,b,c) -> c) f 
+  getIndex (ProjectedCashflow _ fs _) = Nothing
+  getIndexes (ProjectedByFactor cf _ _ fs ) = Just $ (\(a,_,b,c) -> c) <$> fs
+  getIndexes (ProjectedCashflow _ fs _) = Nothing
+  isAdjustableRate (ProjectedByFactor _ _ _ []) = False
+  isAdjustableRate (ProjectedByFactor _ _ _ _) = True
+  isAdjustableRate (ProjectedCashflow _ _ _) = False
 
 
 $(concat <$> traverse (deriveJSON defaultOptions) [''Obligor, ''OriginalInfo, ''FixedAsset, ''AmortPlan, ''PrepayPenaltyType
@@ -310,7 +314,7 @@ $(deriveJSON defaultOptions ''Mortgage)
 $(deriveJSON defaultOptions ''Loan)
 $(deriveJSON defaultOptions ''Lease)
 $(deriveJSON defaultOptions ''Receivable)
-$(deriveJSON defaultOptions ''ProjectedCashflow)
+$(deriveJSON defaultOptions ''ProjectedCashFlow)
 $(deriveJSON defaultOptions ''AssetUnion)
 instance ToSchema Capacity
 instance ToSchema AmortRule

@@ -69,10 +69,6 @@ getPoolBalanceStats t d mPid
         poolStats2::[Rational] <- sequenceA poolStats
         return $ fromRational <$> poolStats2
 
-
-
-
-
 type PoolBalanceSnapshot = (Balance, Balance, Balance)
 
 buildBalanceSheet :: P.Asset a => TestDeal a -> Date -> Either String BalanceSheetReport
@@ -81,7 +77,6 @@ buildBalanceSheet t@TestDeal{ pool = pool, bonds = bndMap , fees = feeMap , liqP
     = let  
         --- accounts
         accM = [ ParentItem accName [Item "Balance" accBal,Item "Accrue Int" accDue] | (accName, [accBal,accDue]) <- Map.toList $ Map.map (\acc -> [A.accBalance,(A.accrueInt d)] <*> [acc]) accMap ]
-        -- accsDueMap = [ Item accName accAccrueBal | (accName, accAccrueBal) <- Map.toList $ Map.map (A.accrueInt d) accMap ]
         
         ---- pools
         mapPoolKey PoolConsol = Nothing 

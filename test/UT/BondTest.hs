@@ -1,4 +1,4 @@
-module UT.BondTest(pricingTests,bndConsolTest,writeOffTest)
+module UT.BondTest(pricingTests,bndConsolTest,writeOffTest,accrueTest,selectorTest)
 where
 
 import Test.Tasty
@@ -13,6 +13,9 @@ import qualified Asset as P
 import qualified Assumptions as A
 import qualified Cashflow as CF
 import qualified Data.DList as DL
+import qualified Data.Map as Map
+import qualified Deal.DealBase as DB
+import Data.Either
 import Util
 import Types
 import Data.Ratio
@@ -85,30 +88,32 @@ pricingTests = testGroup "Pricing Tests"
    ,
     let
       pr = B.priceBond (L.toDate "20210501")
-                       (L.PricingCurve [L.TsPoint (L.toDate "20210101") 0.01, L.TsPoint (L.toDate "20230101") 0.02])
+                       (L.PricingCurve [L.TsPoint (L.toDate "20210501") 0.01, L.TsPoint (L.toDate "20230101") 0.02])
                        b1
     in
       testCase "flat rate discount " $
       assertEqual "Test Pricing on case 01" 
-        (PriceResult 1978.47 65.949000 1.18 1.1881448 0.4906438 52.60 (DL.toList b1Txn)) 
+        (Right (PriceResult 1979.54 65.984666 1.18 1.188138 0.491335 52.60 (DL.toList b1Txn)))
         pr
     ,
-     let
-       b2Txn =  DL.fromList [BondTxn (L.toDate "20220301") 3000 10 300 0.08 310 0 0 Nothing S.Empty
-                           ,BondTxn (L.toDate "20220501") 2700 10 500 0.08 510 0 0 Nothing S.Empty
-                           ,BondTxn (L.toDate "20220701") 0 10 3200 0.08 3300 0 0 Nothing S.Empty]
-       b2 = b1 { B.bndStmt = Just (S.Statement b2Txn)}
+    let
+      b2Txn =  DL.fromList [BondTxn (L.toDate "20220301") 3000 10 300 0.08 310 0 0 Nothing S.Empty
+                            ,BondTxn (L.toDate "20220501") 2700 10 500 0.08 510 0 0 Nothing S.Empty
+                            ,BondTxn (L.toDate "20220701") 0 10 3200 0.08 3300 0 0 Nothing S.Empty]
+      b2 = b1 { B.bndStmt = Just (S.Statement b2Txn)}
 
-       pr = B.priceBond (L.toDate "20220201")
+      pr = B.priceBond (L.toDate "20220201")
                         (L.PricingCurve
-                            [L.TsPoint (L.toDate "20220101") 0.01
+                            [L.TsPoint (L.toDate "20220301") 0.01
                             ,L.TsPoint (L.toDate "20220401") 0.03
-                            ,L.TsPoint (L.toDate "20220601") 0.05])
+                            ,L.TsPoint (L.toDate "20220601") 0.05
+                            ,L.TsPoint (L.toDate "20220801") 0.05
+                            ])
                         b2
-     in
-       testCase " discount curve with two rate points " $
-       assertEqual "Test Pricing on case 01" 
-            (PriceResult 4049.10 134.97 0.44 0.364564 0.006030 286.42 (DL.toList b2Txn)) 
+    in
+      testCase " discount curve with two rate points " $
+      assertEqual "Test Pricing on case 01" 
+            (Right (PriceResult 4049.03 134.967666 0.44 0.364542 0.006193 286.42 (DL.toList b2Txn)))
             pr  --TODO need to confirm in UI
     ,
     let
@@ -116,14 +121,14 @@ pricingTests = testGroup "Pricing Tests"
       pday = L.toDate "20220801"
     in
       testCase "pay prin to a bond" $
-      assertEqual "pay down prin" 2400  $ B.bndBalance (B.payPrin pday 600 b4)
+      assertEqual "pay down prin" (Right 2400)  $ B.bndBalance <$> (pay pday DuePrincipal 600 b4)
     ,
     let
       b5 = b1
       pday = L.toDate "20220801"
     in
       testCase "pay int to 2 bonds" $
-      assertEqual "pay int" 2400  $ B.bndBalance (B.payPrin pday 600 b5)
+      assertEqual "pay int" (Right 2400)  $ B.bndBalance <$> (pay pday DuePrincipal 600 b5)
     ,
     let 
       newCfStmt = Just $ S.Statement (DL.fromList [ BondTxn (L.toDate "20220501") 1500 300 2800 0.08 3100 0 0 Nothing S.Empty]) 
@@ -142,8 +147,8 @@ pricingTests = testGroup "Pricing Tests"
 
 bndTests = testGroup "Float Bond Tests" [
     let
-       r1 = B.isAdjustble  (B.bndInterestInfo bfloat)
-       r2 = B.isAdjustble (B.bndInterestInfo bfloat)
+       r1 = B.isAdjustable  (B.bndInterestInfo bfloat)
+       r2 = B.isAdjustable (B.bndInterestInfo bfloat)
     in
       testCase "Adjust rate by Month of Year " $
       assertEqual "" [True,False] [r1,r2]
@@ -156,8 +161,8 @@ bndTests = testGroup "Float Bond Tests" [
                                                          QuarterEnd
                                                          DC_ACT_365F   
                                                          Nothing Nothing}
-       r1 = B.isAdjustble $ B.bndInterestInfo bfloatResetInterval
-       r2 = B.isAdjustble $ B.bndInterestInfo bfloatResetInterval
+       r1 = B.isAdjustable $ B.bndInterestInfo bfloatResetInterval
+       r2 = B.isAdjustable $ B.bndInterestInfo bfloatResetInterval
     in 
       testCase "Adjust rate by quarter  " $
       assertEqual "" [True,False] [r1,r2]
@@ -178,7 +183,7 @@ bndConsolTest = testGroup "Bond consoliation & patchtesting" [
       txns = DL.fromList [BondTxn (L.toDate "20220501") 1500 0 (-500) 0.08 0 0 0 (Just 0.5) S.Empty
               ,BondTxn (L.toDate "20220501") 2000 0 (-500) 0.08 0 0 0 (Just 0.0) S.Empty]
       bTest = b1 {B.bndStmt = Just (S.Statement txns)}
-      bTestConsol = B.bndStmt $ B.consolStmt bTest
+      bTestConsol = B.bndStmt $ S.consolStmt bTest
     in
       testCase "merge txn with two drawdowns" $
       assertEqual ""
@@ -188,7 +193,7 @@ bndConsolTest = testGroup "Bond consoliation & patchtesting" [
       txns = DL.fromList [ BondTxn (L.toDate "20220501") 1500 0 (-500) 0.08 0 0 0 (Just 0.5) S.Empty
               ,BondTxn (L.toDate "20220501") 1500 0 500 0.08 0 0 0 (Just 0.0) S.Empty]
       bTest = b1 {B.bndStmt = Just (S.Statement txns)}
-      bTestConsol = B.bndStmt $ B.consolStmt bTest
+      bTestConsol = B.bndStmt $ S.consolStmt bTest
     in
       testCase "merge txn with one drawdown at begin" $
       assertEqual ""
@@ -198,7 +203,7 @@ bndConsolTest = testGroup "Bond consoliation & patchtesting" [
       txns = DL.fromList [BondTxn (L.toDate "20220501") 1500 0 500 0.08 0 0 0 (Just 0.0) S.Empty,
               BondTxn (L.toDate "20220501") 2000 0 (-500) 0.08 0 0 0 (Just 0.5) S.Empty]
       bTest = b1 {B.bndStmt = Just (S.Statement txns)}
-      bTestConsol = B.bndStmt $ B.consolStmt bTest
+      bTestConsol = B.bndStmt $ S.consolStmt bTest
     in
       testCase "merge txn with one drawdown at end" $
       assertEqual ""
@@ -208,7 +213,7 @@ bndConsolTest = testGroup "Bond consoliation & patchtesting" [
       txns = DL.fromList [BondTxn (L.toDate "20220501") 1500 0 500 0.08 0 0 0 (Just 0.0) S.Empty,
               BondTxn (L.toDate "20220501") 1000 0 500 0.08 0 0 0 (Just 0.5) S.Empty]
       bTest = b1 {B.bndStmt = Just (S.Statement txns)}
-      bTestConsol = B.bndStmt $ B.consolStmt bTest
+      bTestConsol = B.bndStmt $ S.consolStmt bTest
     in
       testCase "merge txn with one drawdown at end" $
       assertEqual ""
@@ -227,10 +232,90 @@ writeOffTest =
   testGroup "write off on bond" [
     testCase "write off on bond 1" $
     assertEqual "only 1st bond is written off by 70"
-    (Right (bnd1 {B.bndBalance = 30,B.bndStmt = Just (S.Statement (DL.fromList [S.BondTxn d1 30.00 0.00 0.00 0.000000 0.00 0.00 0.00 Nothing (S.WriteOff "A" 70.00)]))}))
-    (B.writeOff d1 writeAmt1 bnd1),
+    (Right (bnd1 {B.bndBalance = 30,B.bndStmt = Just (S.Statement (DL.fromList [S.BondTxn d1 30.00 0.00 0.00 0.08 0.00 0.00 0.00 Nothing (S.WriteOff "A" 70.00)]))}))
+    (writeOff d1 DuePrincipal writeAmt1 bnd1),
     testCase "over write off on bond 1" $
     assertEqual "over write off on bond 1"
-    (Left "Insufficient balance to write off 120.00\" bond name \"\"A\"")
-    (B.writeOff d1 writeAmt2 bnd1)
+    (Left "Cannot write off principal 120.00 which is greater than bond balance 100.00 bond name \"A\"")
+    (writeOff d1 DuePrincipal writeAmt2 bnd1)
   ]
+
+accrueTest = 
+   testGroup "accrued int" [
+     testCase "accrue int on bond" $
+       assertEqual "accrue int on bond" 
+       (fromRational (3000 * 0.08 * (90 % 365)))
+       (B.bndDueInt (B.accrueInt (L.toDate "20210401") b1))
+     ,testCase "multiple times"  $
+       assertEqual "accrue int on bond multiple times"
+       (B.accrueInt (L.toDate "20210401") b1)
+       (B.accrueInt (L.toDate "20210401") (B.accrueInt (L.toDate "20210401") b1))
+     -- ,testCase "multiple times on diff dates"  $
+     --   assertEqual "accrue int on bond multiple times on diff dates"
+     --   (B.bndDueInt (B.accrueInt (L.toDate "20210103") b1))
+     --   (B.bndDueInt (B.accrueInt (L.toDate "20210103") (B.accrueInt (L.toDate "20210102") b1)))
+    ]
+
+selectorTest = 
+  let 
+    bmTest = Map.fromList [("A1",b1),("A2",b1),("B",bfloat)]
+    bgTest = Map.fromList [("G1",B.BondGroup bmTest Nothing),("B1",bfloat)]
+    fn b = Right $ b {B.bndDuePrin = 1}
+    fn2 b = Right $ b {B.bndDuePrin = 2}
+    fnMap1 = Map.fromList [("A1",fn),("A2",fn2)]
+    fnMap2 = Map.fromList [("A1",fn),("A2",fn2),("B1",fn2)]
+    fnMap3 = Map.fromList [("G1",fn2)]
+    fnMap4 = Map.fromList [("C1",fn2)]
+  in 
+    testGroup "bond selector test" [
+      testCase "select bond by names"
+      (assertEqual "select bond by names"
+        (Right (Map.fromList [("A1",b1 {B.bndDuePrin = 1}),("A2",b1 {B.bndDuePrin = 1}),("B",bfloat)]))
+        (DB.traverseBondMap ["A1","A2"] fn bmTest))
+      ,testCase "select bond by names in group"
+      (assertEqual "select bond by names in group"
+        (Right $
+          Map.fromList [("G1",B.BondGroup (Map.fromList [("A1",b1 {B.bndDuePrin = 1}),("A2",b1 {B.bndDuePrin = 1}),("B",bfloat)]) Nothing)
+                        ,("B1",bfloat {B.bndDuePrin = 1})
+                        ]
+          )
+        (DB.traverseBondMap ["A1","A2","B1"] fn bgTest))
+      ,testCase "select group name "
+      (assertEqual "select group name "
+        (Right $
+          Map.fromList [("G1",B.BondGroup (Map.fromList [("A1",b1 {B.bndDuePrin = 1}),("A2",b1 {B.bndDuePrin = 1}),("B",bfloat {B.bndDuePrin = 1})]) Nothing)
+                        ,("B1",bfloat)]
+          )
+        (DB.traverseBondMap ["G1"] fn bgTest))
+      ,testCase "select bond by missing names"
+      (assertEqual "select bond by missing names"
+        True
+        (isLeft (DB.traverseBondMap ["A1","A3"] fn bmTest)))
+      ,testCase "apply fn map to bond map"
+      (assertEqual "apply fn map to bond map - 1"
+        (Right (Map.fromList [("A1",b1 {B.bndDuePrin = 1}),("A2",b1 {B.bndDuePrin = 2}),("B",bfloat)]))
+        (DB.traverseBondMapByFn fnMap1 bmTest)
+        )
+      ,testCase "apply fn map to bond map"
+      (assertEqual "apply fn map to bond map - 2"
+        (Right $
+          Map.fromList [("G1",B.BondGroup (Map.fromList [("A1",b1 {B.bndDuePrin = 1}),("A2",b1 {B.bndDuePrin = 2}),("B",bfloat )]) Nothing)
+                        ,("B1",bfloat {B.bndDuePrin = 2})
+                        ]
+          )
+        (DB.traverseBondMapByFn fnMap2 bgTest))
+      ,testCase "apply fn map to bond map"
+      (assertEqual "apply fn map to bond map - 3"
+        (Right $
+          Map.fromList [("G1",B.BondGroup (Map.fromList [("A1",b1 {B.bndDuePrin = 2}),("A2",b1 {B.bndDuePrin = 2}),("B",bfloat {B.bndDuePrin = 2} )]) Nothing)
+                        ,("B1",bfloat)
+                        ]
+          )
+        (DB.traverseBondMapByFn fnMap3 bgTest))
+      ,testCase "apply fn map to bond map"
+      (assertEqual "apply fn map to bond map - 4"
+        True
+        (isLeft (DB.traverseBondMapByFn fnMap4 bgTest)))
+    ]
+
+

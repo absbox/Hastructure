@@ -7,10 +7,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Asset ( Asset(..),
-       buildAssumptionPpyDefRecRate,buildAssumptionPpyDelinqDefRecRate
-       ,calcRecoveriesFromDefault,getCurBalance
-       ,priceAsset,applyHaircut,buildPrepayRates,buildDefaultRates,getObligorFields
-       ,getObligorTags,getObligorId,getRecoveryLagAndRate,getDefaultDelinqAssump,getOriginInfo
+      buildAssumptionPpyDefRecRate,buildAssumptionPpyDelinqDefRecRate
+      ,calcRecoveriesFromDefault,getCurBalance
+      ,priceAsset,applyHaircut,buildPrepayRates,buildDefaultRates,getObligorFields
+      ,getObligorTags,getObligorId,getRecoveryLagAndRate,getDefaultDelinqAssump,getOriginInfo
 ) where
 
 import qualified Data.Time as T
@@ -18,9 +18,9 @@ import qualified Data.Text as Text
 import Text.Read (readMaybe)
 
 import Lib (Period(..)
-           ,Ts(..),periodRateFromAnnualRate,toDate
-           ,getIntervalDays,zipWith9,mkTs,periodsBetween
-           ,mkRateTs,daysBetween, getIntervalFactors)
+          ,Ts(..),periodRateFromAnnualRate,toDate
+          ,getIntervalDays,zipWith9,mkTs,periodsBetween
+          ,mkRateTs,daysBetween, getIntervalFactors)
 
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
 import qualified Assumptions as A
@@ -51,8 +51,6 @@ import Assumptions (ExtraStress(ExtraStress))
 
 import Control.Lens hiding (element)
 import Control.Lens.TH
-import Data.Generics.Product.Fields
-import Data.Generics.Product.Any
 import DateUtil (yearCountFraction)
 
 
@@ -112,6 +110,7 @@ class (Show a,IR.UseRate a) => Asset a where
                         in 
                           T.addDays offset $ Asset.getOriginDate ast
 
+  -- | Get Obligor info if any modeled
   getObligor :: a -> Maybe Obligor
   getObligor a = 
       case getOriginInfo a of 
@@ -120,7 +119,7 @@ class (Show a,IR.UseRate a) => Asset a where
         LoanOriginalInfo{obligor = x } -> x
         LeaseInfo{obligor =  x } -> x
         ReceivableInfo{obligor = x } -> x
-
+  -- | Get Obligor tags if any modeled
   getObligorTags :: a -> Set.Set String
   getObligorTags a = 
       case getOriginInfo a of 
@@ -129,7 +128,7 @@ class (Show a,IR.UseRate a) => Asset a where
         LeaseInfo{obligor = Just obr } -> Set.fromList (obligorTag obr)
         ReceivableInfo{obligor = Just obr } -> Set.fromList (obligorTag obr)
         _ -> mempty
-
+  -- | Get Obligor Id if any modeled
   getObligorId :: a -> Maybe String
   getObligorId a = 
       case getOriginInfo a of 
@@ -138,7 +137,7 @@ class (Show a,IR.UseRate a) => Asset a where
         LeaseInfo{obligor = Just obr } -> Just (obligorId obr)
         ReceivableInfo{obligor = Just obr } -> Just (obligorId obr)
         _ -> Nothing
-
+  -- | Get Obligor fields if any modeled
   getObligorFields :: a -> Maybe (Map.Map String (Either String Double))
   getObligorFields a = 
     let 
@@ -164,101 +163,114 @@ applyExtraStress (Just ExtraStress{A.defaultFactors= mDefFactor
     (Just ppyFactor,Just defFactor) -> (getTsVals $ multiplyTs Exc (zipTs ds ppy) ppyFactor
                                        ,getTsVals $ multiplyTs Exc (zipTs ds def) defFactor)
 
-
+-- ^ convert annual CPR to single month mortality
 cpr2smm :: Rate -> Rate
 cpr2smm r = toRational $ 1 - (1 - fromRational r :: Double) ** (1/12)
 
 normalPerfVector :: [Rate] -> [Rate]
 normalPerfVector = floorWith 0.0 . capWith 1.0
 
-buildPrepayRates :: Asset b => b -> [Date] -> Maybe A.AssetPrepayAssumption -> Either String [Rate]
-buildPrepayRates _ ds Nothing = Right $ replicate (pred (length ds)) 0.0
-buildPrepayRates a ds mPa = 
-  normalPerfVector <$>
-    case mPa of
-      Just (A.PrepaymentConstant r) -> Right $ replicate size r
-      Just (A.PrepaymentCPR r) -> Right $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
-      Just (A.PrepaymentVec vs) -> Right $ zipWith 
-                                      Util.toPeriodRateByInterval
-                                      (paddingDefault 0.0 vs (pred size))
-                                      (getIntervalDays ds)
-      Just (A.PrepaymentVecPadding vs) -> Right $ zipWith 
-                                           Util.toPeriodRateByInterval
-                                           (paddingDefault (last vs) vs (pred size))
-                                           (getIntervalDays ds)
-      Just (A.PrepayStressByTs ts x) -> 
-        do
-          rs <- buildPrepayRates a ds (Just x)
-          return $ getTsVals $ multiplyTs Exc (zipTs (tail ds) rs) ts 
-      Just (A.PrepaymentPSA r) -> 
-        let 
-          agedTerm = getPastTerms a
-          remainingTerm = getRemainTerms a
-          ppyVectorInCPR = (* r) <$> [0.002,0.004..0.06] ++ repeat 0.06
-          vectorUsed = take remainingTerm $ drop agedTerm ppyVectorInCPR
-        in 
-          case period (getOriginInfo a) of
-            Monthly -> Right $ cpr2smm <$> vectorUsed
-            _ -> Left $ "PSA is only supported for monthly payment but got "++ show (period (getOriginInfo a))
-      Just (A.PrepaymentByTerm rs) -> 
-        let 
-          agedTerm = getPastTerms a
-          oTerm = originTerm (getOriginInfo a)
-        in 
-          case find (\x -> oTerm == length x) rs of 
-            Just v -> Right $ drop agedTerm v
-            Nothing -> Left "Prepayment by term doesn't match the origin term"
+buildPrepayRates :: Asset b => b -> [Date] -> Maybe A.AssetPrepayAssumption -> Either ErrorRep [Rate]
+buildPrepayRates _ ds Nothing = return $ replicate ((pred . length) ds) 0.0
+buildPrepayRates a ds (Just (A.PrepaymentConstant r)) 
+  | r < 0 || r > 1.0  = Left $ "buildPrepayRates: prepayment constant rate should be between 0 and 1, got " ++ show r
+  | otherwise = return $ replicate (pred (length ds)) r
 
-      _ -> Left ("failed to find prepayment type"++ show mPa)
-  where
-    size = length ds
+buildPrepayRates a ds (Just (A.PrepaymentCPR r)) 
+  | r < 0 || r > 1.0 = Left $ "buildPrepayRates: prepayment CPR rate should be between 0 and 1, got " ++ show r
+  | otherwise = return $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
 
-buildDefaultRates :: Asset b => b -> [Date] -> Maybe A.AssetDefaultAssumption -> Either String [Rate]
-buildDefaultRates _ ds Nothing = Right $ replicate (pred (length ds)) 0.0
+buildPrepayRates a ds (Just (A.PrepaymentVec vs))
+  | any (> 1.0) vs || any (< 0.0) vs = Left $ "buildPrepayRates: prepayment vector should be between 0 and 1, got " ++ show vs
+  | otherwise = return $ zipWith Util.toPeriodRateByInterval
+                                 (paddingDefault 0.0 vs (pred (length ds)))
+                                 (getIntervalDays ds)
+buildPrepayRates a ds (Just (A.PrepaymentVecPadding vs))
+  | any (> 1.0) vs || any (< 0.0) vs = Left $ "buildPrepayRates: prepayment vector should be between 0 and 1, got " ++ show vs
+  | otherwise = return $ zipWith Util.toPeriodRateByInterval
+                                 (paddingDefault (last vs) vs (pred (length ds)))
+                                 (getIntervalDays ds)
+buildPrepayRates a ds (Just (A.PrepayStressByTs ts x)) 
+  | any (< 0.0) (getTsVals ts) = Left $ "buildPrepayRates: prepayment vector by ts should be non-negative, got " ++ show (getTsVals ts)
+  | otherwise = do
+                  rs <- buildPrepayRates a ds (Just x)
+                  return $ getTsVals $ multiplyTs Exc (zipTs (tail ds) rs) ts
+buildPrepayRates a ds (Just (A.PrepaymentPSA r))
+  | r < 0 = Left $ "buildPrepayRates: PSA rate should be non-negative, got " ++ show r
+  | otherwise = let 
+                  agedTerm = getPastTerms a
+                  remainingTerm = getRemainTerms a
+                  ppyVectorInCPR = (* r) <$> [0.002,0.004..0.06] ++ repeat 0.06
+                  vectorUsed = take remainingTerm $ drop agedTerm ppyVectorInCPR
+                in 
+                  case period (getOriginInfo a) of
+                    Monthly -> return $ cpr2smm <$> vectorUsed
+                    _ -> Left $ "PSA is only supported for monthly payment but got "++ show (period (getOriginInfo a))
+buildPrepayRates a ds (Just (A.PrepaymentByTerm rs)) 
+  | any (< 0.0) (concat rs) = Left $ "buildPrepayRates: prepayment by term vector should be non-negative, got " ++ show rs
+  | any (> 1.0) (concat rs) = Left $ "buildPrepayRates: prepayment by term vector should be between 0 and 1, got " ++ show rs
+  | otherwise = let 
+                  agedTerm = getPastTerms a
+                  oTerm = originTerm (getOriginInfo a)
+                in 
+                  case find (\x -> oTerm == length x) rs of 
+                    Just v -> return $ drop agedTerm v
+                    Nothing -> Left "Prepayment by term doesn't match the origin term"
+
+buildDefaultRates :: Asset b => b -> [Date] -> Maybe A.AssetDefaultAssumption -> Either ErrorRep [Rate]
+buildDefaultRates _ ds Nothing = return $ replicate ((pred . length) ds) 0.0
 buildDefaultRates a [] mDa = Left "buildDefaultRates: empty date list" 
-buildDefaultRates a ds mDa = 
-  normalPerfVector <$>
-    case mDa of
-      Just (A.DefaultConstant r) -> Right $ replicate size r
-      Just (A.DefaultCDR r) -> Right $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
-      Just (A.DefaultVec vs) -> Right $ zipWith 
-                                  Util.toPeriodRateByInterval
-                                  (paddingDefault 0.0 vs (pred size))
-                                  (getIntervalDays ds)
-      Just (A.DefaultVecPadding vs) -> Right $ zipWith 
-                                        Util.toPeriodRateByInterval
-                                        (paddingDefault (last vs) vs (pred size))
-                                        (getIntervalDays ds)
-      Just (A.DefaultAtEndByRate r rAtEnd)
-        -> Right $ case size of 
-            0 -> []
-            1 -> []
-            _ -> (Util.toPeriodRateByInterval r <$> getIntervalDays (init ds)) ++ (Util.toPeriodRateByInterval rAtEnd <$> getIntervalDays [head ds,last ds])
-
-      Just (A.DefaultStressByTs ts x) -> 
-        do
-          rs <- buildDefaultRates a ds (Just x)
-          let r = getTsVals $ multiplyTs Inc (zipTs (tail ds) rs) ts 
-          return r
-
-      Just (A.DefaultByTerm rs) -> 
-        let 
-          agedTerm = getPastTerms a
-          oTerm = originTerm (getOriginInfo a)
-        in 
-          case find (\x -> oTerm == length x) rs of 
-            Just v -> Right $ drop agedTerm v
-            Nothing -> Left "Default by term doesn't match the origin term"
-      _ -> Left ("failed to find default rate type"++ show mDa)    
+buildDefaultRates a ds (Just (A.DefaultConstant r))
+  | r > 1.0 || r < 0.0 = Left $ "buildDefaultRates: default constant rate should be between 0 and 1, got " ++ show r
+  | otherwise = return $ replicate (pred (length ds)) r
+buildDefaultRates a ds (Just (A.DefaultCDR r))
+  | r > 1.0 || r < 0.0 = Left $ "buildDefaultRates: default CDR rate should be between 0 and 1, got " ++ show r
+  | otherwise = return $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
+buildDefaultRates a ds (Just (A.DefaultVec vs))
+  | any (> 1.0) vs || any (< 0.0) vs = Left $ "buildDefaultRates: default vector should be between 0 and 1, got " ++ show vs
+  | otherwise = return $ zipWith Util.toPeriodRateByInterval
+                                 (paddingDefault 0.0 vs (pred (length ds)))
+                                 (getIntervalDays ds)
+buildDefaultRates a ds (Just (A.DefaultVecPadding vs))
+  | any (> 1.0) vs || any (< 0.0) vs = Left $ "buildDefaultRates: default vector should be between 0 and 1, got " ++ show vs
+  | otherwise = return $ zipWith Util.toPeriodRateByInterval
+                                 (paddingDefault (last vs) vs (pred (length ds)))
+                                 (getIntervalDays ds)
+buildDefaultRates a ds (Just (A.DefaultAtEndByRate r rAtEnd))
+  | r > 1.0 || r < 0.0 = Left $ "buildDefaultRates: default at end rate should be between 0 and 1, got " ++ show r
+  | rAtEnd > 1.0 || rAtEnd < 0.0 = Left $ "buildDefaultRates: default at end rate should be between 0 and 1, got " ++ show rAtEnd
+  | otherwise = return $
+                  case size of 
+                    0 -> []
+                    1 -> []
+                    _ -> (Util.toPeriodRateByInterval r <$> getIntervalDays (init ds)) ++ (Util.toPeriodRateByInterval rAtEnd <$> getIntervalDays [head ds,last ds])
   where
     size = length ds
+buildDefaultRates a ds (Just (A.DefaultStressByTs ts x)) 
+  | any (< 0.0) (getTsVals ts) = Left $ "buildDefaultRates: default vector by ts should be non-negative, got " ++ show (getTsVals ts)
+  | otherwise = do
+                  rs <- buildDefaultRates a ds (Just x)
+                  return $ getTsVals $ multiplyTs Inc (zipTs (tail ds) rs) ts
+
+buildDefaultRates a ds (Just (A.DefaultByTerm rs))
+  | any (< 0.0) (concat rs) = Left $ "buildDefaultRates: default by term vector should be non-negative, got " ++ show rs
+  | any (> 1.0) (concat rs) = Left $ "buildDefaultRates: default by term vector should be between 0 and 1, got " ++ show rs
+  | otherwise = 
+      let 
+        agedTerm = getPastTerms a
+        oTerm = originTerm (getOriginInfo a)
+      in 
+        case find (\x -> oTerm == length x) rs of 
+          Just v -> return $ drop agedTerm v
+          Nothing -> Left "Default by term doesn't match the origin term"
+
 
 getRecoveryLagAndRate :: Maybe A.RecoveryAssumption -> (Rate,Int)
 getRecoveryLagAndRate Nothing = (0,0)
 getRecoveryLagAndRate (Just (A.Recovery (r,lag))) = (r,lag)
 
 -- | build pool assumption rate (prepayment, defaults, recovery rate , recovery lag)
-buildAssumptionPpyDefRecRate :: Asset a => a -> [Date] -> A.AssetPerfAssumption -> Either String ([Rate],[Rate],Rate,Int)
+buildAssumptionPpyDefRecRate :: Asset a => a -> [Date] -> A.AssetPerfAssumption -> Either ErrorRep ([Rate],[Rate],Rate,Int)
 buildAssumptionPpyDefRecRate a ds (A.LoanAssump mDa mPa mRa mESa) = buildAssumptionPpyDefRecRate a ds (A.MortgageAssump mDa mPa mRa mESa)
 buildAssumptionPpyDefRecRate a ds (A.MortgageAssump mDa mPa mRa mESa)
   = let  
@@ -270,14 +282,15 @@ buildAssumptionPpyDefRecRate a ds (A.MortgageAssump mDa mPa mRa mESa)
         prepayRates <- buildPrepayRates a ds mPa
         defaultRates <- buildDefaultRates a ds mDa
         let (prepayRates2,defaultRates2) = applyExtraStress mESa ds prepayRates defaultRates
-        return (prepayRates2,defaultRates2,recoveryRate,recoveryLag)
+        return (prepayRates2,defaultRates2,recoveryRate,recoveryLag) 
 
 
 getDefaultDelinqAssump :: Maybe A.AssetDelinquencyAssumption -> [Date] -> ([Rate],Int,Rate)
 getDefaultDelinqAssump Nothing ds = (replicate (length ds) 0.0, 0, 0.0)  
-getDefaultDelinqAssump (Just (A.DelinqCDR r (lag,pct))) ds = (map (Util.toPeriodRateByInterval r) (getIntervalDays ds)
-                                                    ,lag 
-                                                    ,pct)
+getDefaultDelinqAssump (Just (A.DelinqCDR r (lag,pct))) ds 
+  = (map (Util.toPeriodRateByInterval r) (getIntervalDays ds)
+    ,lag 
+    ,pct)
 
 getDefaultLagAndRate :: Maybe A.RecoveryAssumption -> (Rate,Int)
 getDefaultLagAndRate Nothing = (0,0)
@@ -301,15 +314,16 @@ buildAssumptionPpyDelinqDefRecRate a ds (A.MortgageDeqAssump mDeqDefault mPa mRa
         prepayRates <- buildPrepayRates a ds mPa
         return (prepayRates,delinqRates,(defaultPct,defaultLag),recoveryRate, recoveryLag)
 
-
+-- TODO : fix recovery rate/lag
 calcRecoveriesFromDefault :: Balance -> Rate -> [Rate] -> [Amount]
 calcRecoveriesFromDefault bal recoveryRate recoveryTiming
-  = mulBR recoveryAmt <$> recoveryTiming
-    where
+  = let
       recoveryAmt = mulBR bal recoveryRate
+    in 
+      mulBR recoveryAmt <$> recoveryTiming
 
 priceAsset :: Asset a => a -> Date -> PricingMethod -> A.AssetPerf -> Maybe [RateAssumption] -> CutoffType 
-           -> Either String PriceResult
+           -> Either ErrorRep PriceResult
 priceAsset m d (PVCurve curve) assumps mRates cType
   = let 
       cr = getCurrentRate m
@@ -335,7 +349,7 @@ priceAsset m d (PVCurve curve) assumps mRates cType
             duration = fromRational $ calcDuration DC_ACT_365F d (zip ds amts) curve
             convexity = fromRational $ calcConvexity DC_ACT_365F d (zip ds amts) curve
           in
-            Right $ AssetPrice pv wal duration convexity accruedInt
+            return $ AssetPrice pv wal duration convexity accruedInt
         Left x -> Left x
 
 priceAsset m d (BalanceFactor currentFactor defaultedFactor) assumps mRates cType
@@ -352,7 +366,7 @@ priceAsset m d (BalanceFactor currentFactor defaultedFactor) assumps mRates cTyp
                amts = CF.tsTotalCash <$> txns 
                wal = calcWAL ByYear cb d (zip amts ds) -- `debug` ("pricing"++ show d++ show ds++ show amts)
            in  
-             Right $ AssetPrice val wal (-1) (-1) (-1)  
+             return $ AssetPrice val wal (-1) (-1) (-1)  
          Left x -> Left x
       
 priceAsset m d (PvRate r) assumps mRates cType
@@ -380,5 +394,5 @@ priceAsset m d (PvRate r) assumps mRates cType
                 duration = fromRational $ calcDuration DC_ACT_365F d (zip ds amts) curve
                 convexity = fromRational $ calcConvexity DC_ACT_365F d (zip ds amts) curve
             in
-              Right $ AssetPrice pv wal duration convexity accruedInt
+              return $ AssetPrice pv wal duration convexity accruedInt
           Left x -> Left x

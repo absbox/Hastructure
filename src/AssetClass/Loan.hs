@@ -32,20 +32,21 @@ import Assumptions (AssetDefaultAssumption(DefaultCDR))
 import qualified Asset as A
 import Control.Lens hiding (element)
 import Control.Lens.TH
+import qualified Data.DList as DL
 debug = flip trace
 
 
 -- instance Asset Loan where
-projectLoanFlow :: ((Balance,Int,IRate), Balance, Date, AmortPlan, DayCount, IRate, Rational) -> (Dates, [DefaultRate],[PrepaymentRate],[IRate],[Int]) -> ([CF.TsRow],Rational)
+projectLoanFlow :: ((Balance,Int,IRate), Balance, Date, AmortPlan, DayCount, IRate, Rational) -> (Dates, [DefaultRate],[PrepaymentRate],[IRate],[Int]) -> (DL.DList CF.TsRow, Balance, Date ,Rational)
 projectLoanFlow ((originBal,ot,or), startBal, lastPayDate, pt, dc,startRate, begFactor) (cfDates,defRates,ppyRates,rateVector,remainTerms) = 
   let 
     initRow = CF.LoanFlow lastPayDate startBal 0.0 0.0 0.0 0.0 0.0 0.0 startRate Nothing
   in 
     foldl
-      (\(acc,factor) (pDate, ppyRate, defRate, intRate, rt)
+      (\(acc,begBal,lastPaidDate,factor) (pDate, ppyRate, defRate, intRate, rt)
         -> let 
-             begBal = view CF.tsRowBalance (last acc)
-             lastPaidDate = getDate (last acc)
+             -- begBal = view CF.tsRowBalance (last acc)
+             -- lastPaidDate = getDate (last acc)
              newDefault = mulBR begBal defRate
              newPrepay = mulBR (begBal - newDefault) ppyRate
              intBal = begBal - newDefault - newPrepay
@@ -72,9 +73,11 @@ projectLoanFlow ((originBal,ot,or), startBal, lastPayDate, pt, dc,startRate, beg
                          _ -> error $ "failed to match Loan Project newPrin"++ show (rt,pt)
              endBal = intBal - newPrin
            in
-             (acc ++ [CF.LoanFlow pDate endBal newPrin newInt newPrepay newDefault 0.0 0.0 intRate Nothing]
+             (DL.snoc acc (CF.LoanFlow pDate endBal newPrin newInt newPrepay newDefault 0.0 0.0 intRate Nothing)
+             ,endBal
+             ,pDate
              ,newFactor))
-      ([initRow],begFactor)
+      (DL.singleton initRow, startBal, lastPayDate, begFactor)
       (zip5 cfDates ppyRates defRates rateVector remainTerms)  
 
 instance Asset Loan where
@@ -146,8 +149,9 @@ instance Asset Loan where
                           in 
                             divideBB cb (scheduleBals!!(ot - rt))
                          _ -> 1.0  
-          let (txns,_) = projectLoanFlow ((ob,ot,getOriginRate pl), cb,lastPayDate,prinPayType,dc,cr,initFactor) (cfDates,defRates,ppyRates,rateVector,remainTerms)  -- `debug` (" rateVector"++show rateVector)
-          let (futureTxns,historyM) = CF.cutoffTrs asOfDay (patchLossRecovery txns recoveryAssump)
+          let (txns,_,_,_) = projectLoanFlow ((ob,ot,getOriginRate pl), cb,lastPayDate,prinPayType,dc,cr,initFactor) (cfDates,defRates,ppyRates,rateVector,remainTerms)  -- `debug` (" rateVector"++show rateVector)
+          txns' <- patchLossRecovery (DL.toList txns) recoveryAssump
+          let (futureTxns,historyM) = CF.cutoffTrs asOfDay txns'
           let begBal = CF.buildBegBal futureTxns
           return $ (applyHaircut ams (CF.CashFlowFrame (begBal,asOfDay,Nothing) futureTxns), historyM)
   -- ^ Project cashflow for defautled loans 
