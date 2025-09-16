@@ -2013,6 +2013,28 @@
                         ],
                         "title": "ChangeStatus",
                         "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "contents": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "tag": {
+                                "enum": [
+                                    "AccrueDeal"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "tag",
+                            "contents"
+                        ],
+                        "title": "AccrueDeal",
+                        "type": "object"
                     }
                 ]
             },
@@ -5059,28 +5081,6 @@
                         ],
                         "title": "GenericDates",
                         "type": "object"
-                    },
-                    {
-                        "properties": {
-                            "contents": {
-                                "additionalProperties": {
-                                    "$ref": "#/components/schemas/DatePattern"
-                                },
-                                "type": "object"
-                            },
-                            "tag": {
-                                "enum": [
-                                    "AccruedGenericDates"
-                                ],
-                                "type": "string"
-                            }
-                        },
-                        "required": [
-                            "tag",
-                            "contents"
-                        ],
-                        "title": "AccruedGenericDates",
-                        "type": "object"
                     }
                 ]
             },
@@ -5871,28 +5871,6 @@
                             "contents"
                         ],
                         "title": "OriginalPoolBalance",
-                        "type": "object"
-                    },
-                    {
-                        "properties": {
-                            "contents": {
-                                "items": {
-                                    "$ref": "#/components/schemas/PoolId"
-                                },
-                                "type": "array"
-                            },
-                            "tag": {
-                                "enum": [
-                                    "DealIssuanceBalance"
-                                ],
-                                "type": "string"
-                            }
-                        },
-                        "required": [
-                            "tag",
-                            "contents"
-                        ],
-                        "title": "DealIssuanceBalance",
                         "type": "object"
                     },
                     {
@@ -7825,6 +7803,21 @@
                             "contents"
                         ],
                         "title": "DealStatInt",
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "tag": {
+                                "enum": [
+                                    "ActiveBondNum"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "tag"
+                        ],
+                        "title": "ActiveBondNum",
                         "type": "object"
                     },
                     {
@@ -21289,7 +21282,7 @@
             "name": "BSD 3"
         },
         "title": "Hastructure API",
-        "version": "0.51.4"
+        "version": "0.52.0"
     },
     "openapi": "3.0.0",
     "paths": {
