@@ -30,7 +30,6 @@ upload-chlog:
 publish env version:
     just update-version {{version}}
     just tag-files {{env}} {{version}}
-    just push-code
     just upload-chlog
 
 revert-tag env version:
