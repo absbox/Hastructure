@@ -157,11 +157,15 @@ applyExtraStress Nothing _ ppy def = (ppy,def)
 applyExtraStress (Just ExtraStress{A.defaultFactors= mDefFactor
                                   ,A.prepaymentFactors = mPrepayFactor}) ds ppy def =
   case (mPrepayFactor,mDefFactor) of
-    (Nothing,Nothing) -> (ppy,def)
-    (Nothing,Just defFactor) -> (ppy ,getTsVals $ multiplyTs Exc (zipTs ds def) defFactor)
-    (Just ppyFactor,Nothing) -> (getTsVals $ multiplyTs Exc (zipTs ds ppy) ppyFactor, def)
-    (Just ppyFactor,Just defFactor) -> (getTsVals $ multiplyTs Exc (zipTs ds ppy) ppyFactor
-                                       ,getTsVals $ multiplyTs Exc (zipTs ds def) defFactor)
+    (Nothing,Nothing) 
+      -> (ppy,def)
+    (Nothing,Just defFactor) 
+      -> (ppy ,getTsVals $ multiplyTs Exc (zipTs ds def) defFactor)
+    (Just ppyFactor,Nothing) 
+      -> (getTsVals $ multiplyTs Exc (zipTs ds ppy) ppyFactor, def)
+    (Just ppyFactor,Just defFactor) 
+      -> (getTsVals $ multiplyTs Exc (zipTs ds ppy) ppyFactor
+          ,getTsVals $ multiplyTs Exc (zipTs ds def) defFactor)
 
 -- ^ convert annual CPR to single month mortality
 cpr2smm :: Rate -> Rate

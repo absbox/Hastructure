@@ -2,8 +2,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module Ledger (Ledger(..),entryLog,LedgerName,queryGap,clearLedgersBySeq
-              ,queryDirection,entryLogByDr,bookToTarget)
+module Ledger (Ledger(..),LedgerName,queryGap,clearLedgersBySeq
+              ,entryLogByDr,bookToTarget,bookToClear)
     where
 import qualified Data.Time as T
 import Stmt 
@@ -25,95 +25,87 @@ debug = flip trace
 
 
 type LedgerName = String
+type EntryAmount = (BookDirection, Amount)
+type LedgerBalance = (BookDirection, Amount)
+
+rev :: BookDirection -> BookDirection
+rev Credit = Debit
+rev Debit  = Credit
+
 
 data Ledger = Ledger {
     ledgName :: String                              -- ^ ledger account name
-    ,ledgBalance :: Balance                         -- ^ current balance of ledger
+    ,ledgBalance :: LedgerBalance                   -- ^ current balance of ledger
     ,ledgStmt :: Maybe Statement                    -- ^ ledger transaction history
 } deriving (Show, Generic,Ord, Eq)
 
--- | Book an entry with date,amount and transaction to a ledger
-entryLog :: Amount -> Date -> TxnComment -> Ledger -> Ledger
-entryLog amt d cmt ledg@Ledger{ledgStmt = mStmt, ledgBalance = bal} 
-  | isTxnDirection Credit cmt  = let 
-                                   newBal = bal - amt
-                                   txn = EntryTxn d newBal amt cmt
-                                 in 
-                                   ledg { ledgStmt = appendStmt txn mStmt,ledgBalance = newBal }
-  | otherwise = let 
-                  newBal = bal + amt
-                  txn = EntryTxn d newBal amt cmt
-                in 
-                  ledg { ledgStmt = appendStmt txn mStmt ,ledgBalance = newBal }
 
--- TODO-- need to ensure there is no direction in input
-entryLogByDr :: BookDirection -> Amount -> Date -> Maybe TxnComment -> Ledger -> Ledger
-entryLogByDr dr amt d Nothing = entryLog amt d (TxnDirection dr)
-entryLogByDr dr amt d (Just cmt) 
-  | not (hasTxnDirection cmt) = entryLog amt d (TxnComments [TxnDirection dr,cmt])
-  | isTxnDirection dr cmt = entryLog amt d  cmt
-  | otherwise = error $ "Suppose direction"++ show dr++"but got from comment"++ show cmt
+entryLogByDr :: EntryAmount -> Date -> Maybe TxnComment -> Ledger -> Ledger
+entryLogByDr (dr, amt) d mCmt ledg@Ledger{ledgStmt = mStmt, ledgBalance = (curDr, curBal)} 
+  = let 
+      cmt = case mCmt of 
+              Nothing -> TxnDirection dr
+              Just c -> if hasTxnDirection c then c else TxnComments [TxnDirection dr,c]
+      (newBalAmt, newDr) = case (curDr, dr, amt > curBal ) of 
+                            (Debit, Debit, _ ) -> (curBal + amt, Debit)
+                            (Credit, Credit, _) -> (curBal + amt, Credit)
+                            (Debit, Credit, True ) -> (amt - curBal, Credit)
+                            (Debit, Credit, False ) -> (curBal - amt, Debit)
+                            (Credit, Debit, True ) -> (amt - curBal, Debit )
+                            (Credit, Debit, False ) -> (curBal - amt, Credit)
 
-entryLogByDr Credit amt d (Just (TxnComments cms)) = entryLog amt d (TxnComments ((TxnDirection Credit):cms))
-entryLogByDr Debit amt d (Just (TxnComments cms)) = entryLog amt d (TxnComments ((TxnDirection Debit):cms))
+      txn = EntryTxn d (newDr, newBalAmt) (dr, amt) cmt
+    in 
+      ledg { ledgStmt = appendStmt txn mStmt ,ledgBalance = (newDr, newBalAmt) }
 
 hasTxnDirection :: TxnComment -> Bool
 hasTxnDirection (TxnDirection _) = True
 hasTxnDirection (TxnComments txns) = any hasTxnDirection txns
 hasTxnDirection _ = False
 
-isTxnDirection :: BookDirection -> TxnComment -> Bool 
-isTxnDirection Credit (TxnDirection Credit) = True
-isTxnDirection Debit (TxnDirection Debit) = True
-isTxnDirection Credit (TxnComments txns) = any (isTxnDirection Credit) txns
-isTxnDirection Debit (TxnComments txns) = any (isTxnDirection Debit) txns
-isTxnDirection _ _ = False
 
--- ^ credit is negative amount
-queryDirection :: Ledger -> (BookDirection ,Balance) 
-queryDirection (Ledger _ bal _)
-  |  bal >= 0 = (Debit, bal)
-  |  bal < 0 = (Credit, negate bal)
+-- ^ backout book txn from a target amount
+bookToTarget :: Ledger -> (BookDirection, Amount) -> (BookDirection, Amount)
+bookToTarget Ledger{ledgBalance = (curDr,curBal) } (targetDr, targetBal) 
+  = let 
+      a = 1 
+    in 
+      case (curDr == targetDr , targetBal >= curBal) of 
+        (True, True) ->
+          (curDr, targetBal - curBal)
+        (True, False) ->
+          (rev curDr, curBal - targetBal)
+        (False, _) -> 
+          (targetDr, targetBal + curBal)
 
-bookToTarget :: Ledger -> (BookDirection,Amount) -> (BookDirection,Amount)
-bookToTarget Ledger{ledgBalance = bal} (dr, targetBal) 
-  = case (bal > 0, dr) of 
-      (True, Debit) -> 
-        if (targetBal > bal)  then 
-          (Debit,targetBal - bal)
-        else 
-          (Credit,bal - targetBal)
-      (False, Credit) ->
-        if (targetBal > abs bal)  then 
-          (Credit,targetBal - abs bal)
-        else 
-          (Debit, abs bal - targetBal)
-      (True, Credit) -> 
-        (Credit,targetBal + bal)
-      (False, Debit) ->
-        (Debit,targetBal + abs bal)
-
+bookToClear :: EntryAmount -> Date -> Ledger -> (EntryAmount, Ledger)
+bookToClear (_,0) d ledg = ((Credit,0),ledg )
+bookToClear (dr,amt) d ledg@Ledger{ledgBalance = (curDr, curBal)} 
+  | curDr == dr = ((dr, amt), ledg)
+  | otherwise 
+    = let 
+        bookAmt 
+          | amt > curBal = curBal
+          | otherwise = amt
+        remainAmt = amt - bookAmt
+        newLedger = entryLogByDr (dr, bookAmt) d (Just (TxnDirection dr)) ledg
+      in 
+        ((dr,remainAmt), newLedger)
 
 -- ^ return ledger's bookable amount (for netting off to zero ) with direction input
-queryGap :: BookDirection -> Ledger -> Balance
-queryGap dr Ledger{ledgBalance = bal}  
-  = case (bal > 0, dr) of 
-      (True, Debit) -> 0
-      (True, Credit) -> bal
-      (False, Debit) -> negate bal 
-      (False, Credit) -> 0
+queryGap :: Ledger -> LedgerBalance
+queryGap Ledger{ledgBalance = (Credit, bal)} = (Debit, bal)      -- credit balance can be booked by debit
+queryGap Ledger{ledgBalance = (Debit, bal)} = (Credit, bal)      -- debit balance can be booked by credit
 
-clearLedgersBySeq :: BookDirection -> Date -> Amount -> [Ledger] -> [Ledger] -> ([Ledger],Amount)
-clearLedgersBySeq dr d 0 rs unAllocLedgers = (rs++unAllocLedgers,0)
-clearLedgersBySeq dr d amtToAlloc rs [] = (rs,amtToAlloc)
-clearLedgersBySeq dr d amtToAlloc rs (ledger@Ledger{ledgBalance = bal}:ledgers)  
+-- ^ book an amount to a list of ledgers by sequence
+clearLedgersBySeq :: EntryAmount -> Date -> [Ledger] -> [Ledger] -> ([Ledger],EntryAmount)
+clearLedgersBySeq (dr,0) d rs unAllocLedgers = ( (reverse rs)++unAllocLedgers,(dr,0))
+clearLedgersBySeq (dr,amtToAlloc) d  rs [] = (reverse rs,(dr,amtToAlloc))
+clearLedgersBySeq (dr,amtToAlloc) d  rs (ledger:ledgers)  
   = let 
-      deductAmt = queryGap dr ledger
-      allocAmt = min deductAmt amtToAlloc
-      remainAmt = amtToAlloc - allocAmt
-      newLedger = entryLog allocAmt d (TxnDirection dr) ledger
+      ((newDr, remainAmt), newLedger) = bookToClear (dr,amtToAlloc) d ledger 
     in 
-      clearLedgersBySeq dr d remainAmt (newLedger:rs) ledgers
+      clearLedgersBySeq (newDr,remainAmt) d (newLedger:rs) ledgers
 
 instance QueryByComment Ledger where 
     queryStmt (Ledger _ _ Nothing) tc = []

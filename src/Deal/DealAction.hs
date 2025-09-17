@@ -468,7 +468,9 @@ drawExtraSupport d amt (W.SupportAccount an (Just (dr, ln))) t@TestDeal{accounts
       let drawAmt = min (A.accBalance acc) amt
       let oustandingAmt = amt - drawAmt
       newAccMap <- adjustM (A.draw d drawAmt Types.SupportDraw) an accMap
-      return (t {accounts = newAccMap ,ledgers = Just $ Map.adjust (LD.entryLog drawAmt d (TxnDirection dr)) ln ledgerMap} , oustandingAmt)
+      return (t {accounts = newAccMap 
+                ,ledgers = Just $ Map.adjust (LD.entryLogByDr (dr,drawAmt) d Nothing) ln ledgerMap} 
+              , oustandingAmt)
 
 -- ^ draw account support
 drawExtraSupport d amt (W.SupportAccount an Nothing) t@TestDeal{accounts=accMap} 
@@ -790,7 +792,7 @@ performAction d t@TestDeal{accounts=accMap, ledgers = Just ledgerM}
       targetAcc <- lookupM an2 accMap
       (transferAmt,accDrawAmt,_) <- calcAvailAfterLimit t d sourceAcc Nothing (A.accBalance sourceAcc) mLimit
       (sourceAcc', targetAcc') <- A.transfer (sourceAcc,targetAcc) d transferAmt 
-      let newLedgerM = Map.adjust (LD.entryLog transferAmt d (TxnDirection dr)) lName ledgerM
+      let newLedgerM = Map.adjust (LD.entryLogByDr (dr, transferAmt) d Nothing) lName ledgerM
       return t {accounts = Map.insert an1 sourceAcc' (Map.insert an2 targetAcc' accMap)
                , ledgers = Just newLedgerM}  
 
@@ -815,13 +817,13 @@ performAction d t@TestDeal{ledgers= Just ledgerM} (W.BookBy (W.Till ledger dr ds
     targetAmt <- queryCompound t d ds
     ledgerI <- lookupM ledger ledgerM
     let (bookDirection, amtToBook) = LD.bookToTarget ledgerI (dr, fromRational targetAmt)
-    let newLedgerM = Map.adjust (LD.entryLogByDr bookDirection amtToBook d Nothing) ledger ledgerM
+    let newLedgerM = Map.adjust (LD.entryLogByDr (bookDirection,amtToBook) d Nothing) ledger ledgerM
     return $ t {ledgers = Just newLedgerM } 
 
 performAction d t@TestDeal{ledgers= Just ledgerM} (W.BookBy (W.ByDS ledger dr ds)) =
   do
     amtToBook <- queryCompound t d ds
-    let newLedgerM = Map.adjust (LD.entryLogByDr dr (fromRational amtToBook) d Nothing) ledger ledgerM
+    let newLedgerM = Map.adjust (LD.entryLogByDr (dr,(fromRational amtToBook)) d Nothing) ledger ledgerM
     return $ t {ledgers = Just newLedgerM } 
 
 -- ^ it will book ledgers by order with mandatory caps which describes by a <formula> 
@@ -836,7 +838,7 @@ performAction d t@TestDeal{ledgers= Just ledgerM} (W.BookBy (W.PDL dr ds ledgers
       ledgCaps <- sequenceA [ queryCompound t d ledgerCap | ledgerCap <- snd <$> ledgersList ]
       let amtBookedToLedgers = paySeqLiabilitiesAmt (fromRational amtToBook) (fromRational <$> ledgCaps) 
       let newLedgerM = foldr 
-                         (\(ln,amt) acc -> Map.adjust (LD.entryLogByDr dr amt d Nothing) ln acc)
+                         (\(ln,amt) acc -> Map.adjust (LD.entryLogByDr (dr,amt) d Nothing) ln acc)
                          ledgerM
                          (zip ledgerNames amtBookedToLedgers) --`debug` ("amts to book"++ show amtBookedToLedgers)
       return $ t {ledgers = Just newLedgerM}
@@ -965,7 +967,7 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap,ledgers= Just ledgerM}
         let totalDue = sum dueAmts
         (paidOutAmt,accPaidOut,supportPaidOut) <- calcAvailAfterLimit t d acc mSupport totalDue mLimit
         (bondsPaid,_) <- payProM d paidOutAmt qFn (pay d q) bndsList
-        let newLedgerM = Map.adjust (LD.entryLogByDr dr paidOutAmt d Nothing) lName ledgerM
+        let newLedgerM = Map.adjust (LD.entryLogByDr (dr,paidOutAmt) d Nothing) lName ledgerM
         newAccMap <- adjustM (A.draw d accPaidOut (PayInt bnds)) an accMap
      
         let dealAfterAcc = t {accounts = newAccMap
@@ -1194,7 +1196,7 @@ performAction d t@TestDeal{bonds = bndMap, ledgers = Just ledgerM }
       bndToWriteOff <- lookupM bnd bndMap
       let bndBal = L.bndBalance bndToWriteOff
       writeAmt <- applyLimit t d bndBal bndBal mLimit
-      let newLedgerM = Map.adjust (LD.entryLogByDr dr writeAmt d (Just (WriteOff bnd writeAmt))) lName ledgerM
+      let newLedgerM = Map.adjust (LD.entryLogByDr (dr,writeAmt) d (Just (WriteOff bnd writeAmt))) lName ledgerM
       bndWritedOff <- writeOff d DuePrincipal writeAmt bndToWriteOff
       return $ t {bonds = Map.fromList [(bnd,bndWritedOff)] <> bndMap, ledgers = Just newLedgerM}
 
@@ -1220,7 +1222,7 @@ performAction d t@TestDeal{bonds=bndMap, ledgers = Just ledgerM}
       writeAmt <- applyLimit t d totalBondBal totalBondBal mLimit
       (bndWrited, _) <- paySeqM d writeAmt L.bndBalance (writeOff d DuePrincipal) (Right []) bndsToWriteOff 
       let bndMapUpdated = lstToMapByFn L.bndName bndWrited
-      let newLedgerM = Map.adjust (LD.entryLogByDr dr writeAmt d Nothing) lName ledgerM
+      let newLedgerM = Map.adjust (LD.entryLogByDr (dr,writeAmt) d Nothing) lName ledgerM
       return t {bonds = bndMapUpdated <> bndMap, ledgers = Just newLedgerM}
 
 

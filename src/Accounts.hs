@@ -52,14 +52,14 @@ data ReserveAmount
 
 data Account = Account {
     accBalance :: Balance                 -- ^ account current balance
-    ,accName :: String                    -- ^ account name
+    ,accName :: AccountName               -- ^ account name
     ,accInterest :: Maybe InterestInfo    -- ^ account reinvestment interest
     ,accType :: Maybe ReserveAmount       -- ^ target info if a reserve account
     ,accStmt :: Maybe Statement           -- ^ transactional history
 } deriving (Show, Generic, Eq, Ord)
 
 -- | build interest earn actions
-buildEarnIntAction :: [Account] -> Date -> [(String,Dates)] -> [(String,Dates)]
+buildEarnIntAction :: [Account] -> Date -> [(AccountName,Dates)] -> [(AccountName,Dates)]
 buildEarnIntAction [] ed r = r
 buildEarnIntAction (acc:accs) ed r = 
   case accInterest acc of 
@@ -69,6 +69,8 @@ buildEarnIntAction (acc:accs) ed r =
     Just (InvestmentAccount _ _ dp _ lastAccDate _) 
       -> buildEarnIntAction accs ed [(accName acc, genSerialDatesTill2 NO_IE lastAccDate dp ed)]++r    
 
+
+-- | accrue interest from last reset date to today
 accrueInt :: Date -> Account -> Balance
 accrueInt _ (Account _ _ Nothing _ _) = 0 
 -- ^ bank account type interest 

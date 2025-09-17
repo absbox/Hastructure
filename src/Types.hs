@@ -618,7 +618,7 @@ data Txn = BondTxn Date Balance Interest Principal IRate Cash DueInt DueIoI (May
          | ExpTxn Date FeeDue Amount FeeArrears TxnComment                                                 -- ^ expense transaction record
          | SupportTxn Date SupportAvailType Balance DueInt DuePremium Cash TxnComment                     -- ^ liquidity provider transaction record
          | IrsTxn Date Balance Amount IRate IRate Balance TxnComment                                     -- ^ interest swap transaction record
-         | EntryTxn Date Balance Amount TxnComment                                                       -- ^ ledger book entry
+         | EntryTxn Date (BookDirection,Balance) (BookDirection,Amount) TxnComment                                                       -- ^ ledger book entry
          | TrgTxn Date Bool TxnComment
          deriving (Show, Generic, Eq, Read)
 
