@@ -195,9 +195,9 @@ pricingPoolFlow d pool@Pool{ futureCf = Just (mCollectedCf,_), issuanceStat = mS
           in 
             AN.pv21 discountRate d futureDates futureCfCash
 
- -- | run a pool of assets ,use asOfDate of Pool to cutoff cashflow yields from assets with assumptions supplied
+-- | run a pool of assets ,use asOfDate of Pool to cutoff cashflow yields from assets with assumptions supplied
 runPool :: Asset a => Pool a -> Maybe A.ApplyAssumptionType -> Maybe [RateAssumption] 
-        -> Either String [(CF.CashFlowFrame, Map.Map CutoffFields Balance)]
+        -> Either ErrorRep [(CF.CashFlowFrame, Map.Map CutoffFields Balance)]
 -- use interest rate assumption
 runPool (Pool as _ _ asof _ _) Nothing mRates 
   = do 
@@ -259,15 +259,16 @@ runPool (Pool as _ Nothing asof _ _) (Just (A.ByObligor obligorRules)) mRates =
           let 
             matchRuleFn (A.FieldIn fv fvals) Nothing = False
             matchRuleFn (A.FieldIn fv fvals) (Just fm) = case Map.lookup fv fm of
-                                                    Just (Left v) -> v `elem` fvals
-                                                    Nothing -> False
+                                                            Just (Left v) -> v `elem` fvals
+                                                            Nothing -> False
             matchRuleFn (A.FieldCmp fv cmp dv) (Just fm) = case Map.lookup fv fm of
-                                                        Just (Right v) -> case cmp of 
+                                                              Just (Right v) 
+                                                                -> case cmp of 
                                                                     G -> v > dv
                                                                     L -> v < dv
                                                                     GE -> v >= dv
                                                                     LE -> v <= dv
-                                                        Nothing -> False
+                                                              Nothing -> False
             matchRuleFn (A.FieldInRange fv rt dv1 dv2) (Just fm) = 
               case Map.lookup fv fm of
                 Just (Right v) -> case rt of 

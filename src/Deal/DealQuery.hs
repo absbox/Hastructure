@@ -405,7 +405,7 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
         Nothing -> Left ("Date:"++show d++"No ledgers were modeled , failed to find ledger:"++show ans )
         Just ledgersM -> 
           do 
-            lgBals <- lookupAndApplies LD.ledgBalance "Ledger Balance" ans ledgersM
+            lgBals <- lookupAndApplies (snd . LD.ledgBalance) "Ledger Balance" ans ledgersM
             return $ (toRational . sum) lgBals
     
     LedgerBalanceBy dr ans ->
@@ -415,9 +415,7 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
           do 
             lgdsM <- selectInMap "Look up ledgers" ans ledgersM
             let ldgL = Map.elems lgdsM
-            let bs Credit = filter (\x -> LD.ledgBalance x < 0) ldgL
-            let bs Debit = filter (\x -> LD.ledgBalance x >= 0) ldgL
-            return $ toRational $ abs $ sum $ LD.ledgBalance <$> bs dr
+            return $ toRational  $ sum $ (snd . LD.ledgBalance) <$> ldgL
 
     FutureCurrentPoolBalance mPns ->
       case (mPns,pt) of 
@@ -643,7 +641,7 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
           in
             case mCmt of
               Just cmt -> Right . toRational $ sum [ queryTxnAmt lg cmt | lg <- lgs ]
-              Nothing -> Right . toRational $ sum [ LD.ledgBalance lg | lg <- lgs ]
+              Nothing -> Right . toRational $ sum [ (snd . LD.ledgBalance) lg | lg <- lgs ]
 
     BondBalanceGapAt d bName -> 
       queryCompound t d (Excess [CurrentBondBalanceOf [bName], BondBalanceTarget [bName]])
@@ -817,7 +815,7 @@ queryDealBool t@TestDeal{triggers= trgs,bonds = bndMap,fees= feeMap
                          Just triggerMatCycle -> 
                            case Map.lookup tName triggerMatCycle of 
                              Nothing -> Left ("Date:"++show d++"no trigger for this deal" ++ show tName ++ " in cycle " ++ show triggerMatCycle)
-                             Just trigger -> Right $ Trg.trgStatus trigger 
+                             Just trigger -> return $ Trg.trgStatus trigger 
         Nothing -> Left $ "Date:"++show d++"no trigger for this deal"
     
     IsMostSenior bn bns ->
@@ -882,7 +880,6 @@ queryDealBool t@TestDeal{triggers= trgs,bonds = bndMap,fees= feeMap
 
 
     TestNot ds -> do not <$> (queryDealBool t ds d)
-    -- TestAny b dss -> b `elem` [ queryDealBool t ds d | ds <- dss ]
     TestAny b dss -> anyM (\ x -> (== b) <$> queryDealBool t x d ) dss
     TestAll b dss -> allM (\ x -> (== b) <$> queryDealBool t x d ) dss
 
@@ -968,9 +965,9 @@ testPre d t p =
                           q1 <- (queryCompound t d (ps s1))
                           q2 <- (queryCompound t d (ps s2))
                           return (toCmp cmp q1 q2)  
-    IfDealStatus st -> Right $ status t == st   --  `debug` ("current date"++show d++">> stutus"++show (status t )++"=="++show st)
+    IfDealStatus st -> return $ status t == st   --  `debug` ("current date"++show d++">> stutus"++show (status t )++"=="++show st)
     
-    Always b -> Right b
+    Always b -> return b
     IfNot _p -> not <$> testPre d t _p
     where 
       toCmp x = case x of 
@@ -1027,5 +1024,5 @@ preToStr t d p =
   where 
     ps = patchDateToStats d
 
-testPre2 :: P.Asset a => Date -> TestDeal a -> Pre -> (String, Either String Bool)
+testPre2 :: P.Asset a => Date -> TestDeal a -> Pre -> (String, Either ErrorRep Bool)
 testPre2 d t p = (preToStr t d p, testPre d t p)

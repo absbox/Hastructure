@@ -14,16 +14,27 @@ import Data.Aeson.TH
 import Data.Aeson.Types
 import GHC.Generics
 
-data CallOption = PoolBalance Balance    -- ^ triggered when pool perform balance below threshold
-                | BondBalance Balance    -- ^ triggered when bond current balance below threshold
-                | PoolFactor Rate        -- ^ triggered when pool factor (pool perform balance/origin balance)
-                | BondFactor Rate        -- ^ triggered when bond factor (total bonds current balance / origin balance)
-                | OnDate Date            -- ^ triggered at date
-                | AfterDate Date         -- ^ triggered when after date
-                | And [CallOption]       -- ^ triggered when all options were satisfied
-                | Or [CallOption]        -- ^ triggered when any option is satisfied
-                | PoolPv Balance         -- ^ Call when PV of pool fall below
-                | Pre Pre                -- ^ triggered when predicate evaluates to be True
-                deriving (Show,Generic,Ord,Eq,Read)
+data CallOption 
+    -- | triggered when pool perform balance below threshold
+    = PoolBalance Balance    
+    -- | triggered when bond current balance below threshold
+    | BondBalance Balance    
+    -- | triggered when pool factor (pool perform balance/origin balance)
+    | PoolFactor Rate        
+    -- | triggered when bond factor (total bonds current balance / origin balance)
+    | BondFactor Rate        
+    -- | triggered at date
+    | OnDate Date            
+    -- | triggered when after date
+    | AfterDate Date         
+    -- | triggered when all options were satisfied
+    | And [CallOption]       
+    -- | triggered when any option is satisfied
+    | Or [CallOption]        
+    -- | Call when PV of pool fall below
+    | PoolPv Balance         
+    -- | triggered when predicate evaluates to be True
+    | Pre Pre                
+    deriving (Show,Generic,Ord,Eq,Read)
 
 $(deriveJSON defaultOptions ''CallOption)

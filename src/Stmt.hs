@@ -62,7 +62,7 @@ scaleTxn r (ExpTxn d b a b0 t) = ExpTxn d (mulBR b r) (mulBR a r) (mulBR b0 r) t
 scaleTxn r (SupportTxn d Unlimit b0 i p c t) = SupportTxn d Unlimit (mulBR b0 r) (mulBR i r) (mulBR p r) (mulBR c r) t
 scaleTxn r (SupportTxn d (ByAvailAmount b) b0 i p c t) = SupportTxn d (ByAvailAmount (mulBR b r)) (mulBR b0 r) (mulBR i r) (mulBR p r) (mulBR c r) t
 scaleTxn r (IrsTxn d b a i0 i1 b0 t) = IrsTxn d (mulBR b r) (mulBR a r) i0 i1 (mulBR b0 r) t
-scaleTxn r (EntryTxn d b a t) = EntryTxn d (mulBR b r)  (mulBR a r) t
+scaleTxn r (EntryTxn d (cd,b) (cd',a) t) = EntryTxn d (cd,(mulBR b r))  (cd',(mulBR a r)) t
 
 scaleByFactor :: Rate -> [Txn] -> [Txn]
 scaleByFactor r [] = []
@@ -85,7 +85,7 @@ getTxnBalance (BondTxn _ t _ _ _ _ _ _ _ _) = t
 getTxnBalance (AccTxn _ t _ _ ) = t
 getTxnBalance (ExpTxn _ t _ _ _ ) = t
 getTxnBalance (SupportTxn _ _ t _ _ _ _ ) = t -- drawed balance
-getTxnBalance (EntryTxn _ t _ _) = t
+getTxnBalance (EntryTxn _ (_,t) _ _) = t
 
 -- | SupportTxn Date (Maybe Balance) Balance DueInt DuePremium Cash TxnComment    
 
@@ -93,7 +93,10 @@ getTxnBegBalance :: Txn -> Balance
 getTxnBegBalance (BondTxn _ t _ p _ _ _ _ _ _) = t + p
 getTxnBegBalance (AccTxn _ b a _ ) = b - a
 getTxnBegBalance (SupportTxn _ _ a b _ _ _) = b + a
-getTxnBegBalance (EntryTxn _ a b _) = a + b 
+getTxnBegBalance (EntryTxn _ (curDr,a) (bkDr,b) _) 
+  | curDr == bkDr && b > a = b - a
+  | curDr == bkDr && b <= a = a - b
+  | curDr /= bkDr = a + b
 
 getTxnPrincipal :: Txn -> Balance
 getTxnPrincipal (BondTxn _ _ _ t _ _ _ _ _ _) = t
@@ -104,7 +107,7 @@ getTxnAmt (AccTxn _ _ t _ ) = t
 getTxnAmt (ExpTxn _ _ t _ _ ) = t
 getTxnAmt (SupportTxn _ _ _ _ _ t _) = t
 getTxnAmt (IrsTxn _ _ t _ _ _ _ ) = t
-getTxnAmt (EntryTxn _ _ t _) = t
+getTxnAmt (EntryTxn _ _ t _) = snd t
 getTxnAmt TrgTxn {} = 0.0
 
 getTxnAsOf :: [Txn] -> Date -> Maybe Txn
@@ -116,7 +119,7 @@ emptyTxn AccTxn {} d = AccTxn d 0 0 Empty
 emptyTxn ExpTxn {} d = ExpTxn d 0 0 0 Empty
 emptyTxn SupportTxn {} d = SupportTxn d Unlimit 0 0 0 0 Empty
 emptyTxn IrsTxn {} d = IrsTxn d 0 0 0 0 0 Empty
-emptyTxn EntryTxn {} d = EntryTxn d 0 0 Empty
+emptyTxn EntryTxn {} d = EntryTxn d (Credit,0) (Credit,0) Empty
 emptyTxn TrgTxn {} d = TrgTxn d False Empty
 
 isEmptyTxn :: Txn -> Bool
@@ -125,7 +128,7 @@ isEmptyTxn (AccTxn _ 0 0 Empty) = True
 isEmptyTxn (ExpTxn _ 0 0 0 Empty) = True
 isEmptyTxn (SupportTxn _ _ 0 0 0 0 Empty) = True
 isEmptyTxn (IrsTxn _ 0 0 0 0 0 Empty) = True
-isEmptyTxn (EntryTxn _ 0 0 Empty) = True
+isEmptyTxn (EntryTxn _ (_,0) (_,0) Empty) = True
 isEmptyTxn _ = False
 
 viewBalanceAsOf :: Date -> [Txn] -> Balance

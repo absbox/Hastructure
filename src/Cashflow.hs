@@ -110,7 +110,6 @@ type NewDepreciation = Balance
 type AccuredFee = Balance
 type FeePaid = Balance
 
-startOfTime = T.fromGregorian 1900 1 1
 
 data TsRow = CashFlow Date Amount
            | BondFlow Date Balance Principal Interest
@@ -120,7 +119,6 @@ data TsRow = CashFlow Date Amount
            | LeaseFlow Date Balance Rental Default
            | FixedFlow Date Balance NewDepreciation Depreciation Balance Balance -- unit cash 
            | ReceivableFlow Date Balance AccuredFee Principal FeePaid Default Recovery Loss (Maybe CumulativeStat) 
-	   -- | MixedCashflow Date Balance Principal Interest Prepayment 
            deriving(Show,Eq,Ord,Generic,NFData)
 
 instance Semigroup TsRow where 

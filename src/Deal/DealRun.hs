@@ -311,15 +311,19 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                                           poolFlowMap 
               collectedFlow =  Map.map (bimap fst ((\xs -> [ fst x | x <- xs ]) <$>)) cutOffPoolFlowMap  
               outstandingFlow = Map.map (bimap snd ((\xs -> [ snd x | x <- xs ]) <$>)) cutOffPoolFlowMap  
-
+              cutFutureCf = cutBy Exc Future d
               -- deposit cashflow to SPV from external pool cf               
             in 
               do 
+                -- depsoit collected cashflow to accounts
                 accs <- depositPoolFlow (collects t) d collectedFlow accMap 
+                -- new deal = update accounts and pool collected cashflow
                 let dAfterDeposit = (appendCollectedCF d t collectedFlow) {accounts=accs}
                 let newPt = case pool dAfterDeposit of 
-	  		      MultiPool pm -> MultiPool $ (over (mapped . P.poolFutureScheduleCf . _Just . _1 . CF.cashflowTxn) (cutBy Exc Future d)) pm 
-			      ResecDeal dMap -> ResecDeal $ (over (mapped . uDealFutureScheduleCf . _Just . CF.cashflowTxn) (cutBy Exc Future d)) dMap
+                              MultiPool pm -> 
+                                MultiPool $ (over (mapped . P.poolFutureScheduleCf . _Just . _1 . CF.cashflowTxn) cutFutureCf) pm 
+                              ResecDeal dMap -> 
+                                ResecDeal $ (over (mapped . uDealFutureScheduleCf . _Just . CF.cashflowTxn) cutFutureCf) dMap
                 let runContext = RunContext outstandingFlow rAssump rates  
                 (dRunWithTrigger0, rc1, ads2, newLogs0) <- runTriggers (dAfterDeposit {pool = newPt},runContext,ads) d EndCollection 
                 let eopActionsLog = DL.fromList [ RunningWaterfall d W.EndOfPoolCollection | Map.member W.EndOfPoolCollection waterfallM ] 
@@ -592,8 +596,6 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                                            ostBal = L.getCurBalance bnd
                                            prinToPay = min pv ostBal
                                            intToPay = max 0 (pv - prinToPay)
-                                           -- bnd1 = L.payPrin d prinToPay bnd
-                                           -- bnd1 = L.payYield d intToPay bnd 
                                          in 
                                            (pay d DuePrincipal prinToPay) =<< (pay d DueResidual intToPay bnd))
                                        bndMap
@@ -698,7 +700,7 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                   let 
                     runContext = RunContext poolFlowMap rAssump rates
                     newStLogs 
-		              | null cleanUpActions = DL.fromList [DealStatusChangeTo d dStatus Called "by Date-Based Call"]
+		                  | null cleanUpActions = DL.fromList [DealStatusChangeTo d dStatus Called "by Date-Based Call"]
                       | otherwise = DL.fromList [DealStatusChangeTo d dStatus Called "by Date-Based Call", RunningWaterfall d W.CleanUp]
                   in  
                     do 

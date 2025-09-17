@@ -26,9 +26,12 @@ import Util
 import Lib
 import Control.Lens hiding (element)
 
-data CollectionRule = Collect (Maybe [PoolId]) PoolSource AccountName                   -- ^ collect a pool source from pool collection and deposit to an account
-                    | CollectByPct (Maybe [PoolId]) PoolSource [(Rate,AccountName)]     -- ^ collect a pool source from pool collection and deposit to multiple accounts with percentages
-                    deriving (Show,Generic,Eq,Ord)
+data CollectionRule
+    -- | collect a pool source from pool collection and deposit to an account
+    = Collect (Maybe [PoolId]) PoolSource AccountName
+    -- | collect a pool source from pool collection and deposit to multiple accounts with percentages                   
+    | CollectByPct (Maybe [PoolId]) PoolSource [(Rate,AccountName)]     
+    deriving (Show,Generic,Eq,Ord)
 
 
 readProceeds :: PoolSource -> CF.TsRow -> Either ErrorRep Balance
@@ -55,7 +58,7 @@ extractTxnsFromFlowFrameMap mPids pflowMap =
 
 
 -- ^ deposit cash to account by collection rule
-depositInflow :: Date -> CollectionRule -> Map.Map PoolId CF.PoolCashflow -> Map.Map AccountName A.Account -> Either String (Map.Map AccountName A.Account)
+depositInflow :: Date -> CollectionRule -> Map.Map PoolId CF.PoolCashflow -> Map.Map AccountName A.Account -> Either ErrorRep (Map.Map AccountName A.Account)
 depositInflow d (Collect mPids s an) pFlowMap amap 
   = do 
       amts <- traverse (readProceeds s) txns
@@ -81,7 +84,7 @@ depositInflow d (CollectByPct mPids s splitRules) pFlowMap amap    --TODO need t
 
 
 -- ^ deposit cash to account by pool map CF and rules
-depositPoolFlow :: [CollectionRule] -> Date -> Map.Map PoolId CF.PoolCashflow -> Map.Map String A.Account -> Either String (Map.Map String A.Account)
+depositPoolFlow :: [CollectionRule] -> Date -> Map.Map PoolId CF.PoolCashflow -> Map.Map String A.Account -> Either ErrorRep (Map.Map String A.Account)
 depositPoolFlow rules d pFlowMap amap 
   = foldM (\acc rule -> depositInflow d rule pFlowMap acc) amap rules
 

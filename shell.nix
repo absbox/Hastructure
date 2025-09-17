@@ -5,6 +5,7 @@ pkgs.mkShell {
     cabal2nix
     haskell.compiler.ghc912
     haskell-language-server
+    python313Packages.towncrier
     ghciwatch
     just
   ];
