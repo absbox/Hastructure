@@ -205,8 +205,8 @@ data DayCount = DC_30E_360       -- ^ ISMA European 30S/360 Special German Eurob
 data DateType = ClosingDate             -- ^ deal closing day
               | CutoffDate              -- ^ after which, the pool cashflow was aggregated to SPV
               | FirstPayDate            -- ^ first payment day for bond/waterfall to run with
-              | NextPayDate
-              | NextCollectDate
+              | NextPayDate             -- ^ next payment day for bond/waterfall to run 
+              | NextCollectDate         -- ^ next collection day for pool
               | FirstCollectDate        -- ^ first collection day for pool
               | LastCollectDate         -- ^ last collection day for pool
               | LastPayDate             -- ^ last payment day for bond/waterfall 
@@ -249,7 +249,7 @@ data Period = Daily
             | Quarterly 
             | SemiAnnually 
             | Annually
-            deriving (Show,Eq,Generic,Ord)
+            deriving (Show, Eq, Generic, Ord)
 
 type DateVector = (Date, DatePattern)
 

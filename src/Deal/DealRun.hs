@@ -311,15 +311,17 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                                           poolFlowMap 
               collectedFlow =  Map.map (bimap fst ((\xs -> [ fst x | x <- xs ]) <$>)) cutOffPoolFlowMap  
               outstandingFlow = Map.map (bimap snd ((\xs -> [ snd x | x <- xs ]) <$>)) cutOffPoolFlowMap  
-
+              cutFutureCf = cutBy Exc Future d
               -- deposit cashflow to SPV from external pool cf               
             in 
               do 
                 accs <- depositPoolFlow (collects t) d collectedFlow accMap 
                 let dAfterDeposit = (appendCollectedCF d t collectedFlow) {accounts=accs}
                 let newPt = case pool dAfterDeposit of 
-	  		      MultiPool pm -> MultiPool $ (over (mapped . P.poolFutureScheduleCf . _Just . _1 . CF.cashflowTxn) (cutBy Exc Future d)) pm 
-			      ResecDeal dMap -> ResecDeal $ (over (mapped . uDealFutureScheduleCf . _Just . CF.cashflowTxn) (cutBy Exc Future d)) dMap
+                              MultiPool pm -> 
+                                MultiPool $ (over (mapped . P.poolFutureScheduleCf . _Just . _1 . CF.cashflowTxn) cutFutureCf) pm 
+                              ResecDeal dMap -> 
+                                ResecDeal $ (over (mapped . uDealFutureScheduleCf . _Just . CF.cashflowTxn) cutFutureCf) dMap
                 let runContext = RunContext outstandingFlow rAssump rates  
                 (dRunWithTrigger0, rc1, ads2, newLogs0) <- runTriggers (dAfterDeposit {pool = newPt},runContext,ads) d EndCollection 
                 let eopActionsLog = DL.fromList [ RunningWaterfall d W.EndOfPoolCollection | Map.member W.EndOfPoolCollection waterfallM ] 
