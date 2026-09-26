@@ -134,6 +134,32 @@ prorataTests = testGroup "prorata Test"
         assertEqual ""
           [20,40,0]
           (prorataFactors bals2 60)
+    ,
+    let 
+      bals3 = [100,100,100]
+    in 
+      testCase "residual goes to first on tie" $
+        assertEqual ""
+          [13.34,13.33,13.33]
+          (prorataFactors bals3 40)
+    ,
+    let
+      bals4 = replicate 12 0.01
+      alloc4 = prorataFactors bals4 0.10
+    in
+      testCase "many small bals has no negative allocation" $ do
+        assertBool "all allocations non-negative" (all (>= 0) alloc4)
+        assertEqual "allocations sum to requested amount" 0.10 (sum alloc4)
+    ,
+    testCase "amt greater than total balance is capped" $
+      assertEqual ""
+        [100,200]
+        (prorataFactors [100,200] 500)
+    ,
+    testCase "zero total balance gives zeros" $
+      assertEqual ""
+        [0,0]
+        (prorataFactors [0,0] 40)
   ]
 
 tsOperationTests =

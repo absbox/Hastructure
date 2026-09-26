@@ -11,7 +11,7 @@ import qualified Lib as L
 import qualified Pool as P
 
 import InterestRate (RateType (Fix))
-import Types (DayCount (DC_ACT_365F))
+import Types (DayCount (DC_ACT_365F), DatePattern (MonthEnd))
 
 poolTest :: TestTree
 poolTest =
@@ -23,6 +23,25 @@ poolTest =
           Right proj ->
             assertEqual
               "a total default of 40 (25% and 75%) across the asets"
+              [10, 30]
+              (totalDefaults <$> proj)
+    , testCase "pool DefaultByAmt with many small balances allocates no negative amounts" $
+        case P.runPool smallPool (Just smallDefaultAss) Nothing of
+          Left err -> assertFailure err
+          Right proj ->
+            let defaults = totalDefaults <$> proj
+            in do
+              assertBool "no negative default allocations" (all (>= 0) defaults)
+              assertEqual
+                "a total default of 0.10 across 12 assets of 0.01 balance"
+                (replicate 10 0.01 ++ replicate 2 0)
+                defaults
+    , testCase "pool DefaultByAmt with ScheduleMortgageFlow assets" $
+        case P.runPool schedulePool (Just defaultAss) Nothing of
+          Left err -> assertFailure err
+          Right proj ->
+            assertEqual
+              "a total default of 40 (25% and 75%) across the schedule assets"
               [10, 30]
               (totalDefaults <$> proj)
     ]
@@ -37,10 +56,29 @@ poolTest =
         , P.extendPeriods = Nothing
         }
 
+    smallPool = pool {P.assets = replicate 12 (mortgage 0.01)}
+
+    schedulePool =
+      pool
+        { P.assets = [scheduleMortgage 100, scheduleMortgage 300]
+        , P.asOfDate = L.toDate "20240101"
+        }
+
     defaultAss =
       A.PoolLevel
         ( A.MortgageAssump
             (Just (A.DefaultByAmt (40, [1])))
+            Nothing
+            Nothing
+            Nothing
+        , A.DummyDelinqAssump
+        , A.DummyDefaultAssump
+        )
+
+    smallDefaultAss =
+      A.PoolLevel
+        ( A.MortgageAssump
+            (Just (A.DefaultByAmt (0.10, [1])))
             Nothing
             Nothing
             Nothing
@@ -65,6 +103,14 @@ poolTest =
         12
         Nothing
         AB.Current
+
+    scheduleMortgage balance =
+      AB.ScheduleMortgageFlow
+        (L.toDate "20240101")
+        [ CF.MortgageFlow (L.toDate d) balance 0 0 0 0 0 0 0.08 Nothing Nothing Nothing
+        | d <- ["20240101", "20240201", "20240301"]
+        ]
+        MonthEnd
 
     totalDefaults (CF.CashFlowFrame _ txns, _) =
       sum (CF.mflowDefault <$> txns)
