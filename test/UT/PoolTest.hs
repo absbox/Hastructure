@@ -4,6 +4,8 @@ where
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import Data.List (isInfixOf)
+
 import qualified AssetClass.AssetBase as AB
 import qualified Assumptions as A
 import qualified Cashflow as CF
@@ -44,6 +46,23 @@ poolTest =
               "a total default of 40 (25% and 75%) across the schedule assets"
               [10, 30]
               (totalDefaults <$> proj)
+    , testCase "pool DefaultByAmt greater than total balance fails with Left" $
+        case P.runPool pool (Just overDefaultAss) Nothing of
+          Left err ->
+            assertBool
+              ("error should mention the pool total: " ++ err)
+              ("exceeds total current balance" `isInfixOf` err)
+          Right _ ->
+            assertFailure
+              "expected Left when DefaultByAmt total exceeds total current balance"
+    , testCase "pool DefaultByAmt equal to total balance is allowed" $
+        case P.runPool pool (Just exactDefaultAss) Nothing of
+          Left err -> assertFailure err
+          Right proj ->
+            assertEqual
+              "each asset defaults its full current balance"
+              [100, 300]
+              (totalDefaults <$> proj)
     ]
   where
     pool =
@@ -79,6 +98,28 @@ poolTest =
       A.PoolLevel
         ( A.MortgageAssump
             (Just (A.DefaultByAmt (0.10, [1])))
+            Nothing
+            Nothing
+            Nothing
+        , A.DummyDelinqAssump
+        , A.DummyDefaultAssump
+        )
+
+    overDefaultAss =
+      A.PoolLevel
+        ( A.MortgageAssump
+            (Just (A.DefaultByAmt (500, [1])))
+            Nothing
+            Nothing
+            Nothing
+        , A.DummyDelinqAssump
+        , A.DummyDefaultAssump
+        )
+
+    exactDefaultAss =
+      A.PoolLevel
+        ( A.MortgageAssump
+            (Just (A.DefaultByAmt (400, [1])))
             Nothing
             Nothing
             Nothing

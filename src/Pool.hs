@@ -206,11 +206,11 @@ runPool (Pool as _ _ asof _ _) Nothing mRates
       return [ (x, Map.empty) | x <- cf ]
 -- asset cashflow with credit stress
 ---- By pool level
-runPool (Pool as _ Nothing asof _ _) (Just (A.PoolLevel assumps)) mRates =
+runPool (Pool as _ Nothing asof _ _) (Just (A.PoolLevel assumps)) mRates = do
+  assetAssumps <- allocateDefaultByAmt balances assumps
   sequenceA $ parMap rdeepseq
     (\(x, assump) -> projCashflow x asof assump mRates) (zip as assetAssumps)
   where
-    assetAssumps = allocateDefaultByAmt balances assumps
     balances = getCurrentBal <$> as
 
 ---- By index
@@ -304,7 +304,7 @@ runPool (Pool as _ Nothing asof _ _) (Just (A.ByObligor obligorRules)) mRates =
 runPool _a _b _c = Left $ "[Run Pool]: Failed to match" ++ show _a ++ show _b ++ show _c
 
 
-allocateDefaultByAmt :: [Balance] -> A.AssetPerf -> [A.AssetPerf]
+allocateDefaultByAmt :: [Balance] -> A.AssetPerf -> Either ErrorRep [A.AssetPerf]
 allocateDefaultByAmt
   balances
   ( A.MortgageAssump
@@ -314,19 +314,26 @@ allocateDefaultByAmt
       extra
   , delinqAssump
   , defaultAssump
-  ) =
-    [ (A.MortgageAssump
-        (Just (A.DefaultByAmt (amount, rates)))
-        prepay
-        recovery
-        extra
-      , delinqAssump
-      , defaultAssump
-      )
-      | amount <- prorataFactors balances total
-    ]
+  )
+  | total > sumBalances =
+      Left $ "[Run Pool]: DefaultByAmt total " ++ show total
+        ++ " exceeds total current balance " ++ show sumBalances
+  | otherwise =
+      Right
+        [ (A.MortgageAssump
+            (Just (A.DefaultByAmt (amount, rates)))
+            prepay
+            recovery
+            extra
+          , delinqAssump
+          , defaultAssump
+          )
+          | amount <- prorataFactors balances total
+        ]
+  where
+    sumBalances = sum balances
 allocateDefaultByAmt balances assumps =
-  replicate (length balances) assumps
+  Right (replicate (length balances) assumps)
 
 
 $(deriveJSON defaultOptions ''Pool)
