@@ -1,6 +1,11 @@
 # Changelog for Hastructure
 
 <!-- towncrier release notes start -->
+## 0.52.6
+### 2026-09-27
+* NEW: add new prepayment assumption `PrepaymentABS`, an ABS / absolute prepayment model driven by the asset's seasoning (months elapsed since origin). Supported for `Monthly` assets only.
+* FIX: pool-level `DefaultByAmt` is now allocated across multiple assets proportionally to their current balance.
+
 ## 0.52.5
 ### 2026-08-23
 
