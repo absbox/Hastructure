@@ -13,7 +13,7 @@ module Pool (Pool(..),aggPool
 
 import Lib (Period(..)
            ,Ts(..),periodRateFromAnnualRate,toDate
-           ,getIntervalDays,zipWith9,mkTs,periodsBetween
+           ,getIntervalDays,zipWith9,mkTs,monthsBetween
            ,mkRateTs,daysBetween, prorataFactors)
 
 import Control.Parallel.Strategies

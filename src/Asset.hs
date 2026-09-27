@@ -19,7 +19,7 @@ import Text.Read (readMaybe)
 
 import Lib (Period(..)
           ,Ts(..),periodRateFromAnnualRate,toDate
-          ,getIntervalDays,zipWith9,mkTs,periodsBetween
+          ,getIntervalDays,zipWith9,mkTs,monthsBetween
           ,mkRateTs,daysBetween, getIntervalFactors)
 
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
@@ -174,6 +174,8 @@ cpr2smm r = toRational $ 1 - (1 - fromRational r :: Double) ** (1/12)
 normalPerfVector :: [Rate] -> [Rate]
 normalPerfVector = floorWith 0.0 . capWith 1.0
 
+
+-- ^ Given a prerpayment assumption , convert it to <period> based prepayment rate
 buildPrepayRates :: Asset b => b -> [Date] -> Maybe A.AssetPrepayAssumption -> Either ErrorRep [Rate]
 buildPrepayRates _ ds Nothing = return $ replicate ((pred . length) ds) 0.0
 buildPrepayRates a ds (Just (A.PrepaymentConstant r)) 
@@ -184,21 +186,40 @@ buildPrepayRates a ds (Just (A.PrepaymentCPR r))
   | r < 0 || r > 1.0 = Left $ "buildPrepayRates: prepayment CPR rate should be between 0 and 1, got " ++ show r
   | otherwise = return $ Util.toPeriodRateByInterval r <$> getIntervalDays ds
 
+
+-- TODO: can be generlized to irregular payments
+buildPrepayRates a ds (Just (A.PrepaymentABS r)) 
+  | r < 0 || r > 1.0 = Left $ "buildPrepayRates: prepayment ABS rate should be between 0 and 1, got " ++ show r
+  | otherwise 
+    = let 
+        originDate = getOriginDate a
+        pojectedMonthAges = (monthsBetween originDate) <$> ds
+        smm m = r / (1 - r * fromIntegral (pred m))
+        smmVector = smm <$> pojectedMonthAges
+      in 
+        case period (getOriginInfo a) of
+          Monthly -> return smmVector
+          _ -> Left $ "prepayment ABS is only supported for monthly payment but got "++ show (period (getOriginInfo a))
+        -- buildPrepayRates a ds (Just (A.PrepaymentVec smmVector))
+
 buildPrepayRates a ds (Just (A.PrepaymentVec vs))
   | any (> 1.0) vs || any (< 0.0) vs = Left $ "buildPrepayRates: prepayment vector should be between 0 and 1, got " ++ show vs
   | otherwise = return $ zipWith Util.toPeriodRateByInterval
                                 (paddingDefault 0.0 vs (pred (length ds)))
                                 (getIntervalDays ds)
+
 buildPrepayRates a ds (Just (A.PrepaymentVecPadding vs))
   | any (> 1.0) vs || any (< 0.0) vs = Left $ "buildPrepayRates: prepayment vector should be between 0 and 1, got " ++ show vs
   | otherwise = return $ zipWith Util.toPeriodRateByInterval
                                 (paddingDefault (last vs) vs (pred (length ds)))
                                 (getIntervalDays ds)
+                                
 buildPrepayRates a ds (Just (A.PrepayStressByTs ts x)) 
   | any (< 0.0) (getTsVals ts) = Left $ "buildPrepayRates: prepayment vector by ts should be non-negative, got " ++ show (getTsVals ts)
   | otherwise = do
                   rs <- buildPrepayRates a ds (Just x)
                   return $ getTsVals $ multiplyTs Exc (zipTs (tail ds) rs) ts
+
 buildPrepayRates a ds (Just (A.PrepaymentPSA r))
   | r < 0 = Left $ "buildPrepayRates: PSA rate should be non-negative, got " ++ show r
   | otherwise = let 
@@ -210,6 +231,7 @@ buildPrepayRates a ds (Just (A.PrepaymentPSA r))
                   case period (getOriginInfo a) of
                     Monthly -> return $ cpr2smm <$> vectorUsed
                     _ -> Left $ "PSA is only supported for monthly payment but got "++ show (period (getOriginInfo a))
+
 buildPrepayRates a ds (Just (A.PrepaymentByTerm rs)) 
   | any (< 0.0) (concat rs) = Left $ "buildPrepayRates: prepayment by term vector should be non-negative, got " ++ show rs
   | any (> 1.0) (concat rs) = Left $ "buildPrepayRates: prepayment by term vector should be between 0 and 1, got " ++ show rs

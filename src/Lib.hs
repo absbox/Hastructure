@@ -7,7 +7,7 @@ module Lib
     ,StartDate,EndDate,daysBetween,daysBetweenI
     ,Spread,Date
     ,paySeqLiabilities,prorataFactors
-    ,afterNPeriod,Ts(..),periodsBetween
+    ,afterNPeriod,Ts(..),monthsBetween
     ,periodRateFromAnnualRate
     ,Floor,Cap,TsPoint(..)
     ,toDate,toDates,genDates,nextDate
@@ -113,15 +113,13 @@ afterNPeriod d i p =
       SemiAnnually -> 6
       Annually -> 12
 
-periodsBetween :: T.Day -> T.Day -> Period -> Integer
-periodsBetween t1 t2 p
-  = case p of
-      Weekly ->  div (T.diffDays t1 t2) 7
-      Monthly -> _diff
-      Annually -> div _diff 12
-      Quarterly -> div _diff 4
-  where
-    _diff = T.cdMonths $ T.diffGregorianDurationClip t1 t2
+-- | Number of whole calendar months between two dates, i.e. how many complete
+-- months have elapsed from @t1@ to @t2@. Partial months are clipped, so e.g.
+-- 2021-01-31 -> 2021-02-01 is 0 months. Returns a negative value when @t2@ is
+-- earlier than @t1@ and 0 when both dates are equal.
+monthsBetween :: Date -> Date -> Integer
+monthsBetween t1 t2
+  = T.cdMonths $ T.diffGregorianDurationClip t2 t1
 
 
 mkTs :: [(Date,Rational)] -> Ts
