@@ -20,7 +20,7 @@ import qualified UT.InterestRateTest as IRT
 import qualified UT.RateHedgeTest as RHT
 import qualified UT.CeTest as CET
 import qualified UT.LedgerTest as LeT
-
+import qualified UT.PoolTest as PT
 
 import qualified DealTest.DealTest as DealTest
 import qualified DealTest.RevolvingTest as RevolvingTest
@@ -45,6 +45,7 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,AT.installmentTest
                            ,AT.armTest
                            ,AT.ppyTest
+                           ,AT.ppyVectorTest
 --                           ,AT.delinqScheduleCFTest
                            ,AT.delinqMortgageTest
                            ,AT.nonPayMortgageTest
@@ -119,4 +120,5 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,RHT.capRateTests
                            ,CET.liqTest
                            ,LeT.bookTest
+                           ,PT.poolTest
                            ]

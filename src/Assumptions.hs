@@ -178,6 +178,7 @@ stressDefaultAssump x (DefaultByTerm rss) = DefaultByTerm $ ((capWith 1.0) <$> (
 stressPrepaymentAssump :: Rate -> AssetPrepayAssumption -> AssetPrepayAssumption
 stressPrepaymentAssump x (PrepaymentConstant r) = PrepaymentConstant $ min 1.0 (r*x)
 stressPrepaymentAssump x (PrepaymentCPR r) = PrepaymentCPR $ min 1.0 (r*x)
+stressPrepaymentAssump x (PrepaymentABS r) = PrepaymentABS $ min 1.0 (r*x)
 stressPrepaymentAssump x (PrepaymentVec rs) = PrepaymentVec $ capWith 1.0 ((x*) <$> rs)
 stressPrepaymentAssump x (PrepaymentVecPadding rs) = PrepaymentVecPadding $ capWith 1.0 ((x*) <$> rs)
 stressPrepaymentAssump x (PrepayByAmt (b,rs)) = PrepayByAmt (max (mulBR b x) 0, rs)
@@ -188,6 +189,7 @@ stressPrepaymentAssump x (PrepaymentByTerm rss) = PrepaymentByTerm $ (capWith 1.
 
 data AssetPrepayAssumption = PrepaymentConstant Rate
                            | PrepaymentCPR Rate 
+                           | PrepaymentABS Rate 
                            | PrepaymentVec [Rate] 
                            | PrepaymentVecPadding [Rate] 
                            | PrepayByAmt (Balance,[Rate])

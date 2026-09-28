@@ -1,4 +1,4 @@
-module UT.AssetTest(mortgageTests,mortgageCalcTests,loanTests,leaseTests,installmentTest,armTest,ppyTest
+module UT.AssetTest(mortgageTests,mortgageCalcTests,loanTests,leaseTests,installmentTest,armTest,ppyTest,ppyVectorTest
                    ,delinqScheduleCFTest,delinqMortgageTest,btlMortgageTest,nonPayMortgageTest,receivableTest,fixedAssetTest)
 where
 
@@ -619,6 +619,34 @@ ppyTest =
         (Just (CF.MortgageFlow (L.toDate "20210501") 8357.98 389.45 58.31 21.92 0 0 0 0.08 Nothing (Just (0.2*21.92)) (Just (1548.18,93.84,0.00,0.00,0.00,0.00))))
         (CF.cfAt ppy_cf_5 4)   
     ]
+
+ppyVectorTest :: TestTree
+ppyVectorTest =
+  let
+    -- tm origin date is 2021-01-01
+    absDsFirst = L.toDate <$> ["20210201","20210301","20210401","20210501"]
+    absDs = L.toDate <$> ["20210701","20210801","20210901","20211001"]
+    absRatesFirst r = Ast.buildPrepayRates tm absDsFirst (Just (A.PrepaymentABS r))
+    absRates r = Ast.buildPrepayRates tm absDs (Just (A.PrepaymentABS r))
+  in
+    testGroup "Prepayment vector tests" [
+      testCase "PrepaymentABS 2% => SMM by month age | fisth 4 months" $
+        assertEqual "abs vector"
+          (Right [1/50,1/49,1/48,1/47])
+          (absRatesFirst 0.02)
+      ,testCase "PrepaymentABS 2% => SMM by month age" $
+        assertEqual "abs vector"
+          (Right [1/45,1/44,1/43,1/42])
+          (absRates 0.02)
+      ,testCase "PrepaymentABS 0% => all zero" $
+        assertEqual "abs zero"
+          (Right [0,0,0,0])
+          (absRates 0.0)
+      ,testCase "PrepaymentABS rejects rate > 1" $
+        assertBool "rate > 1 should be Left" (isLeft (absRates 1.5))
+      ,testCase "PrepaymentABS rejects negative rate" $
+        assertBool "negative rate should be Left" (isLeft (absRates (-0.1)))
+      ]
 
 delinqScheduleCFTest = 
   let 

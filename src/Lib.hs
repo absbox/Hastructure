@@ -7,7 +7,7 @@ module Lib
     ,StartDate,EndDate,daysBetween,daysBetweenI
     ,Spread,Date
     ,paySeqLiabilities,prorataFactors
-    ,afterNPeriod,Ts(..),periodsBetween
+    ,afterNPeriod,Ts(..),monthsBetween
     ,periodRateFromAnnualRate
     ,Floor,Cap,TsPoint(..)
     ,toDate,toDates,genDates,nextDate
@@ -30,9 +30,6 @@ import Data.Aeson hiding (json)
 import Data.Fixed (Fixed(..), HasResolution,Centi, resolution)
 import Data.Ratio
 import Types
-import Control.Lens
-import Data.List.Lens
-import Control.Lens.TH
 import Data.Decimal
 import Debug.Trace
 debug = flip trace
@@ -62,24 +59,23 @@ getIntervalFactors ds = (\x -> toRational x / 365) <$> getIntervalDays ds -- `de
 centiToDecimal :: Centi -> Decimal
 centiToDecimal c = Decimal 2 (round c * 100)
 
--- | 
+-- | Allocate amt across balances pro-rata using the largest remainder
+-- method: every allocation is non-negative and allocations sum exactly to
+-- min (sum of balances) amt (to the cent). Residual cents go to the elements
+-- with the largest fractional remainders, ties broken by index order.
 prorataFactors :: [Balance] -> Balance -> [Balance]
-prorataFactors bals amt =
-  let 
-    s = toRational $ sum bals
-    amtToPay = toRational $ min s (toRational amt)
-  in 
-    case s of 
-      0.0 -> replicate (length bals) 0.0
-      _ -> let 
-             weights = map (\x -> toRational x / s) bals 
-             outPut = (\y -> fromRational (y * amtToPay)) <$> weights 
-             eps = amt - sum outPut
-           in 
-             if eps == 0.00 then
-                outPut
-             else
-                over (ix 0) (+ eps) outPut
+prorataFactors bals amt
+  | totalCents <= 0 = replicate (length bals) 0
+  | otherwise = map (toEnum . fromInteger) $ zipWith (+) baseAdds extraCents
+  where
+    centList = toInteger . fromEnum <$> bals
+    totalCents = sum centList
+    payCents = max 0 $ min totalCents (toInteger $ fromEnum amt)
+    baseAdds = [ b * payCents `div` totalCents | b <- centList ]
+    residual = payCents - sum baseAdds
+    order = sortOn (negate . snd) $ zip [0..] [ b * payCents `mod` totalCents | b <- centList ]
+    extraIdx = fst <$> take (fromInteger residual) order
+    extraCents = [ if i `elem` extraIdx then 1 else 0 | i <- [0 .. length bals - 1] ]
 
 -- 
 
@@ -117,15 +113,13 @@ afterNPeriod d i p =
       SemiAnnually -> 6
       Annually -> 12
 
-periodsBetween :: T.Day -> T.Day -> Period -> Integer
-periodsBetween t1 t2 p
-  = case p of
-      Weekly ->  div (T.diffDays t1 t2) 7
-      Monthly -> _diff
-      Annually -> div _diff 12
-      Quarterly -> div _diff 4
-  where
-    _diff = T.cdMonths $ T.diffGregorianDurationClip t1 t2
+-- | Number of whole calendar months between two dates, i.e. how many complete
+-- months have elapsed from @t1@ to @t2@. Partial months are clipped, so e.g.
+-- 2021-01-31 -> 2021-02-01 is 0 months. Returns a negative value when @t2@ is
+-- earlier than @t1@ and 0 when both dates are equal.
+monthsBetween :: Date -> Date -> Integer
+monthsBetween t1 t2
+  = T.cdMonths $ T.diffGregorianDurationClip t2 t1
 
 
 mkTs :: [(Date,Rational)] -> Ts

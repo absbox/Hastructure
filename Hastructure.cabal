@@ -5,7 +5,7 @@ cabal-version: 3.0
 -- see: https://github.com/sol/hpack
 
 name:           Hastructure
-version: 0.52.5
+version: 0.52.7
 synopsis:       Cashflow modeling library for structured finance
 description:    Please see the README on GitHub at <https://github.com/absbox/Hastructure#readme>
 category:       StructuredFinance,Securitisation,Cashflow
@@ -193,6 +193,7 @@ test-suite Hastructure-test
       UT.ExpTest
       UT.InterestRateTest
       UT.LibTest
+      UT.PoolTest
       UT.QueryTest
       UT.RateHedgeTest
       UT.StmtTest

@@ -325,6 +325,10 @@ instance Ast.Asset Mortgage where
   
   getCurrentBal (Mortgage _ _bal _ _ _ _) = _bal
   getCurrentBal (AdjustRateMortgage _ _ _bal _ _ _ _) = _bal
+  getCurrentBal (ScheduleMortgageFlow _ flows _) =
+    case flows of
+      [] -> 0
+      (f:_) -> CF.mflowBegBalance f
 
   getOriginBal (Mortgage (MortgageOriginalInfo _bal _ _ _ _ _ _ _) _ _ _ _ _ ) = _bal
   getOriginBal (AdjustRateMortgage (MortgageOriginalInfo _bal _ _ _ _ _ _ _) _ _ _ _ _ _ ) = _bal
