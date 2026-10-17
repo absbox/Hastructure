@@ -20,7 +20,7 @@ import qualified UT.InterestRateTest as IRT
 import qualified UT.RateHedgeTest as RHT
 import qualified UT.CeTest as CET
 import qualified UT.LedgerTest as LeT
-
+import qualified UT.PoolTest as PT
 
 import qualified DealTest.DealTest as DealTest
 import qualified DealTest.RevolvingTest as RevolvingTest
@@ -45,11 +45,13 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,AT.installmentTest
                            ,AT.armTest
                            ,AT.ppyTest
+                           ,AT.ppyVectorTest
 --                           ,AT.delinqScheduleCFTest
                            ,AT.delinqMortgageTest
                            ,AT.nonPayMortgageTest
                            ,AT.receivableTest
                            ,AT.fixedAssetTest
+                           ,AT.buildRateSafetyTest
                            ,CFT.cfTests
                            ,CFT.tsSplitTests
                            ,CFT.testMergePoolCf
@@ -59,11 +61,15 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,CFT.testCumStat
                            ,CFT.testClawIntTest
                            ,CFT.testPoolAggTest
+                           ,CFT.testMflowAccessors
+                           ,CFT.testCollectedCfSafety
+                           ,CFT.testEmptyInputSafety
                            ,BT.pricingTests
                            ,BT.bndConsolTest
                            ,BT.writeOffTest
                            ,BT.accrueTest
                            ,BT.selectorTest
+                           ,BT.walSafetyTest
                            ,LT.curveTests
                            ,LT.periodCurveTest
                            ,LT.pvTests
@@ -72,6 +78,7 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,LT.datesTests
                            ,LT.prorataTests
                            ,LT.tsOperationTests
+                           ,LT.libSafetyTests
                            ,ET.expTests
                            ,ET.expPayTest
                            ,DT.queryTests
@@ -79,6 +86,11 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,DT.dateTests
                            ,DT.liqProviderTest
                            ,DT.poolFlowTest
+                           ,DT.priceBondsIrrTest
+                           ,DT.mapLookupSafetyTest
+                           ,DT.validationNameTest
+                           ,DT.aggRuleValidationTest
+                           ,DT.nonPerfAssumptionTest
                            ,DT2.queryTests
                            ,UtilT.daycountTests1
                            ,UtilT.daycountTests2
@@ -99,6 +111,12 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,UtilT.paySeqTest
                            ,UtilT.scaleListTest
                            ,UtilT.mapUpdateTest
+                           ,UtilT.boundedParMapTest
+                           ,UtilT.resolveWorkerCapTest
+                           ,UtilT.forceMapValuesTest
+                           ,UtilT.workerNumTest
+                           ,UtilT.serverConfigLimitTest
+                           ,UtilT.badRequestJSONTest
                            ,AccT.intTests
                            ,AccT.investTests
                            ,AccT.reserveAccTest
@@ -113,10 +131,12 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,AnalyticsT.assetPricingTest
                            ,AnalyticsT.irrTest
                            ,AnalyticsT.survivorTest
+                           ,AnalyticsT.hermiteTest
                            ,DealTest.baseTests
                            ,RevolvingTest.baseTests
                            ,DealMultiTest.mPoolbaseTests
                            ,RHT.capRateTests
                            ,CET.liqTest
                            ,LeT.bookTest
+                           ,PT.poolTest
                            ]

@@ -44,10 +44,10 @@ emptyCase = D.TestDeal {
   ,D.accounts = Map.empty
   ,D.fees = Map.empty
   ,D.bonds = Map.empty
-  ,D.pool = D.MultiPool $ Map.fromList [(PoolConsol, (P.Pool {P.assets=[]}))] 
+  ,D.pool = D.MultiPool $ Map.fromList [(PoolConsol, (P.Pool {P.assets=[], P.futureCf = Nothing, P.futureScheduleCf = Nothing, P.asOfDate = (toDate "20220101"), P.issuanceStat = Nothing, P.extendPeriods = Nothing }))] 
   ,D.waterfall = Map.empty
   ,D.collects = []
-}
+, D.stats = (Map.empty,Map.empty,Map.empty,Map.empty) , D.liqProvider = Nothing, D.rateCap = Nothing, D.custom = Nothing, D.triggers = Nothing, D.ledgers = Nothing }
 
 baseCase = D.TestDeal {
   D.name = "base case"
@@ -90,7 +90,7 @@ baseCase = D.TestDeal {
                                           ,AB.period=Monthly
                                           ,AB.startDate=T.fromGregorian 2022 1 1
                                           ,AB.prinType= AB.Level
-                                          ,AB.prepaymentPenalty = Nothing}
+                                          ,AB.prepaymentPenalty = Nothing, AB.obligor = Nothing }
                                         4000
                                         0.085
                                         60
@@ -99,7 +99,7 @@ baseCase = D.TestDeal {
                               ,P.futureCf=Nothing
                               ,P.asOfDate = T.fromGregorian 2022 1 1
                               ,P.issuanceStat = Just $ Map.fromList [(IssuanceBalance, 4000)]
-                              ,P.extendPeriods = Nothing}))])
+                              ,P.extendPeriods = Nothing, P.futureScheduleCf = Nothing }))])
   ,D.waterfall = Map.fromList [(W.DistributionDay Amortizing, [
                                 (W.PayInt Nothing "General" ["A"] Nothing)
                                 ,(W.PayPrin Nothing "General" ["A"] Nothing)
@@ -111,7 +111,7 @@ baseCase = D.TestDeal {
 ,D.triggers = Nothing
 ,D.ledgers = Nothing
 ,D.stats = (Map.empty,Map.empty,Map.empty,Map.empty)
-}
+, D.custom = Nothing }
 
 baseTests = 
   let 

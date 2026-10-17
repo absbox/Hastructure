@@ -120,7 +120,9 @@ instance Asset Loan where
   getPaymentDates pl@(PersonalLoan (LoanOriginalInfo ob _ ot p sd (ScheduleRepayment ts mDp) _) _bal _rate _term _ ) extra
     = let 
         pdays = getTsDates ts 
-        extraDates = genSerialDates (fromMaybe MonthEnd mDp) Inc (last pdays) extra
+        extraDates = case pdays of 
+                       [] -> []
+                       _ -> genSerialDates (fromMaybe MonthEnd mDp) Inc (last pdays) extra
       in 
         pdays ++ extraDates
   

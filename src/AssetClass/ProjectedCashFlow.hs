@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 module AssetClass.ProjectedCashFlow  
-  (ProjectedCashFlow(..))
+  (ProjectedCashFlow(..),projFixCfwithAssumption)
   where
 
 import qualified Data.Time as T
@@ -85,6 +85,7 @@ projectScheduleFlow trs b_factor (lastBal,lastDate) [] _ _ (r:rs) (l:ls) (recove
 projFixCfwithAssumption :: ([Balance], [Date], [Rational], [IntCalcType], DatePattern) -> ([Rate],[Rate],Rate,Int) -> Date -> Either ErrorRep CF.CashFlowFrame
 projFixCfwithAssumption (bals, ds, amortFactors, rates, dp) (ppyRates,defRates,recoveryRate,recoveryLag) asOfDay
   | all (== 0) bals = return $ CF.CashFlowFrame (0.0,asOfDay,Nothing) []
+  | null bals || null ds = Left "projFixCfwithAssumption: empty balance or date schedule"
   | length amortFactors /= length ppyRates || length amortFactors /= length defRates 
     = Left $ "Not even rates amort "++ (showLength amortFactors) ++ "ppy rate " ++ (showLength ppyRates) ++ " def rate" ++ (showLength defRates)
   | otherwise = let
@@ -99,11 +100,14 @@ projFixCfwithAssumption (bals, ds, amortFactors, rates, dp) (ppyRates,defRates,r
                 in 
                   do
                     let (futureTxns,historyM) = CF.cutoffTrs asOfDay (DL.toList txns) -- `debug` ("txn" ++ show txns)
-                    let cb = (CF.mflowBegBalance . head) futureTxns
+                    let cb = case futureTxns of 
+                               [] -> 0.0 
+                               (t:_) -> CF.mflowBegBalance t
                     return $ CF.CashFlowFrame (cb,asOfDay,Nothing) futureTxns -- `debug` ("future txns" ++ show futureTxns)
 
 -- ^ project cashflow with fix rate portion
 projIndexCashflows :: ([Balance] , [Date] , Index, Spread) -> DatePattern -> ([Rate],[Rate],Rate,Int) -> Maybe [RateAssumption] -> Either String CF.CashFlowFrame
+projIndexCashflows (_, [], _, _) _ _ _ = Left "projIndexCashflows: empty date schedule"
 projIndexCashflows (bals, ds, index, spd) dp pAssump Nothing = Left "No rate assumption provided for index cashflow projection" 
 projIndexCashflows (bals, ds, index, spd) dp pAssump (Just ras) = 
   do
@@ -119,6 +123,7 @@ seperateCashflows :: ProjectedCashFlow -> Maybe A.AssetPerfAssumption -> Maybe [
 seperateCashflows a@(ProjectedByFactor pflow dp (fixPct,fixRate) floaterList)
                   mPassump
                   mRates
+  | null pflow = Left "seperateCashflows: empty cashflow schedule"
   | fixPct + sum (view _1 <$> floaterList) /= 1.0
     = Left $ "Fix portion " ++ show fixPct ++ " + float portion " ++ show (sum (view _1 <$> floaterList)) ++ " is not sum up to 100% "
   | otherwise = let

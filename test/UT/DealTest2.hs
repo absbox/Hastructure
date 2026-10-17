@@ -70,7 +70,7 @@ td = D.TestDeal {
                              ,L.bndDueIntDate=Nothing
                              ,L.bndLastIntPay = Just (T.fromGregorian 2022 1 1)
                              ,L.bndLastPrinPay = Just (T.fromGregorian 2022 1 1)
-                             ,L.bndStmt=Nothing})
+                             ,L.bndStmt=Nothing, L.bndStepUp = Nothing })
                              ,("B"
                                ,L.Bond{
                                 L.bndName="B"
@@ -88,7 +88,7 @@ td = D.TestDeal {
                                ,L.bndDueIntDate=Nothing
                                ,L.bndLastIntPay = Just (T.fromGregorian 2022 1 1)
                                ,L.bndLastPrinPay = Just (T.fromGregorian 2022 1 1)
-                               ,L.bndStmt=Nothing})
+                               ,L.bndStmt=Nothing, L.bndStepUp = Nothing, L.bndDueIntOverInt = 0.0 })
                          ]
            )
   ,D.pool = D.MultiPool $ 
@@ -101,7 +101,7 @@ td = D.TestDeal {
                                            ,AB.period=Monthly
                                            ,AB.startDate=(T.fromGregorian 2022 1 1)
                                            ,AB.prinType= AB.Level
-                                           ,AB.prepaymentPenalty = Nothing}
+                                           ,AB.prepaymentPenalty = Nothing, AB.obligor = Nothing }
                                          4000
                                          0.085
                                          60
@@ -115,7 +115,7 @@ td = D.TestDeal {
                                      ,AB.period=Monthly
                                      ,AB.startDate=(T.fromGregorian 2022 1 1)
                                      ,AB.prinType= AB.Level
-                                     ,AB.prepaymentPenalty = Nothing}
+                                     ,AB.prepaymentPenalty = Nothing, AB.obligor = Nothing }
                                    200
                                    0.085
                                    60
@@ -124,7 +124,7 @@ td = D.TestDeal {
                                  ]
                  ,P.futureCf=Nothing
                  ,P.asOfDate = T.fromGregorian 2022 1 1
-                 ,P.issuanceStat = Nothing}
+                 ,P.issuanceStat = Nothing, P.futureScheduleCf = Nothing, P.extendPeriods = Nothing }
                 )]
    ,D.waterfall = Map.fromList [(W.DistributionDay Amortizing, [
                                   (W.PayFee Nothing "General" ["Service-Fee"] Nothing)
@@ -136,7 +136,7 @@ td = D.TestDeal {
  ,D.liqProvider = Nothing
  ,D.triggers = Nothing
  ,D.ledgers = Nothing
-}
+, D.stats = (Map.empty,Map.empty,Map.empty,Map.empty) , D.rateCap = Nothing }
 
 bondGroups = Map.fromList [("A"
                              ,L.BondGroup (Map.fromList 
@@ -199,7 +199,7 @@ bondGroups = Map.fromList [("A"
                                ,L.bndDueIntDate=Nothing
                                ,L.bndLastIntPay = Just (T.fromGregorian 2022 1 1)
                                ,L.bndLastPrinPay = Just (T.fromGregorian 2022 1 1)
-                               ,L.bndStmt=Nothing})
+                               ,L.bndStmt=Nothing, L.bndDueIntOverInt = 0.0 })
                             ]
 
 tdBondGroup = td { D.bonds = bondGroups,
@@ -214,7 +214,7 @@ tdBondGroup = td { D.bonds = bondGroups,
 queryTests =  
   let 
     
-    ctx = D.RunContext {}
+    ctx = D.defaultRunContext
   in
     testGroup "Deal Group Test"
     [

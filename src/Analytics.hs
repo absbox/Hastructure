@@ -57,6 +57,8 @@ secantSlopes points = zipWith
 
 -- Compute initial slopes (average of adjacent secant slopes for interior points)
 initialSlopes :: [TimeYield] -> [Double]
+initialSlopes [] = []
+initialSlopes [_] = [0]
 initialSlopes points@((t0, y0):rest) = 
     let deltas = secantSlopes points
         n = length points
@@ -66,7 +68,9 @@ initialSlopes points@((t0, y0):rest) =
     in slopes
 
 fritschCarlsonSlopes :: [TimeYield] -> [Double]
-fritschCarlsonSlopes points = adjustSlopes points initialSlopes
+fritschCarlsonSlopes points
+  | length points < 2 = replicate (length points) 0
+  | otherwise = adjustSlopes points initialSlopes
   where
     -- Compute initial slopes
     initialSlopes :: [Double]
@@ -95,6 +99,8 @@ fritschCarlsonSlopes points = adjustSlopes points initialSlopes
         go _ _ _ = error "Invalid input"
 
 interpolateWithHermite :: (Date,[(Date, Double)]) -> Dates -> [Double]
+interpolateWithHermite (_sd, []) ds = replicate (length ds) 0
+interpolateWithHermite (_sd, [(_,y)]) ds = replicate (length ds) y
 interpolateWithHermite (sd, ts) ds 
   = let 
       xs = (fromRational . (yearCountFraction DC_ACT_365F sd)) <$> (fst <$> ts)

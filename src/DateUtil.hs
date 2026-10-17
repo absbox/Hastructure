@@ -229,7 +229,7 @@ genSerialDatesTill sd ptn ed
 
 genSerialDatesTill2 :: RangeType -> Date -> DatePattern -> Date -> Dates
 genSerialDatesTill2 rt sd dp ed 
-  = case (rt, head _r==sd, last _r==ed) of 
+  = case (rt, not (null _r) && head _r==sd, not (null _r) && last _r==ed) of 
       (II,True,True) -> _r
       (II,True,False) -> _r ++ [ed]
       (II,False,True)-> sd:_r 

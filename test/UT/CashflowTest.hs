@@ -1,5 +1,6 @@
 module UT.CashflowTest(cfTests,tsSplitTests,testMergePoolCf,combineTest,testHaircut
-                      ,testMergeTsRowsFromTwoEntities,testCumStat,testClawIntTest,testPoolAggTest)
+                      ,testMergeTsRowsFromTwoEntities,testCumStat,testClawIntTest,testPoolAggTest
+                      ,testMflowAccessors,testCollectedCfSafety,testEmptyInputSafety)
 where
 
 import Test.Tasty
@@ -15,6 +16,7 @@ import qualified Cashflow as CF
 import Types
 import Util
 import DateUtil
+import Data.List.NonEmpty (NonEmpty(..))
 
 import Debug.Trace
 debug = flip trace
@@ -295,29 +297,29 @@ testHaircut =
     ,testCase "Haircut on principal" $
         assertEqual "" 
         (Just (CF.MortgageDelinqFlow (L.toDate "20230101") 100 10 10 20 0 0 5  0 0.0 Nothing (Just 10) Nothing ))
-        (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedPrincipal,0.5)]}) cflow) 0)
+        (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedPrincipal,0.5)], A.defaultFactors = Nothing, A.prepaymentFactors = Nothing }) cflow) 0)
     ,testCase "Haircut on interest" $
         assertEqual "" 
         (Just (CF.MortgageDelinqFlow (L.toDate "20230101") 100 20 7 20 0 0 5  0 0.0 Nothing (Just 10) Nothing))
-        (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedInterest,0.3)]}) cflow) 0)
+        (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedInterest,0.3)], A.defaultFactors = Nothing, A.prepaymentFactors = Nothing }) cflow) 0)
     ,testCase "Haircut on prepayment" $
         assertEqual "" 
         (Just (CF.MortgageDelinqFlow (L.toDate "20230101") 100 20 10 12 0 0 5  0 0.0 Nothing (Just 10) Nothing))
-        (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedPrepayment,0.4)]}) cflow) 0)
+        (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedPrepayment,0.4)], A.defaultFactors = Nothing, A.prepaymentFactors = Nothing }) cflow) 0)
     ,testCase "Haircut on recoveries" $
         assertEqual "" 
         (Just (CF.MortgageDelinqFlow (L.toDate "20230101") 100 20 10 20 0 0 4.5  0 0.0 Nothing (Just 10) Nothing))
-        (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedRecoveries,0.1)]}) cflow) 0)
+        (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedRecoveries,0.1)], A.defaultFactors = Nothing, A.prepaymentFactors = Nothing }) cflow) 0)
     ,testCase "Haircut on prepay penalty" $
         assertEqual "" 
         (Just (CF.MortgageDelinqFlow (L.toDate "20230101") 100 20 10 20 0 0 5  0 0.0 Nothing (Just 8) Nothing))
-        (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedPrepaymentPenalty,0.2)]}) cflow) 0)
+        (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedPrepaymentPenalty,0.2)], A.defaultFactors = Nothing, A.prepaymentFactors = Nothing }) cflow) 0)
     ,testCase "Haircut on mix" $
         assertEqual "" 
         (Just (CF.MortgageDelinqFlow (L.toDate "20230101") 100 10 7 20 0 0 5  0 0.0 Nothing (Just 8) Nothing))
         (CF.cfAt (P.applyHaircut (Just A.ExtraStress{A.poolHairCut = Just [(CollectedPrepaymentPenalty,0.2)
                                                                           ,(CollectedPrincipal,0.5)
-                                                                          ,(CollectedInterest,0.3)]}) cflow) 0)
+                                                                          ,(CollectedInterest,0.3)], A.defaultFactors = Nothing, A.prepaymentFactors = Nothing }) cflow) 0)
     ]
 
 testCumStat = 
@@ -446,10 +448,82 @@ testPoolAggTest =
         (snd (Pool.aggPool (Just (Map.fromList [(HistoryDefaults,100)])) 
                             [(cf, (Map.fromList [(HistoryDefaults,100)])),(cf1,Map.empty)]
                             ))
-      ,testCase "pool agg with init default=100 and projected cf default2" $
-        assertEqual "cum stats with default=100, projected default on cfs"
-        (Map.fromList [(HistoryDefaults,200)])
-        (snd (Pool.aggPool (Just (Map.fromList [(HistoryDefaults,100)])) 
-                            [(cf, (Map.fromList [(HistoryDefaults,100)])),(cf2, Map.empty)]
-                            ))                            
+          ,testCase "pool agg with init default=100 and projected cf default2" $
+            assertEqual "cum stats with default=100, projected default on cfs"
+            (Map.fromList [(HistoryDefaults,200)])
+            (snd (Pool.aggPool (Just (Map.fromList [(HistoryDefaults,100)])) 
+                                [(cf, (Map.fromList [(HistoryDefaults,100)])),(cf2, Map.empty)]
+                                ))                            
     ]
+
+testMflowAccessors = 
+  let 
+    loanRow = CF.LoanFlow (L.toDate "20220101") 100 10 5 0 0 0 0 0.0 Nothing
+    leaseRow = CF.LeaseFlow (L.toDate "20220101") 100 5 0
+    mtgRow = CF.MortgageFlow (L.toDate "20220101") 100 10 10 0 0 0 0 0 (Just 3) (Just 5) Nothing
+    mtgRowNoB = CF.MortgageFlow (L.toDate "20220101") 100 10 10 0 0 0 0 0 Nothing Nothing Nothing
+  in 
+    testGroup "mflow accessor totality"
+    [ testCase "borrower num on non-mortgage row returns Nothing instead of undefined" $
+        assertEqual "loan flow has no borrower field" Nothing (CF.mflowBorrowerNum loanRow)
+      ,testCase "borrower num on mortgage row still works" $
+        assertEqual "mortgage borrower num" (Just 3) (CF.mflowBorrowerNum mtgRow)
+      ,testCase "borrower num on mortgage row without info is Nothing" $
+        assertEqual "mortgage borrower num" Nothing (CF.mflowBorrowerNum mtgRowNoB)
+      ,testCase "prepayment penalty on non-mortgage row returns 0 instead of undefined" $
+        assertEqual "lease flow has no penalty field" 0 (CF.mflowPrepaymentPenalty leaseRow)
+      ,testCase "prepayment penalty on mortgage row still works" $
+        assertEqual "mortgage penalty" 5 (CF.mflowPrepaymentPenalty mtgRow)
+    ]
+
+testCollectedCfSafety = 
+  let 
+    row1 = CF.MortgageFlow (L.toDate "20220101") 100 10 10 0 0 0 0 0 Nothing Nothing Nothing
+    d = L.toDate "20220301"
+  in 
+    testGroup "buildCollectedCF safety"
+    [ testCase "does not crash when last accumulated row is empty" $
+        let r = CF.buildCollectedCF [[row1],[]] [d] []
+        in assertEqual "last row balance comes from the last non-empty accumulated row" 100
+                      (CF.mflowBegBalance (last (concat r)))
+      ,testCase "empty trs with dates returns empty rows instead of crashing" $
+        assertEqual "two empty rows" [[],[]] (CF.buildCollectedCF [] [L.toDate "20220101",L.toDate "20220201"] [])
+    ]
+
+-- | #332: empty-input and CashFlow-row safety for the cashflow aggregation
+testEmptyInputSafety = testGroup "Cashflow empty-input safety"
+  [
+    testCase "firstDate of an empty frame returns its begin date" $
+      assertEqual "begin date" (L.toDate "20200101")
+        (CF.firstDate (CF.CashFlowFrame (0, L.toDate "20200101", Nothing) []))
+
+   ,testCase "firstDate of emptyCashflow returns epocDate" $
+      assertEqual "epocDate" epocDate (CF.firstDate CF.emptyCashflow)
+
+   ,testCase "firstDate of DummyCF returns epocDate" $
+      assertEqual "epocDate" epocDate (CF.firstDate CF.DummyCF)
+
+   ,testCase "aggTsByDates over an empty pool returns []" $
+      assertEqual "empty" ([] :: [CF.TsRow]) (CF.aggTsByDates [] [L.toDate "20220101"])
+
+   ,testCase "aggTsByDates drops groups with no rows (rows after the cutoffs)" $
+      assertEqual "no groups" ([] :: [CF.TsRow])
+        (CF.aggTsByDates [CF.MortgageFlow (L.toDate "20220211") 80 10 10 0 0 0 0 0 Nothing Nothing Nothing]
+                         [L.toDate "20220101"])
+
+   ,testCase "sumTsCF sums a NonEmpty group" $
+      assertEqual "summed" (CF.CashFlow (L.toDate "20220103") 15)
+        (CF.sumTsCF (CF.CashFlow (L.toDate "20220101") 10 :| [CF.CashFlow (L.toDate "20220102") 5])
+                    (L.toDate "20220103"))
+
+   ,testCase "aggTsByDates handles CashFlow-shaped rows (zero-row synthesis)" $
+      assertEqual "cashflow rows"
+        [CF.CashFlow (L.toDate "20220101") 100, CF.CashFlow (L.toDate "20220201") 0]
+        (CF.aggTsByDates [CF.CashFlow (L.toDate "20220101") 100]
+                         [L.toDate "20220101", L.toDate "20220201"])
+
+   ,testCase "extendCashFlow appends a zeroed CashFlow row" $
+      assertEqual "extended"
+        (CF.CashFlowFrame dummySt [CF.CashFlow (L.toDate "20220101") 100, CF.CashFlow (L.toDate "20220201") 0])
+        (CF.extendCashFlow (L.toDate "20220201") (CF.CashFlowFrame dummySt [CF.CashFlow (L.toDate "20220101") 100]))
+  ]

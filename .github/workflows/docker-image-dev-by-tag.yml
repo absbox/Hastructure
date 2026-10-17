@@ -4,37 +4,47 @@ on:
   push:
     tags:
       - 'a*'
+  workflow_dispatch:
+
+# Multi-arch strategy: each platform is built natively on a runner of the same
+# architecture (no QEMU, no cross-compilation), pushed by digest, and the
+# per-platform digests are merged into one multi-arch manifest at the end.
+# This fixes the previous setup where the build stage was pinned to
+# $BUILDPLATFORM: on an amd64 runner that produced an amd64 binary for the
+# arm64 image ("exec format error" at runtime).
+#
+# NOTE: linux/arm64 uses GitHub-hosted arm64 runners. If the repository does
+# not have access to them, replace `ubuntu-24.04-arm` with `ubuntu-22.04-arm`,
+# or fall back to the QEMU variant described in the PR #322 review (drop the
+# platform pin in the Dockerfile, add the QEMU setup step back, and build both
+# platforms in one job).
+
+env:
+  IMAGE: ${{ secrets.DOCKER_HUB_USERNAME }}/hastructure
 
 jobs:
-
   build:
-
-    runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
-      -
-        name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-      -
-        name: Set up Docker Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      -
-        name: Login to Docker Hub
-        uses: docker/login-action@v2
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_PW }}
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: yellowbean/hastructure
-          tags: |
-            type=match,pattern=(a\d+.\d+.\d+),group=1
-          flavor: |
-            latest=false 
-          
       - name: 'Cleanup build folder'
         run: |
           ls -la ./
@@ -43,15 +53,81 @@ jobs:
           ls -la .
           rm -rf /opt/ghc
           rm -rf /opt/hostedtoolcache
-          
-      -
-        name: Build and push
-        uses: docker/build-push-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/hastructure:dev, ${{ steps.meta.outputs.tags }}
-          cache-from: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/hastructure:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/hastructure:buildcache,mode=max  
 
-          
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+
+      - name: Smoke test (the image must start and answer /version)
+        run: |
+          docker run -d --name smoke-${{ matrix.arch }} \
+            --platform ${{ matrix.platform }} \
+            -p 18081:8081 \
+            ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          ok=0
+          for i in $(seq 1 15); do
+            if curl -fsS http://localhost:18081/version; then ok=1; break; fi
+            sleep 1
+          done
+          docker rm -f smoke-${{ matrix.arch }}
+          test "$ok" = "1"
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PW }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=match,pattern=(a\d+\.\d+\.\d+),group=1
+            type=raw,value=dev
+          flavor: |
+            latest=false
+
+      - name: Create multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -r '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+
+      - name: Inspect manifest
+        run: docker buildx imagetools inspect ${{ env.IMAGE }}:dev

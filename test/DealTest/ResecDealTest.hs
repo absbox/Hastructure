@@ -62,7 +62,7 @@ baseCase = D.TestDeal {
                              ,L.bndDueIntDate=Nothing
                              ,L.bndLastIntPay = Just (T.fromGregorian 2022 1 1)
                              ,L.bndLastPrinPay = Just (T.fromGregorian 2022 1 1)
-                             ,L.bndStmt=Nothing})
+                             ,L.bndStmt=Nothing, L.bndStepUp = Nothing, L.bndDueIntOverInt = 0.0 })
                          ]
            )
   ,D.pool = D.MultiPool (Map.fromList [(PoolConsol, (P.Pool {P.assets=[AB.Mortgage
@@ -73,7 +73,7 @@ baseCase = D.TestDeal {
                                            ,AB.period=Monthly
                                            ,AB.startDate=T.fromGregorian 2022 1 1
                                            ,AB.prinType= AB.Level
-                                           ,AB.prepaymentPenalty = Nothing}
+                                           ,AB.prepaymentPenalty = Nothing, AB.obligor = Nothing }
                                          4000
                                          0.085
                                          60
@@ -82,14 +82,14 @@ baseCase = D.TestDeal {
                                ,P.futureCf=Nothing
                                ,P.asOfDate = T.fromGregorian 2022 1 1
                                ,P.issuanceStat = Nothing
-                               ,P.extendPeriods = Nothing}))])
+                               ,P.extendPeriods = Nothing, P.futureScheduleCf = Nothing }))])
    ,D.waterfall = Map.fromList [(W.DistributionDay Amortizing, [
                                  (W.PayInt Nothing "General" ["A"] Nothing)
                                  ,(W.PayPrin Nothing "General" ["A"] Nothing)
    ])]
  ,D.collects = [Collect Nothing W.CollectedInterest "General"
              ,Collect Nothing W.CollectedPrincipal "General"]
-}
+, D.stats = (Map.empty,Map.empty,Map.empty,Map.empty) , D.liqProvider = Nothing, D.rateCap = Nothing, D.custom = Nothing, D.triggers = Nothing, D.ledgers = Nothing }
 
 resecDeal = D.TestDeal {
   D.name = "Top Deal"
@@ -118,7 +118,7 @@ resecDeal = D.TestDeal {
                              ,L.bndDueIntDate=Nothing
                              ,L.bndLastIntPay = Just (T.fromGregorian 2022 1 1)
                              ,L.bndLastPrinPay = Just (T.fromGregorian 2022 1 1)
-                             ,L.bndStmt=Nothing})
+                             ,L.bndStmt=Nothing, L.bndStepUp = Nothing, L.bndDueIntOverInt = 0.0 })
                          ]
            )
   ,D.pool = D.ResecDeal (Map.fromList [(DealBondFlow "base case" "A" (toDate "20200101") 0.25
@@ -129,4 +129,4 @@ resecDeal = D.TestDeal {
    ])]
  ,D.collects = [Collect Nothing W.CollectedInterest "General"
              ,Collect Nothing W.CollectedPrincipal "General"]
-}
+, D.stats = (Map.empty,Map.empty,Map.empty,Map.empty) , D.liqProvider = Nothing, D.rateCap = Nothing, D.custom = Nothing, D.triggers = Nothing, D.ledgers = Nothing }

@@ -3305,6 +3305,26 @@
                     {
                         "properties": {
                             "contents": {
+                                "format": "double",
+                                "type": "number"
+                            },
+                            "tag": {
+                                "enum": [
+                                    "PrepaymentABS"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "tag",
+                            "contents"
+                        ],
+                        "title": "PrepaymentABS",
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "contents": {
                                 "items": {
                                     "format": "double",
                                     "type": "number"
@@ -21464,12 +21484,12 @@
         }
     },
     "info": {
-        "description": "Hastructure is a white-label friendly Cashflow & Analytics Engine for MBS/ABS and REITs",
+        "description": "Hastructure is a white-label friendly Cashflow & Analytics Engine for MBS/ABS and REITs. Multi-run endpoints (runPoolByScenarios, runDealByScenarios, runMultiDeals, runDealByRunScenarios, runByCombo) are capped per request by the maxRunNum.<endpoint> keys in config.yml (default 1000); oversized requests are rejected with HTTP 400.",
         "license": {
             "name": "BSD 3"
         },
         "title": "Hastructure API",
-        "version": "0.52.4"
+        "version": "0.52.10"
     },
     "openapi": "3.0.0",
     "paths": {

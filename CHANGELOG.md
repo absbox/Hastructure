@@ -1,6 +1,43 @@
 # Changelog for Hastructure
 
 <!-- towncrier release notes start -->
+## 0.52.10
+### 2026-10-17
+* FIX: #332 `sumTsCF` now takes `NonEmpty TsRow` (source-level breaking for library consumers) instead of throwing on an empty group; the dead, unexported partial `sumTs` (`foldr1`) is removed; `firstDate` returns the frame's begin date for an empty frame (`epocDate` for `DummyCF`) instead of failing; `emptyTsRow` and `viewTsRow` gained the missing `CashFlow` clause so `extendCashFlow` / `buildCollectedCF` zero-row synthesis no longer crash on generic rows; `buildCollectedCF` lost its unreachable `error` clause. `aggTsByDates` keeps its signature and behavior (empty groups are skipped via `NE.nonEmpty`).
+* FIX: #323 PrepaymentABS: SMM is now 0 at and after the implied balance-exhaustion month (`m >= 1 + 1/r`) instead of dividing by zero (Rational exception) or emitting negative SMM; 100% rate edge covered. The remaining over-reporting when SMM > 1 before exhaustion is tracked in #358.
+* FIX: #329 / #345 request rejections (misrouted request shapes and oversized multi-run grids) now answer 400 with the standard JSON error envelope (`{"Left":"…"}` and `application/json`) instead of a plain-text body with no content type, matching the in-band errors and the #344 boundary (PR #322 review M1).
+* FIX: #344 handler responses are now forced inside the handler action — single-run `Either` results to WHNF and every value of the multi-run response maps via `Util.forceMapValues` — so engine exceptions surface before Warp starts the response and are rendered by the JSON error boundary. Previously the response body was only forced while Warp was already streaming it, so `error`/partial-function failures inside computed responses aborted the connection (empty reply) instead of returning the JSON envelope. Deep laziness inside response payloads may still surface during streaming (see `forceMapValues`).
+* FIX: #329 the multi-run / single-run request handlers were non-exhaustive over `RunDealReq` / `RunPoolReq` / `RunAssetReq` / `RootFindReq`: a request decoded with the wrong constructor for the routed endpoint crashed with a pattern-match failure (now rendered as an opaque `engine error:` 500 by the #344 boundary). Every handler is now total. A misrouted request to a single-run endpoint (`runDeal`, `runPool`, `runAsset`) returns the reason in-band as `Left "<endpoint>: expected <Constructor>"`; map-valued multi-run endpoints (whose response type has no error slot) answer HTTP 400 with the same message, uniform with the #345 run-cap rejections. `wrapRunAsset` rejects non-`PoolLevel` assumption shapes (per-pool / per-index / obligor strategies and pricing without assumptions) in-band.
+* FIX: #329 `runByRootFinder` no longer crashes on the legacy `FirstLossReq` / `MaxSpreadToFaceReq` request shapes (kept on the wire but unsupported; absbox composes `RootFinderReq` for both `runFirstLoss` and `runRootFinder`); a stress tweak (`stressDefault` / `stressPrepayment`) without pool assumptions is rejected with a descriptive error instead of crashing; the `BalanceFormula` stop condition is rejected as not implemented yet. The executable now compiles with `-Wincomplete-patterns -Werror=incomplete-patterns`, so any future non-exhaustive match in the API layer fails the build (the library is unchanged); note locally cabal needs one clean rebuild to pick up the new flags.
+## 0.52.9
+### 2026-10-17
+* FIX: #344 add a JSON error boundary at the Warp level: exceptions raised while a handler computes its response (pure `error` calls, partial accessors, pattern failures) now answer 500 with the same envelope as in-band failures (`{"Left":"engine error: …"}`) and the CORS header, instead of Warp's opaque plain-text 500; server-side exception logging is unchanged
+* FIX: #345 the `maxScenario` / `maxDealNum` limits declared in `config.yml` were dead configuration: the engine never read them and scenario/deal grids were unbounded (DoS via large `runByCombo` cartesian products). Each multi-run endpoint (`runPoolByScenarios`, `runDealByScenarios`, `runMultiDeals`, `runDealByRunScenarios`, `runByCombo`) now enforces a per-request total-run cap, default 1000, configurable per endpoint via the new `maxRunNum.<endpoint>` keys in `config.yml`; `runByCombo` sizes the cartesian product before materialising it, so oversized grids are rejected without allocation. Oversized requests are rejected with HTTP 400 naming the endpoint, the configured limit and the key to raise. The in-flight worker cap is now configurable via `workerNum` in `config.yml` (precedence: `HASTRUCTURE_WORKERS` env > `workerNum` > RTS `-N`); the internal `unsafePerformIO` global is gone.
+* FIX: BEHAVIOR CHANGE: a malformed `config.yml`, a missing `port` or a non-positive `maxRunNum.*` value now aborts startup with a descriptive error instead of silently falling back to defaults; the startup log prints the effective port, worker count and per-endpoint limits. The unused `maxScenario`/`maxDealNum` keys are removed from `config.yml`.
+## 0.52.8
+### 2026-10-17
+* FIX: #328 the `TxnComment` JSON codec is now total and self-consistent: malformed, legacy or wrong-arity comment strings fail with a descriptive Aeson parse error instead of throwing (`head`/`!!`/`read` and the greedy regex are gone); the encoder emits canonical forms for `BankInt` (`<BankInt:>`), `PoolInflow` (`<Pool:ids,Source>`), `LiquidationSupportInt` (`<SupportExp:b1,b2>`) and `BookLedgerBy` (`<BookLedger:dir,name>`), all of which now round-trip; multi-bond list comments decode to their elements; `TxnComments` arrays can be decoded; `Read PoolId` no longer throws and accepts what `Show PoolId` produces
+## 0.52.7
+### 2026-10-17
+* ENHANCE: #346 enable parallel compute on multi-deals and multi-scenarios
+* ENHANCE: #333 validate bond / account / fee / ledger / swap names referenced by waterfall actions, collect rules, trigger effects and formulas before the run, reporting every missing name up-front
+* ENHANCE: #348 source the engine version from the package (`Paths_Hastructure`) instead of a hardcoded string, so `/version` and the OpenAPI schema always match the built package
+* ENHANCE: #352 remove the empty `Validation` module and de-duplicate pragmas / imports in `Deal.DealValidation`
+* FIX: #327 IRR bond pricing (`priceBonds`) no longer crashes when a requested bond name does not exist; it returns a descriptive error
+* FIX: #331 `mflowBorrowerNum` / `mflowPrepaymentPenalty` no longer fail with `undefined` on non-mortgage cashflow rows
+* FIX: #325 `Weekly` / `BiWeekly` / `Daily` periods are now handled by `periodRateFromAnnualRate`, `afterNPeriod`, `genDates` and `nextDate` (previously a pattern-match failure or a silently non-advancing schedule)
+* FIX: #333 missing bond / account / fee / ledger / swap names used by waterfall actions, trigger effects and formulas now return a descriptive error instead of crashing with `Map.!: not found`
+* FIX: #335 deal validation no longer crashes with `foldl1: empty list` when a deal has no collection rules
+* FIX: harden `head` / `last` usages across the engine (curves, statements, date generation, asset projections, bond WAL, deal dates and cashflow aggregation) so empty input yields a defined result or a typed error instead of a runtime exception
+* FIX: extend pool-level `DefaultByAmt` pro-rata allocation coverage with edge-case unit tests (cent rounding, zero-balance assets, empty pool, multi-period weights, negative totals) (#321)
+
+
+## 0.52.6
+### 2026-09-27
+* NEW: add new prepayment assumption `PrepaymentABS`, an ABS / absolute prepayment model driven by the asset's seasoning (months elapsed since origin). Supported for `Monthly` assets only.
+* FIX: pool-level `DefaultByAmt` is now allocated across multiple assets proportionally to their current balance.
+* BREAKING (library API): `Lib.periodsBetween` is removed in favor of `Lib.monthsBetween :: Date -> Date -> Integer` (whole calendar months between two dates; partial months clipped, so 2021-01-31 -> 2021-02-01 is 0 months; negative when the second date is earlier).
+
 ## 0.52.5
 ### 2026-08-23
 

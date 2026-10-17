@@ -5,7 +5,7 @@ cabal-version: 3.0
 -- see: https://github.com/sol/hpack
 
 name:           Hastructure
-version: 0.52.5
+version: 0.52.12
 synopsis:       Cashflow modeling library for structured finance
 description:    Please see the README on GitHub at <https://github.com/absbox/Hastructure#readme>
 category:       StructuredFinance,Securitisation,Cashflow
@@ -65,11 +65,11 @@ library
       Pool
       Reports
       Revolving
+      ServerConfig
       Stmt
       Triggers
       Types
       Util
-      Validation
       Waterfall
   other-modules:
       Paths_Hastructure
@@ -77,6 +77,7 @@ library
       Paths_Hastructure
   hs-source-dirs:
       src
+  ghc-options: -Werror=missing-fields
   build-depends:
     Decimal >= 0.5.2 && < 0.6,
     base >= 4.18.0 && < 4.22.0,
@@ -107,6 +108,7 @@ library
     servant >= 0.20.2 && < 0.21,
     servant-openapi3 >= 2.0.1 && < 2.1,
     servant-server >= 0.20.2 && < 0.21,
+    http-types >= 0.12 && < 0.13,
     wai >= 3.2.4 && < 3.3,
     warp >= 3.4.7 && < 3.5,
     split >= 0.2.5 && < 0.3,
@@ -128,7 +130,7 @@ executable Hastructure-exe
       Paths_Hastructure
   hs-source-dirs:
       app
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Werror=missing-fields -Wincomplete-patterns -Werror=incomplete-patterns
   build-depends:
     Hastructure,
     Decimal,
@@ -159,6 +161,8 @@ executable Hastructure-exe
     servant-openapi3,
     servant-server,
     wai,
+    http-types,
+    case-insensitive,
     warp,
     split,
     string-conversions,
@@ -193,6 +197,8 @@ test-suite Hastructure-test
       UT.ExpTest
       UT.InterestRateTest
       UT.LibTest
+      UT.LedgerTest
+      UT.PoolTest
       UT.QueryTest
       UT.RateHedgeTest
       UT.StmtTest
@@ -200,7 +206,7 @@ test-suite Hastructure-test
       Paths_Hastructure
   hs-source-dirs:
       test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Werror=missing-fields
   build-depends:
     Hastructure,
     Decimal,
@@ -237,6 +243,7 @@ test-suite Hastructure-test
     tabular,
     wai-cors,
     yaml,
+    http-types,
     tasty,
     tasty-golden,
     tasty-hspec,

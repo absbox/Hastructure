@@ -12,6 +12,7 @@ module Deal (run,getInits,runDeal,ExpectReturn(..)
             ,populateDealDates
             ,calcTargetAmount,updateLiqProvider
             ,projAssetUnion,priceAssetUnion
+            ,priceBonds
             ,runPoolType,PoolType
             ,ActionOnDate(..),DateDesp(..)
             ,changeDealStatus
@@ -224,11 +225,14 @@ priceBonds t@TestDeal {bonds = bndMap} (AP.IrrInput bMapInput)
       -- (Maybe Bond,IrrType)
       bndMap' = Map.mapWithKey (\k v -> (getBondByName t True k, v)) bMapInput
       -- (Rate, [(date, cash)])
-      bndMap'' = Map.map (\(Just b, v) -> 
-                              do 
-                                let _irrTxns = getAllTxns b
-                                (_irr, flows) <- priceBondIrr v _irrTxns
-                                return (IrrResult (fromRational _irr) flows))
+      bndMap'' = Map.mapWithKey (\bn (mb, v) -> 
+                              case mb of 
+                                Nothing -> Left $ "priceBonds: bond not found: " ++ show bn
+                                Just b -> 
+                                  do 
+                                    let _irrTxns = getAllTxns b
+                                    (_irr, flows) <- priceBondIrr v _irrTxns
+                                    return (IrrResult (fromRational _irr) flows))
                          bndMap'
     in 
       sequenceA bndMap''

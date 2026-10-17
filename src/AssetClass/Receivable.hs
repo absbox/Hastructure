@@ -162,9 +162,10 @@ instance Asset Receivable where
       in 
         do 
           defaultRates <- A.buildDefaultRates r (sd:[dd]) amd
-          let defaultAmt = mulBR ob (head defaultRates)
+          let dr = case defaultRates of [] -> 0.0; (x:_) -> x
+          let defaultAmt = mulBR ob dr
           let afterDefaultBal =  ob - defaultAmt
-          let afterDefaultFee =  mulBR feeDue (1 - head defaultRates)
+          let afterDefaultFee =  mulBR feeDue (1 - dr)
 
           let feePaid = min afterDefaultBal afterDefaultFee
           let principal = max 0 $ afterDefaultBal - feePaid

@@ -35,20 +35,20 @@ import Control.Lens hiding (element)
 import Control.Lens.TH
 
 multiPool = Map.fromList [(PoolName "PoolA",P.Pool {P.assets=[AB.Mortgage
-                                                                   AB.MortgageOriginalInfo{ AB.originBalance=4000 ,AB.originRate=Fix DC_ACT_365F 0.085 ,AB.originTerm=60 ,AB.period=Monthly ,AB.startDate=T.fromGregorian 2022 1 1 ,AB.prinType= AB.Level ,AB.prepaymentPenalty = Nothing}
+                                                                   AB.MortgageOriginalInfo{ AB.originBalance=4000 ,AB.originRate=Fix DC_ACT_365F 0.085 ,AB.originTerm=60 ,AB.period=Monthly ,AB.startDate=T.fromGregorian 2022 1 1 ,AB.prinType= AB.Level ,AB.prepaymentPenalty = Nothing, AB.obligor = Nothing }
                                                                    1000 0.085 60 Nothing AB.Current]
                                                       ,P.futureCf= Nothing
                                                       ,P.asOfDate = T.fromGregorian 2022 1 1
                                                       ,P.issuanceStat = Just $ Map.fromList [(IssuanceBalance,1000)]
                                                       ,P.extendPeriods = Nothing
-                                                      })
+                                                      , P.futureScheduleCf = Nothing })
                          ,(PoolName "PoolB",(P.Pool {P.assets=[AB.Mortgage
-                                                                   AB.MortgageOriginalInfo{ AB.originBalance=4000 ,AB.originRate=Fix DC_ACT_365F 0.085 ,AB.originTerm=60 ,AB.period=Monthly ,AB.startDate=T.fromGregorian 2022 1 1 ,AB.prinType= AB.Level ,AB.prepaymentPenalty = Nothing}
+                                                                   AB.MortgageOriginalInfo{ AB.originBalance=4000 ,AB.originRate=Fix DC_ACT_365F 0.085 ,AB.originTerm=60 ,AB.period=Monthly ,AB.startDate=T.fromGregorian 2022 1 1 ,AB.prinType= AB.Level ,AB.prepaymentPenalty = Nothing, AB.obligor = Nothing }
                                                                    3000 0.085 60 Nothing AB.Current]
                                                         ,P.futureCf= Nothing
                                                         ,P.asOfDate = T.fromGregorian 2022 1 1
                                                         ,P.issuanceStat = Just $ Map.fromList [(IssuanceBalance,3000)]
-                                                        ,P.extendPeriods = Nothing}))]
+                                                        ,P.extendPeriods = Nothing, P.futureScheduleCf = Nothing }))]
 
 
 baseCase = D.TestDeal {
@@ -95,14 +95,14 @@ baseCase = D.TestDeal {
  ,D.triggers = Nothing
  ,D.ledgers = Nothing
  ,D.stats = (Map.empty,Map.empty,Map.empty,Map.empty)
-}
+, D.custom = Nothing }
 
 
 baseTests = 
   let 
     poolAssets = [(AB.PersonalLoan AB.LoanOriginalInfo{AB.originBalance= 1000, AB.originRate= Fix DC_ACT_365F 0.08,
                                                     AB.originTerm = 24, AB.period = Monthly ,AB.startDate = (T.fromGregorian 2022 1 1),
-                                                    AB.prinType = AB.I_P}
+                                                    AB.prinType = AB.I_P, AB.obligor = Nothing }
                                 1000
                                 0.08
                                 24

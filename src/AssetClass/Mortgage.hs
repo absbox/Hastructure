@@ -313,6 +313,8 @@ instance Ast.Asset Mortgage where
                                   ,A.DummyDelinqAssump
                                   ,A.DummyDefaultAssump) mRates)
 
+  calcCashflow s@(ScheduleMortgageFlow beg_date [] _)  d _ 
+    = Right $ CF.CashFlowFrame (0.0, beg_date, Nothing) []
   calcCashflow s@(ScheduleMortgageFlow beg_date flows _)  d _ 
     = Right $ CF.CashFlowFrame ( ((view CF.tsRowBalance) . head) flows, beg_date, Nothing ) flows
 
@@ -325,6 +327,10 @@ instance Ast.Asset Mortgage where
   
   getCurrentBal (Mortgage _ _bal _ _ _ _) = _bal
   getCurrentBal (AdjustRateMortgage _ _ _bal _ _ _ _) = _bal
+  getCurrentBal (ScheduleMortgageFlow _ flows _) =
+    case flows of
+      [] -> 0
+      (f:_) -> CF.mflowBegBalance f
 
   getOriginBal (Mortgage (MortgageOriginalInfo _bal _ _ _ _ _ _ _) _ _ _ _ _ ) = _bal
   getOriginBal (AdjustRateMortgage (MortgageOriginalInfo _bal _ _ _ _ _ _ _) _ _ _ _ _ _ ) = _bal
@@ -360,6 +366,7 @@ instance Ast.Asset Mortgage where
 
   getPaymentDates (Mortgage (MortgageOriginalInfo _ _ ot p sd _ _ _) _ _ _ _ _) extra = genDates sd p (ot+extra)
   getPaymentDates (AdjustRateMortgage (MortgageOriginalInfo _ _ ot p sd _ _ _) _ _ _ _ _ _) extra = genDates sd p (ot+extra)
+  getPaymentDates (ScheduleMortgageFlow _ [] _) extra = []
   getPaymentDates (ScheduleMortgageFlow begDate flows dp) extra 
     = let 
         lastPayDay = (getDate . last) flows
@@ -388,6 +395,7 @@ instance Ast.Asset Mortgage where
     = AdjustRateMortgage (MortgageOriginalInfo ob or ot p nd _type mpn obr) arm cb cr ct mbn st
 
   -- project current mortgage with total default amt 
+  projCashflow (ScheduleMortgageFlow _ [] _) _ _ _ = Left "projCashflow: empty schedule mortgage flow"
   projCashflow m@(Mortgage (MortgageOriginalInfo ob or ot p sd prinPayType mpn _) cb cr rt mbn Current) 
                asOfDay 
                mars@(A.MortgageAssump (Just (A.DefaultByAmt (dBal,vs))) amp amr ams ,_ ,_) 
@@ -420,7 +428,7 @@ instance Ast.Asset Mortgage where
         firstResetDate = monthsAfter sd (toInteger (succ initPeriod))
 
         lastPayDate:cfDates = sliceDates (SliceOnAfterKeepPrevious asOfDay)  $ lastN (rt + recoveryLag + 1) $ sd:getPaymentDates m recoveryLag 
-        rateCurve = buildARMrates or (arm, sd, firstResetDate, last cfDates, getOriginRate m) mRates
+        rateCurve = buildARMrates or (arm, sd, firstResetDate, case cfDates of [] -> lastPayDate; _ -> last cfDates, getOriginRate m) mRates
         rateVector = fromRational <$> getValByDates rateCurve Inc cfDates 
         expectedDefaultBals = paddingDefault 0 (mulBR dBal <$> vs) (length cfDates)
         unAppliedDefaultBals = tail $ scanl (-) dBal expectedDefaultBals
@@ -484,8 +492,9 @@ instance Ast.Asset Mortgage where
                           (ob, cb,lastPayDate,mbn,prinPayType,dc,cr,p,ot) 
                           (cfDates, defRates, ppyRates,rateVector,remainTerms)
         let txns = DL.toList txns'
-        let lastProjTxn = last txns
-        let extraTxns = [ CF.emptyTsRow d lastProjTxn  | d <- recoveryDates ]
+        let extraTxns = case txns of 
+                          [] -> []
+                          _ -> [ CF.emptyTsRow d (last txns)  | d <- recoveryDates ]
         txns'' <- (patchLossRecovery (txns++extraTxns) amr)
         let (futureTxns,historyM)= CF.cutoffTrs asOfDay txns''
         let begBal = CF.buildBegBal futureTxns
@@ -578,7 +587,7 @@ instance Ast.Asset Mortgage where
         lastPayDate:cfDates = lastN (recoveryLag + defaultLag + rt + 1) $ sd:getPaymentDates m recoveryLag  
         (_,defaultLag,defaultPct) = Ast.getDefaultDelinqAssump amd cfDates
         cfDatesLength = length cfDates 
-        rateCurve = buildARMrates or (arm, sd, firstResetDate, last cfDates, getOriginRate m) mRates
+        rateCurve = buildARMrates or (arm, sd, firstResetDate, case cfDates of [] -> lastPayDate; _ -> last cfDates, getOriginRate m) mRates
         rateVector = fromRational <$> getValByDates rateCurve Inc cfDates -- `debug` ("RateCurve"++ show rate_curve)                                  
       in
         do

@@ -13,8 +13,8 @@ module Pool (Pool(..),aggPool
 
 import Lib (Period(..)
            ,Ts(..),periodRateFromAnnualRate,toDate
-           ,getIntervalDays,zipWith9,mkTs,periodsBetween
-           ,mkRateTs,daysBetween, )
+           ,getIntervalDays,zipWith9,mkTs,monthsBetween
+           ,mkRateTs,daysBetween, prorataFactors)
 
 import Control.Parallel.Strategies
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
@@ -206,8 +206,13 @@ runPool (Pool as _ _ asof _ _) Nothing mRates
       return [ (x, Map.empty) | x <- cf ]
 -- asset cashflow with credit stress
 ---- By pool level
-runPool (Pool as _ Nothing asof _ _) (Just (A.PoolLevel assumps)) mRates 
-  = sequenceA $ parMap rdeepseq (\x -> projCashflow x asof assumps mRates) as  
+runPool (Pool as _ Nothing asof _ _) (Just (A.PoolLevel assumps)) mRates = do
+  assetAssumps <- allocateDefaultByAmt balances assumps
+  sequenceA $ parMap rdeepseq
+    (\(x, assump) -> projCashflow x asof assump mRates) (zip as assetAssumps)
+  where
+    balances = getCurrentBal <$> as
+
 ---- By index
 runPool (Pool as _ Nothing  asof _ _) (Just (A.ByIndex idxAssumps)) mRates =
   let
@@ -298,6 +303,37 @@ runPool (Pool as _ Nothing asof _ _) (Just (A.ByObligor obligorRules)) mRates =
 -- safe net to catch other cases
 runPool _a _b _c = Left $ "[Run Pool]: Failed to match" ++ show _a ++ show _b ++ show _c
 
+
+allocateDefaultByAmt :: [Balance] -> A.AssetPerf -> Either ErrorRep [A.AssetPerf]
+allocateDefaultByAmt
+  balances
+  ( A.MortgageAssump
+      (Just (A.DefaultByAmt (total, rates)))
+      prepay
+      recovery
+      extra
+  , delinqAssump
+  , defaultAssump
+  )
+  | total > sumBalances =
+      Left $ "[Run Pool]: DefaultByAmt total " ++ show total
+        ++ " exceeds total current balance " ++ show sumBalances
+  | otherwise =
+      Right
+        [ (A.MortgageAssump
+            (Just (A.DefaultByAmt (amount, rates)))
+            prepay
+            recovery
+            extra
+          , delinqAssump
+          , defaultAssump
+          )
+          | amount <- prorataFactors balances total
+        ]
+  where
+    sumBalances = sum balances
+allocateDefaultByAmt balances assumps =
+  Right (replicate (length balances) assumps)
 
 
 $(deriveJSON defaultOptions ''Pool)

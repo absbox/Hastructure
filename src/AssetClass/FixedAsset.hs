@@ -96,6 +96,7 @@ instance Ast.Asset FixedAsset where
         pdates = lastN cfLength $ Ast.getPaymentDates fa extPeriods
         capacityCaps = case cap of
                         FixedCapacity b -> replicate cfLength b
+                        CapacityByTerm [] -> []
                         CapacityByTerm tbl -> lastN cfLength $ concat [ replicate i b | (i,b)  <- tbl ] ++ (replicate extPeriods (snd (last tbl)))
 
         utilsVec = getValByDates uCurve Inc pdates

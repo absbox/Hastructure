@@ -1,5 +1,6 @@
-module UT.AssetTest(mortgageTests,mortgageCalcTests,loanTests,leaseTests,installmentTest,armTest,ppyTest
-                   ,delinqScheduleCFTest,delinqMortgageTest,btlMortgageTest,nonPayMortgageTest,receivableTest,fixedAssetTest)
+module UT.AssetTest(mortgageTests,mortgageCalcTests,loanTests,leaseTests,installmentTest,armTest,ppyTest,ppyVectorTest
+                   ,delinqScheduleCFTest,delinqMortgageTest,btlMortgageTest,nonPayMortgageTest,receivableTest,fixedAssetTest
+                   ,buildRateSafetyTest)
 where
 
 import Test.Tasty
@@ -15,6 +16,7 @@ import qualified AssetClass.Loan as ACL
 import qualified AssetClass.Lease as ACR
 import qualified AssetClass.Installment as ACI
 import qualified AssetClass.Receivable as AR
+import qualified AssetClass.ProjectedCashFlow as ACPF
 import qualified Assumptions as A
 import qualified Cashflow as CF
 import qualified Deal as D
@@ -620,6 +622,54 @@ ppyTest =
         (CF.cfAt ppy_cf_5 4)   
     ]
 
+ppyVectorTest :: TestTree
+ppyVectorTest =
+  let
+    -- tm origin date is 2021-01-01
+    absDsFirst = L.toDate <$> ["20210201","20210301","20210401","20210501"]
+    absDs = L.toDate <$> ["20210701","20210801","20210901","20211001"]
+    absRatesFirst r = Ast.buildPrepayRates tm absDsFirst (Just (A.PrepaymentABS r))
+    absRates r = Ast.buildPrepayRates tm absDs (Just (A.PrepaymentABS r))
+    -- month ages 49,50,51,52,53 relative to tm's 2021-01-01 origin;
+    -- a 2% ABS rate is exhausted at month 1 + 1/0.02 = 51.
+    exhaustionDs = L.toDate <$> ["20250201","20250301","20250401","20250501","20250601"]
+    -- month ages 17,18; a 6% ABS rate's implied balance is exhausted at 17.67,
+    -- so month 18 previously produced a negative SMM.
+    pastExhaustionDs = L.toDate <$> ["20220601","20220701"]
+    -- month ages 1,2; a 100% ABS rate exhausts the implied balance at month 2.
+    fullRateDs = L.toDate <$> ["20210201","20210301"]
+  in
+    testGroup "Prepayment vector tests" [
+      testCase "PrepaymentABS 2% => SMM by month age | fisth 4 months" $
+        assertEqual "abs vector"
+          (Right [1/50,1/49,1/48,1/47])
+          (absRatesFirst 0.02)
+      ,testCase "PrepaymentABS 2% => SMM by month age" $
+        assertEqual "abs vector"
+          (Right [1/45,1/44,1/43,1/42])
+          (absRates 0.02)
+      ,testCase "PrepaymentABS 0% => all zero" $
+        assertEqual "abs zero"
+          (Right [0,0,0,0])
+          (absRates 0.0)
+      ,testCase "PrepaymentABS rejects rate > 1" $
+        assertBool "rate > 1 should be Left" (isLeft (absRates 1.5))
+      ,testCase "PrepaymentABS rejects negative rate" $
+        assertBool "negative rate should be Left" (isLeft (absRates (-0.1)))
+      ,testCase "PrepaymentABS 2% => SMM is 0 at and after the exhaustion month" $
+        assertEqual "exhaustion month and beyond"
+          (Right [1/2, 1, 0, 0, 0])
+          (Ast.buildPrepayRates tm exhaustionDs (Just (A.PrepaymentABS 0.02)))
+      ,testCase "PrepaymentABS 6% => no negative SMM past exhaustion" $
+        assertEqual "past exhaustion"
+          (Right [3/2, 0])
+          (Ast.buildPrepayRates tm pastExhaustionDs (Just (A.PrepaymentABS 0.06)))
+      ,testCase "PrepaymentABS 100% => SMM is 1 in month 1 and 0 afterwards" $
+        assertEqual "100% rate"
+          (Right [1, 0])
+          (Ast.buildPrepayRates tm fullRateDs (Just (A.PrepaymentABS 1.0)))
+      ]
+
 delinqScheduleCFTest = 
   let 
     cfs = [CF.MortgageDelinqFlow (L.toDate "20230901") 1000  0 0 0 0 0 0 0 0.08 Nothing Nothing Nothing
@@ -943,3 +993,22 @@ fixedAssetTest =
       --       ((`CF.cfAt` 9) <$> (fst <$> (Ast.projCashflow asset2 (L.toDate "20240101") 
       --                             ((A.FixedAssetAssump utilCurve priceCurve Nothing) ,A.DummyDelinqAssump ,A.DummyDefaultAssump) Nothing))))
     ]
+
+buildRateSafetyTest =
+  let ds = L.toDates ["20210101","20210201","20210301"]
+  in
+  testGroup "asset head/last safety"
+  [
+    testCase "empty prepayment padding vector returns Left" $
+      assertBool "should be Left" (isLeft (Ast.buildPrepayRates tm ds (Just (A.PrepaymentVecPadding []))))
+  , testCase "empty default padding vector returns Left" $
+      assertBool "should be Left" (isLeft (Ast.buildDefaultRates tm ds (Just (A.DefaultVecPadding []))))
+  , testCase "empty ScheduleMortgageFlow cashflow does not crash" $
+      case Ast.calcCashflow (AB.ScheduleMortgageFlow (L.toDate "20220101") [] MonthFirst) (L.toDate "20220101") Nothing of
+        Right (CF.CashFlowFrame (b,_,_) _) -> assertEqual "begin balance" 0 b
+        Left e -> assertFailure ("unexpected Left: " ++ e)
+  , testCase "calcEndDate with zero periods returns start date" $
+      assertEqual "start date" (L.toDate "20220101") (ACR.calcEndDate (L.toDate "20220101") 0 (AB.ByPeriodRental 0 L.Monthly))
+  , testCase "projFixCfwithAssumption with empty dates returns Left" $
+      assertBool "should be Left" (isLeft (ACPF.projFixCfwithAssumption ([1.0],[],[],[],MonthFirst) ([],[],0,0) (L.toDate "20220101")))
+  ]

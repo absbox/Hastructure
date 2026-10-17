@@ -3,9 +3,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 module Deal.DealValidation (validateRun,validatePreRun,validateReq)
   where 
@@ -19,6 +16,7 @@ import Data.Maybe
 import qualified Waterfall as W
 import qualified CreditEnhancement as CE
 import qualified Liability as L
+import qualified Triggers as Trg
 import qualified Accounts as A
 import qualified Expense as F
 import qualified Asset as P
@@ -30,13 +28,6 @@ import Deal.DealCollection (CollectionRule(..))
 
 import Control.Lens hiding (element)
 import Control.Lens.TH
-
-import Data.Maybe
-import qualified Assumptions as A
-
-
-import Debug.Trace
-debug = flip trace
 
 extractRequiredRates :: (P.Asset a,IR.UseRate a) => TestDeal a -> Set.Set Types.Index
 extractRequiredRates t@TestDeal{accounts = accM 
@@ -74,7 +65,7 @@ validateAggRule rules validPids =
     countWeight (CollectByPct (Just pids) ps lst) = Map.fromList [((pid,ps), pct) | pid <- pids, pct <- fst <$> lst]
     countWeight (CollectByPct Nothing ps lst) = Map.fromList [((PoolConsol, ps),pct)| pct <- fst <$> lst]
     
-    sumMap = foldl1 (Map.unionWith (+)) $ countWeight <$> rules  
+    sumMap = foldl (Map.unionWith (+)) Map.empty $ countWeight <$> rules  
     oustandingPs = Map.filter (> 1.0) sumMap
 
     getPids (Collect (Just pids) _ _) = pids  
@@ -124,9 +115,142 @@ extractRequiredRevolvingPool t@TestDeal{waterfall = waterfallM} =
     (Set.unions $ fst <$> requiredByWaterfall, Set.unions $ snd <$> requiredByWaterfall)
 
 
+-- | Names referenced by the deal definition, grouped by the map they should exist in.
+-- Used to catch typos before a run instead of crashing mid-run.
+data NameRefs = NameRefs {
+    refAccounts :: Set.Set String
+  , refFees     :: Set.Set String
+  , refBonds    :: Set.Set String
+  , refLiq      :: Set.Set String
+  , refSwaps    :: Set.Set String
+  , refCaps     :: Set.Set String
+  }
+
+instance Semigroup NameRefs where
+  NameRefs a b c d e f <> NameRefs a' b' c' d' e' f' =
+    NameRefs (a <> a') (b <> b') (c <> c') (d <> d') (e <> e') (f <> f')
+instance Monoid NameRefs where
+  mempty = NameRefs Set.empty Set.empty Set.empty Set.empty Set.empty Set.empty
+  mappend = (<>)
+
+refsOfAction :: W.Action -> NameRefs
+refsOfAction a = case a of
+  W.Transfer _ a1 a2 _                  -> accs [a1,a2]
+  W.TransferAndBook _ a1 a2 _ _         -> accs [a1,a2]
+  W.TransferMultiple srcs a2 _          -> accs (a2 : (snd <$> srcs))
+  W.CalcFee fns                         -> fees fns
+  W.PayFee _ acc fns _                  -> accs [acc] <> fees fns
+  W.PayFeeBySeq _ acc fns _             -> accs [acc] <> fees fns
+  W.CalcAndPayFee _ acc fns _           -> accs [acc] <> fees fns
+  W.PayFeeResidual _ acc fn             -> accs [acc] <> fees [fn]
+  W.CalcBondInt bns                     -> bonds bns
+  W.CalcBondIntBy bn _ _                -> bonds [bn]
+  W.PayIntOverInt _ acc bns _           -> accs [acc] <> bonds bns
+  W.PayInt _ acc bns _                  -> accs [acc] <> bonds bns
+  W.PayIntAndBook _ acc bns _ _         -> accs [acc] <> bonds bns
+  W.PayIntBySeq _ acc bns _             -> accs [acc] <> bonds bns
+  W.PayIntOverIntBySeq _ acc bns _      -> accs [acc] <> bonds bns
+  W.AccrueAndPayInt _ acc bns _         -> accs [acc] <> bonds bns
+  W.AccrueAndPayIntBySeq _ acc bns _    -> accs [acc] <> bonds bns
+  W.PayIntResidual _ acc bn             -> accs [acc] <> bonds [bn]
+  W.PayIntByRateIndex _ acc bns _ _     -> accs [acc] <> bonds bns
+  W.PayIntByRateIndexBySeq _ acc bns _ _ -> accs [acc] <> bonds bns
+  W.CalcBondPrin _ acc bns _            -> accs [acc] <> bonds bns
+  W.CalcBondPrin2 _ bns                 -> bonds bns
+  W.PayPrinWithDue acc bns _            -> accs [acc] <> bonds bns
+  W.PayPrin _ acc bns _                 -> accs [acc] <> bonds bns
+  W.PayPrinBySeq _ acc bns _            -> accs [acc] <> bonds bns
+  W.PayPrinResidual acc bns             -> accs [acc] <> bonds bns
+  W.PayIntPrinBySeq _ acc bns _         -> accs [acc] <> bonds bns
+  W.AccrueAndPayIntPrinBySeq _ acc bns _ -> accs [acc] <> bonds bns
+  W.PayPrinGroup _ acc bn _ _           -> accs [acc] <> bonds [bn]
+  W.AccrueIntGroup bns                  -> bonds bns
+  W.PayIntGroup _ acc bn _ _            -> accs [acc] <> bonds [bn]
+  W.AccrueAndPayIntGroup _ acc bn _ _   -> accs [acc] <> bonds [bn]
+  W.WriteOff _ bn                       -> bonds [bn]
+  W.WriteOffAndBook _ bn _              -> bonds [bn]
+  W.WriteOffBySeq _ bns                 -> bonds bns
+  W.WriteOffBySeqAndBook _ bns _        -> bonds bns
+  W.FundWith _ acc bn                   -> accs [acc] <> bonds [bn]
+  W.BuyAsset _ _ acc _                  -> accs [acc]
+  W.BuyAssetFrom _ _ acc _ _            -> accs [acc]
+  W.LiquidatePool _ acc _               -> accs [acc]
+  W.LiqSupport _ liq _ _                -> liqs [liq]
+  W.LiqRepay _ _ acc liq                -> accs [acc] <> liqs [liq]
+  W.LiqYield _ acc liq                  -> accs [acc] <> liqs [liq]
+  W.LiqAccrue liqNames                  -> liqs liqNames
+  W.SwapAccrue ce                       -> swaps [ce]
+  W.SwapReceive acc ce                  -> accs [acc] <> swaps [ce]
+  W.SwapPay acc ce                      -> accs [acc] <> swaps [ce]
+  W.SwapSettle acc ce                   -> accs [acc] <> swaps [ce]
+  W.CollectRateCap acc ce               -> accs [acc] <> caps [ce]
+  W.WithPay acc _                       -> accs [acc]
+  W.ActionWithPre _ sub                 -> foldMap refsOfAction sub
+  W.ActionWithPre2 _ sa sb              -> foldMap refsOfAction sa <> foldMap refsOfAction sb
+  _                                     -> mempty
+  where
+    accs xs   = mempty { refAccounts = Set.fromList xs }
+    fees xs   = mempty { refFees     = Set.fromList xs }
+    bonds xs  = mempty { refBonds    = Set.fromList xs }
+    liqs xs   = mempty { refLiq      = Set.fromList xs }
+    swaps xs  = mempty { refSwaps    = Set.fromList xs }
+    caps xs   = mempty { refCaps     = Set.fromList xs }
+
+refsOfTriggerEffect :: Trg.TriggerEffect -> NameRefs
+refsOfTriggerEffect te = case te of
+  Trg.DoAccrueFee fns                 -> mempty { refFees = Set.fromList fns }
+  Trg.ChangeReserveBalance acc _      -> mempty { refAccounts = Set.singleton acc }
+  Trg.CloseDeal _ _ (_, acc, _) _     -> mempty { refAccounts = Set.singleton acc }
+  Trg.BuyAsset acc _                  -> mempty { refAccounts = Set.singleton acc }
+  Trg.ChangeBondRate bn _ _           -> mempty { refBonds = Set.singleton bn }
+  Trg.AddTrigger trg                  -> refsOfTriggerEffect (Trg.trgEffects trg)
+  Trg.TriggerEffects effs             -> foldMap refsOfTriggerEffect effs
+  Trg.RunActions acts                 -> foldMap refsOfAction acts
+  _                                   -> mempty
+
+refsOfTrigger :: Trg.Trigger -> NameRefs
+refsOfTrigger = refsOfTriggerEffect . Trg.trgEffects
+
+refsOfCollectRule :: CollectionRule -> NameRefs
+refsOfCollectRule (Collect _ _ acc) = mempty { refAccounts = Set.singleton acc }
+refsOfCollectRule (CollectByPct _ _ lst) = mempty { refAccounts = Set.fromList (snd <$> lst) }
+
+-- | Collect every deal-definition name reference and report the ones absent from the
+-- corresponding deal map. Bond groups are accepted wherever a bond name is expected.
+validateNameReferences :: P.Asset a => TestDeal a -> Set.Set BondName -> [ResultComponent]
+validateNameReferences t@TestDeal{waterfall = waterfallM
+                                ,accounts = accM
+                                ,fees = feeM
+                                ,collects = aggRule
+                                ,liqProvider = liqProviderM
+                                ,rateSwap = rsM
+                                ,rateCap = rcM
+                                ,triggers = triggerM}
+                       extraBondNames
+  = let 
+      refs = foldMap refsOfAction (concat (Map.elems waterfallM))
+             <> foldMap refsOfCollectRule aggRule
+             <> maybe mempty (foldMap (foldMap refsOfTrigger)) triggerM
+      accNames  = Map.keysSet accM
+      feeNames  = Map.keysSet feeM
+      bondNames = Set.fromList (L.bndName <$> viewDealAllBonds t) <> Map.keysSet (view dealBondGroups t) <> extraBondNames
+      liqNames  = maybe Set.empty Map.keysSet liqProviderM
+      swapNames = maybe Set.empty Map.keysSet rsM
+      capNames  = maybe Set.empty Map.keysSet rcM
+      missing label set valid =
+        [ ErrorMsg (label ++ " not found in deal: " ++ x) | x <- Set.toList set, not (Set.member x valid) ]
+    in 
+      missing "Account" (refAccounts refs) accNames
+      ++ missing "Fee" (refFees refs) feeNames
+      ++ missing "Bond/BondGroup" (refBonds refs) bondNames
+      ++ missing "Liquidity provider" (refLiq refs) liqNames
+      ++ missing "Rate swap" (refSwaps refs) swapNames
+      ++ missing "Rate cap" (refCaps refs) capNames
+
+
 validateReq :: (IR.UseRate a,P.Asset a) => TestDeal a -> AP.NonPerfAssumption -> (Bool,[ResultComponent])
 validateReq t@TestDeal{accounts = accMap, fees = feeMap} 
-            assump@A.NonPerfAssumption{A.interest = intM, A.issueBondSchedule = mIssuePlan, A.revolving = mRevolvingAssump} 
+            assump@AP.NonPerfAssumption{AP.interest = intM, AP.issueBondSchedule = mIssuePlan, AP.revolving = mRevolvingAssump} 
   = let 
       ratesRequired = extractRequiredRates t
       ratesSupplied = case intM of 
@@ -146,18 +270,18 @@ validateReq t@TestDeal{accounts = accMap, fees = feeMap}
                         Nothing -> []
                         Just issueBndEventlist
                           -> let 
-                              bgNamesInAssump = Set.fromList $ [ bgName | TsPoint d (A.IssueBondEvent _ bgName _ bnd _ _) <- issueBndEventlist ]
+                              bgNamesInAssump = Set.fromList $ [ bgName | TsPoint d (AP.IssueBondEvent _ bgName _ bnd _ _) <- issueBndEventlist ]
                               bgNameErrors = [ ErrorMsg ("issueBond:Missing Bond Group Name in Deal:"++ missingBgName ) | missingBgName <- Set.elems (Set.difference bgNamesInAssump bgNamesInDeal)]
 
-                              newBndNames = Set.fromList $ [ L.bndName bnd | TsPoint d (A.IssueBondEvent _ _ _ bnd _ _) <- issueBndEventlist ]
+                              newBndNames = Set.fromList $ [ L.bndName bnd | TsPoint d (AP.IssueBondEvent _ _ _ bnd _ _) <- issueBndEventlist ]
                               existingBndNames = Set.fromList $ L.bndName <$> viewDealAllBonds t
                               bndNameErrors = [ ErrorMsg ("issueBond:Existing Bond Name in Deal:"++ existsBndName ) | existsBndName <- Set.elems (Set.intersection newBndNames existingBndNames)]
 
-                              acNamesInAssump = Set.fromList $ [ acName | TsPoint d (A.IssueBondEvent _ _ acName _ _ _) <- issueBndEventlist ]
+                              acNamesInAssump = Set.fromList $ [ acName | TsPoint d (AP.IssueBondEvent _ _ acName _ _ _) <- issueBndEventlist ]
                               existingAccNames = Map.keysSet accMap
                               accNameErrors = [ ErrorMsg ("issueBond:Missing Account Name in Deal:"++ missingAccName ) | missingAccName <- Set.elems (Set.difference acNamesInAssump existingAccNames)]
                               
-                              bndNamesInAssump = [ L.bndName bnd | TsPoint d (A.IssueBondEvent _ bgName _ bnd _ _) <- issueBndEventlist ]
+                              bndNamesInAssump = [ L.bndName bnd | TsPoint d (AP.IssueBondEvent _ bgName _ bnd _ _) <- issueBndEventlist ]
                               bndUniqNames = Set.fromList bndNamesInAssump
                               dupNamesErrors = [ ErrorMsg("Duplicate Bond Names in Funding Plan") | length bndUniqNames /= length bndNamesInAssump]
                              in 
@@ -170,18 +294,26 @@ validateReq t@TestDeal{accounts = accMap, fees = feeMap}
                           in 
                             case mRevolvingAssump of 
                               Nothing -> []
-                              Just (A.AvailableAssets _ _ ) -> [ ErrorMsg ("BuyAsset: Missing Pool Id in assumption" ++ show x)  | x <- Set.toList (requiredPoolIds Set.\\ Set.fromList (getPoolIds t))]
-                              Just (A.AvailableAssetsBy rMap ) -> [ ErrorMsg ("BuyAsset: Missing Revolving Pool in assumption" ++ show x)  | x <- Set.toList (requiredRPoolNames Set.\\ Set.fromList (Map.keys rMap))] -- `debug` ("requiredRPoolNames 0> "++ show requiredRPoolNames)
+                              Just (AP.AvailableAssets _ _ ) -> [ ErrorMsg ("BuyAsset: Missing Pool Id in assumption" ++ show x)  | x <- Set.toList (requiredPoolIds Set.\\ Set.fromList (getPoolIds t))]
+                              Just (AP.AvailableAssetsBy rMap ) -> [ ErrorMsg ("BuyAsset: Missing Revolving Pool in assumption" ++ show x)  | x <- Set.toList (requiredRPoolNames Set.\\ Set.fromList (Map.keys rMap))] -- `debug` ("requiredRPoolNames 0> "++ show requiredRPoolNames)
 
 
-      (dealWarnings,dealErrors) = validatePreRun t 
+      (dealWarnings,dealErrors) = validatePreRunWith t planBondNames
       finalErrors = missingIndexError ++ dealErrors ++ issuePlanError ++ feeErrors ++ revolvingBuyError
       finalWarnings = dealWarnings
+      planBondNames = case mIssuePlan of 
+                        Nothing -> Set.empty
+                        Just evs -> Set.fromList [ L.bndName bnd | TsPoint _ (AP.IssueBondEvent _ _ _ bnd _ _) <- evs ]
     in 
       (null finalErrors,finalErrors++finalWarnings)
 
 validatePreRun :: P.Asset a => TestDeal a -> ([ResultComponent],[ResultComponent])
-validatePreRun t@TestDeal{waterfall=waterfallM
+validatePreRun t = validatePreRunWith t Set.empty
+
+-- | Like 'validatePreRun' but treats @extraBondNames@ (e.g. bonds created by an
+-- issuance plan during the run) as known, so they are not flagged as missing.
+validatePreRunWith :: P.Asset a => TestDeal a -> Set.Set BondName -> ([ResultComponent],[ResultComponent])
+validatePreRunWith t@TestDeal{waterfall=waterfallM
                       ,accounts =accM 
                       ,fees = feeM 
                       ,bonds = bondM 
@@ -194,6 +326,7 @@ validatePreRun t@TestDeal{waterfall=waterfallM
                       ,pool = pool 
                       ,dates = dates
                       ,status = status} 
+                      extraBondNames
   = let 
       poolIds = getPoolIds t 
       -- date check
@@ -222,7 +355,7 @@ validatePreRun t@TestDeal{waterfall=waterfallM
 
       -- run result scan
 
-      allErrors = issuanceBalCheck dates ++ aggRuleResult 
+      allErrors = issuanceBalCheck dates ++ aggRuleResult ++ validateNameReferences t extraBondNames
       -- check issuance balance 
       
       w1 = if (not (isPreClosing t)) && (length (Map.elems (getIssuanceStats t Nothing))) == 0 then

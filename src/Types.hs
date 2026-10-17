@@ -57,8 +57,6 @@ import qualified Data.Time as Time
 import qualified Data.Time.Format as TF
 import qualified Data.Map as Map
 import qualified Data.List.Split
-import Text.Regex.Base
-import Text.Regex.PCRE
 import GHC.Generics
 import Language.Haskell.TH
 
@@ -269,21 +267,20 @@ instance Show PoolId where
   show PoolConsol = "PoolConsol"
   show (DealBondFlow dn bn sd r) = "BondFlow:"++dn++":"++bn++":"++show sd++":"++show r
 
-instance (Read PoolId) where
-  readsPrec d "PoolConsol" = [(PoolConsol,"")]
-  readsPrec d rStr = 
-    let 
-      pn = Data.List.Split.splitOn ":" rStr
-    in
-      case pn of
-        [dn,bn,sd,r] -> 
-          let 
-            sd' = TF.parseTimeOrError True TF.defaultTimeLocale "%Y-%m-%d" sd
-            r' = read r::Rate
-          in 
-            [(DealBondFlow dn bn sd' r',"")]
-        ["PoolName",pn] -> [(PoolName pn,"")]
-        _ -> error $ "Invalid PoolId: "++ show pn
+instance Read PoolId where
+  readsPrec _ s
+    | s == "PoolConsol" = [(PoolConsol, "")]
+    | otherwise = case Data.List.Split.splitOn ":" s of
+        ["PoolName", pn] -> [(PoolName pn, "")]
+        ["BondFlow", dn, bn, sd, r] -> mkDealBondFlow dn bn sd r
+        [dn, bn, sd, r] -> mkDealBondFlow dn bn sd r
+        _ | ':' `notElem` s -> [(PoolName s, "")]  -- bare pool name, matching `show`
+        _ -> []
+    where
+      mkDealBondFlow dn bn sd r =
+        case TF.parseTimeM True TF.defaultTimeLocale "%Y-%m-%d" sd of
+          Nothing -> []
+          Just sd' -> maybe [] (\r' -> [(DealBondFlow dn bn sd' r', "")]) (readMaybe r :: Maybe Rate)
 
 
 
@@ -998,114 +995,176 @@ data ResultComponent = CallAt Date                                          -- ^
 makePrisms ''ResultComponent
 
 
-listToStrWithComma :: [String] -> String
-listToStrWithComma = intercalate ","
+-- | Canonical textual payload of a txn comment: 'NoFields' renders "<Tag:>",
+-- 'RawFields' renders "<Tag:s>", 'FieldList' renders "<Tag:x1,x2,...>".
+data Payload = NoFields | RawFields T.Text | FieldList [T.Text]
+  deriving (Show, Eq)
 
-instance ToJSON TxnComment where 
-  toJSON (PayInt bns ) = String $ T.pack $ "<PayInt:"++ listToStrWithComma bns ++ ">"
-  toJSON (PayYield bn ) = String $ T.pack $ "<PayYield:"++ bn ++">"
-  toJSON (PayPrin bns ) =  String $ T.pack $ "<PayPrin:"++ listToStrWithComma bns ++ ">"
-  toJSON (WriteOff bn amt ) =  String $ T.pack $ "<WriteOff:"++ bn ++","++ show amt ++ ">"
-  toJSON (FundWith b bal) = String $ T.pack $ "<FundWith:"++b++","++show bal++">"
-  toJSON (PayPrinResidual bns ) =  String $ T.pack $ "<PayPrinResidual:"++ listToStrWithComma bns ++ ">"
-  toJSON (PayFee fn ) =  String $ T.pack $ "<PayFee:" ++ fn ++ ">"
-  toJSON (SeqPayFee fns) =  String $ T.pack $ "<SeqPayFee:"++ listToStrWithComma fns++">"
-  toJSON (PayFeeYield fn) =  String $ T.pack $ "<PayFeeYield:"++ fn++">"
-  toJSON (Transfer an1 an2) =  String $ T.pack $ "<Transfer:"++ an1 ++","++ an2++">"
-  toJSON (TransferBy an1 an2 limit) =  String $ T.pack $ "<TransferBy:"++ an1 ++","++ an2++","++show limit++">"
-  toJSON (PoolInflow mPids ps) =  String $ T.pack $ "<Pool"++ maybe "" (intercalate "|" . (show <$>)) mPids ++":"++ show ps++">"
-  toJSON (LiquidationProceeds pids) =  String $ T.pack $ "<Liquidation:"++ listToStrWithComma (show <$> pids) ++">"
-  toJSON (UsingDS ds) =  String $ T.pack $ "<DS:"++ show ds++">"
-  toJSON BankInt =  String $ T.pack $ "<BankInterest:>"
-  toJSON Empty =  String $ T.pack $ "" 
-  toJSON (LiquidationSupport source) = String $ T.pack $ "<Support:"++source++">"
-  toJSON (LiquidationSupportInt b1 b2) =  String $ T.pack $ "<SupportExp:(Int:"++ show b1 ++ ",Fee:" ++ show b2 ++")>"
-  toJSON LiquidationDraw = String $ T.pack $ "<Draw:>"
-  toJSON (LiquidationRepay s) = String $ T.pack $ "<Repay:"++ s ++">"
-  toJSON SwapAccrue = String $ T.pack $ "<Accure:>"
-  toJSON (SwapInSettle s)= String $ T.pack $ "<SettleIn:"++ s ++">"
-  toJSON (SwapOutSettle s) = String $ T.pack $ "<SettleOut:"++ s ++">"
-  toJSON (PurchaseAsset rPoolName bal) = String $ T.pack $ "<PurchaseAsset:"<> rPoolName <>","++show bal++">"
-  toJSON (TxnDirection dr) = String $ T.pack $ "<TxnDirection:"++show dr++">"
-  toJSON SupportDraw = String $ T.pack $ "<SupportDraw:>"
-  toJSON (IssuanceProceeds nb) = String $ T.pack $ "<IssuanceProceeds:"++nb++">"
-  toJSON (Tag cmt) = String $ T.pack $ "<Tag:"++cmt++">"
-  toJSON (TxnComments tcms) = Array $ V.fromList $ map toJSON tcms
-  toJSON (PayGroupInt bns) = String $ T.pack $ "<PayGroupInt:"++ listToStrWithComma bns ++ ">"
-  toJSON (PayGroupPrin bns) = String $ T.pack $ "<PayGroupPrin:"++ listToStrWithComma bns ++ ">"
-  toJSON (BookLedgerBy dr lName) = String $ T.pack $ "<BookLedger:"++ lName ++ ">"
-  toJSON x = error $ "Not support for toJSON for "++show x
+-- | Split "<Tag:contents>" at the FIRST colon. Total: anything that is not
+-- of the form "<...:...>" yields 'Nothing'.
+txnSplitComment :: T.Text -> Maybe (T.Text, T.Text)
+txnSplitComment t = do
+  inner <- T.stripSuffix ">" =<< T.stripPrefix "<" t
+  let (tag, rest) = T.breakOn ":" inner
+  contents <- T.stripPrefix ":" rest
+  pure (tag, contents)
+
+-- | Comma split where "" means [] (empty payloads are valid for list tags).
+txnSplitFields :: T.Text -> [T.Text]
+txnSplitFields t
+  | T.null t  = []
+  | otherwise = T.splitOn "," t
+
+txnNames :: T.Text -> [String]
+txnNames = map T.unpack . txnSplitFields
+
+-- | Exactly 2 comma-separated fields.
+txnField2 :: T.Text -> T.Text -> Parser (T.Text, T.Text)
+txnField2 ctx t = case txnSplitFields t of
+  [a, b] -> pure (a, b)
+  fs     -> fail (T.unpack ctx ++ ": expected 2 comma-separated fields but got " ++ show (length fs) ++ " in '" ++ T.unpack t ++ "'")
+
+-- | Exactly 3 comma-separated fields.
+txnField3 :: T.Text -> T.Text -> Parser (T.Text, T.Text, T.Text)
+txnField3 ctx t = case txnSplitFields t of
+  [a, b, c] -> pure (a, b, c)
+  fs        -> fail (T.unpack ctx ++ ": expected 3 comma-separated fields but got " ++ show (length fs) ++ " in '" ++ T.unpack t ++ "'")
+
+-- | Total 'read' with a descriptive 'Parser' failure instead of a runtime exception.
+txnReadField :: Read a => T.Text -> T.Text -> Parser a
+txnReadField ctx t = case readMaybe (T.unpack t) of
+  Just v  -> pure v
+  Nothing -> fail (T.unpack ctx ++ ": cannot parse '" ++ T.unpack t ++ "'")
+
+-- | Tags without payload must have empty contents.
+txnNoPayload :: T.Text -> T.Text -> Parser ()
+txnNoPayload ctx t
+  | T.null t  = pure ()
+  | otherwise = fail (T.unpack ctx ++ ": expected no payload but got '" ++ T.unpack t ++ "'")
+
+-- | Canonical (tag, payload) per constructor: the mirror image of 'parseTxn'.
+-- 'Empty' and 'TxnComments' are intercepted by the leading clauses of the
+-- ToJSON instance, so their entries here are never rendered.
+txnPayload :: TxnComment -> (T.Text, Payload)
+txnPayload Empty             = ("", NoFields)
+txnPayload (TxnComments _)   = ("", NoFields)
+txnPayload (PayInt bns)      = ("PayInt", FieldList (map T.pack bns))
+txnPayload (PayYield bn)     = ("PayYield", RawFields (T.pack bn))
+txnPayload (PayPrin bns)     = ("PayPrin", FieldList (map T.pack bns))
+txnPayload (PayGroupPrin bs) = ("PayGroupPrin", FieldList (map T.pack bs))
+txnPayload (PayGroupInt bs)  = ("PayGroupInt", FieldList (map T.pack bs))
+txnPayload (WriteOff bn amt) = ("WriteOff", FieldList [T.pack bn, T.pack (show amt)])
+txnPayload (FundWith b bal)  = ("FundWith", FieldList [T.pack b, T.pack (show bal)])
+txnPayload (PayPrinResidual bs) = ("PayPrinResidual", FieldList (map T.pack bs))
+txnPayload (PayFee fn)       = ("PayFee", RawFields (T.pack fn))
+txnPayload (SeqPayFee fns)   = ("SeqPayFee", FieldList (map T.pack fns))
+txnPayload (PayFeeYield fn)  = ("PayFeeYield", RawFields (T.pack fn))
+txnPayload (Transfer a1 a2)  = ("Transfer", FieldList [T.pack a1, T.pack a2])
+txnPayload (TransferBy a1 a2 l) = ("TransferBy", FieldList [T.pack a1, T.pack a2, T.pack (show l)])
+txnPayload (BookLedgerBy dr lName) = ("BookLedger", FieldList [T.pack (show dr), T.pack lName])
+txnPayload (PoolInflow mPids ps) =
+  ("Pool", FieldList [maybe "" (T.intercalate "|" . map (T.pack . show)) mPids, T.pack (show ps)])
+txnPayload (LiquidationProceeds pids) = ("Liquidation", FieldList (map (T.pack . show) pids))
+txnPayload (LiquidationSupport s)  = ("Support", RawFields (T.pack s))
+txnPayload LiquidationDraw         = ("Draw", NoFields)
+txnPayload (LiquidationRepay s)    = ("Repay", RawFields (T.pack s))
+txnPayload (LiquidationSupportInt b1 b2) = ("SupportExp", FieldList [T.pack (show b1), T.pack (show b2)])
+txnPayload BankInt                 = ("BankInt", NoFields)
+txnPayload SupportDraw             = ("SupportDraw", NoFields)
+txnPayload (Tag s)                 = ("Tag", RawFields (T.pack s))
+txnPayload (UsingDS ds)            = ("DS", RawFields (T.pack (show ds)))
+txnPayload SwapAccrue              = ("Accure", NoFields)
+txnPayload (SwapInSettle s)        = ("SettleIn", RawFields (T.pack s))
+txnPayload (SwapOutSettle s)       = ("SettleOut", RawFields (T.pack s))
+txnPayload (PurchaseAsset rp bal)  = ("PurchaseAsset", FieldList [T.pack rp, T.pack (show bal)])
+txnPayload (IssuanceProceeds nb)   = ("IssuanceProceeds", RawFields (T.pack nb))
+txnPayload (TxnDirection dr)       = ("TxnDirection", RawFields (T.pack (show dr)))
+
+renderPayload :: Payload -> T.Text
+renderPayload NoFields       = ""
+renderPayload (RawFields s)  = s
+renderPayload (FieldList fs) = T.intercalate "," fs
+
+instance ToJSON TxnComment where
+  toJSON Empty            = String ""
+  toJSON (TxnComments ts) = Array $ V.fromList $ map toJSON ts
+  toJSON tc               = let (tag, pl) = txnPayload tc
+                            in String $ "<" <> tag <> ":" <> renderPayload pl <> ">"
 
 instance FromJSON TxnComment where
-    parseJSON = withText "Empty" parseTxn
+  parseJSON (Array vs) = TxnComments . V.toList <$> mapM parseJSON vs
+  parseJSON v          = withText "TxnComment" parseTxn v
 
-parseTxn :: T.Text -> Parser TxnComment 
-parseTxn "" = return Empty 
-parseTxn "<BankInt>" = return BankInt
-parseTxn t = case tagName of 
-  "Transfer" -> let 
-                  sv = T.splitOn (T.pack ",") $ T.pack contents
-                in 
-                  return $ Transfer (T.unpack (head sv)) (T.unpack (sv!!1))
-  "Support" -> return $ LiquidationSupport contents
-  "PayInt" -> return $ PayInt [contents]
-  "PayYield" -> return $ PayYield contents
-  "PayPrin" -> return $ PayPrin [contents]
-  "WriteOff" -> let 
-                  sv = T.splitOn (T.pack ",") $ T.pack contents
-                in 
-                  return $ WriteOff (T.unpack (head sv)) (read (T.unpack (sv!!1))::Balance)
-  "PayPrinResidual" -> return $ PayPrinResidual [contents]
-  "PayFee" -> return $ PayFee contents
-  "SeqPayFee" -> return $ SeqPayFee [contents]
-  "PayFeeYield" -> return $ PayFeeYield contents
-  "TransferBy" -> let 
-                  sv = T.splitOn (T.pack ",") $ T.pack contents
-                in 
-                  return $ TransferBy (T.unpack (head sv)) (T.unpack (sv!!1)) (read (T.unpack (sv!!2))::Limit)
-  "Pool" -> let 
-              sr = T.splitOn (T.pack ":") $ T.pack contents
-              mPids = if head sr == "Nothing" then 
-                        Nothing 
-                      else 
-                        Just (read <$> T.unpack <$> sr)::(Maybe [PoolId])
-            in 
-              return $ PoolInflow mPids (read (T.unpack (sr!!1))::PoolSource)
-  "Liquidation" -> let 
-                      sv = T.splitOn (T.pack ",") $ T.pack contents
-                      pids::[PoolId] = read <$> T.unpack <$> sv
-                    in
-                      return $ LiquidationProceeds pids
-
-  "DS" -> return $ UsingDS (read (contents)::DealStats)
-  "LiquidationSupportExp" -> let 
-                              sv = T.splitOn (T.pack ",") $ T.pack contents
-                            in 
-                              return $ LiquidationSupportInt (read (T.unpack (head sv))::Balance) (read (T.unpack (sv!!1))::Balance)
-  "SupportDraw" -> return SupportDraw
-  "Draw" -> return LiquidationDraw
-  "Repay" -> return $ LiquidationRepay contents
-  "Accure" -> return SwapAccrue
-  "SettleIn" -> return $ SwapInSettle contents
-  "SettleOut" -> return $ SwapOutSettle contents
-  "PurchaseAsset" -> let 
-                      sv = T.splitOn (T.pack ",") $ T.pack contents
-                      in 
-                      return $ PurchaseAsset (read (T.unpack (sv!!0))::String)  (read (T.unpack (sv!!1))::Balance)
-
-  "TxnDirection" -> return $ TxnDirection (read contents::BookDirection)
-  "FundWith" -> let 
-                  sv = T.splitOn (T.pack ",") $ T.pack contents
-                in 
-                  return $ FundWith (T.unpack (head sv)) (read (T.unpack (sv!!1))::Balance)
---   toJSON (IssuanceProceeds nb) = String $ T.pack $ "<IssuanceProceeds:"++nb++">"
-  "IssuanceProceeds" -> return $ IssuanceProceeds contents                  
-  "Tag" -> return $ Tag contents                  
-  where 
-      pat = "<(\\S+):(\\S+)>"::String
-      sr = (T.unpack t =~ pat)::[[String]]
-      tagName =  head sr!!1::String
-      contents = head sr!!2::String
+-- | Strict canonical decoder: every tag has exactly one grammar, mirroring
+-- 'txnPayload'. Legacy and malformed forms fail with a descriptive 'Parser'
+-- error instead of throwing.
+parseTxn :: T.Text -> Parser TxnComment
+parseTxn "" = pure Empty
+parseTxn t =
+  case txnSplitComment t of
+    Nothing -> txnFail
+    Just (tag, contents) -> case tag of
+      "Transfer" -> do
+        (a1, a2) <- txnField2 tag contents
+        pure $ Transfer (T.unpack a1) (T.unpack a2)
+      "Support"   -> pure $ LiquidationSupport (T.unpack contents)
+      "PayInt"    -> pure $ PayInt (txnNames contents)
+      "PayYield"  -> pure $ PayYield (T.unpack contents)
+      "PayPrin"   -> pure $ PayPrin (txnNames contents)
+      "WriteOff" -> do
+        (bn, amt) <- txnField2 tag contents
+        b <- txnReadField tag amt
+        pure $ WriteOff (T.unpack bn) b
+      "PayPrinResidual" -> pure $ PayPrinResidual (txnNames contents)
+      "PayFee"      -> pure $ PayFee (T.unpack contents)
+      "SeqPayFee"   -> pure $ SeqPayFee (txnNames contents)
+      "PayFeeYield" -> pure $ PayFeeYield (T.unpack contents)
+      "TransferBy" -> do
+        (a1, a2, lm) <- txnField3 tag contents
+        l <- txnReadField tag lm
+        pure $ TransferBy (T.unpack a1) (T.unpack a2) l
+      "Pool" -> do
+        (idsPart, srcPart) <- txnField2 tag contents
+        src <- txnReadField tag srcPart
+        mIds <- if T.null idsPart
+                  then pure Nothing
+                  else Just <$> mapM (txnReadField tag) (T.splitOn "|" idsPart)
+        pure $ PoolInflow mIds src
+      "Liquidation" -> LiquidationProceeds <$> mapM (txnReadField tag) (txnSplitFields contents)
+      "DS" -> UsingDS <$> txnReadField tag contents
+      "SupportExp" -> do
+        (b1t, b2t) <- txnField2 tag contents
+        b1 <- txnReadField tag b1t
+        b2 <- txnReadField tag b2t
+        pure $ LiquidationSupportInt b1 b2
+      "SupportDraw" -> txnNoPayload tag contents >> pure SupportDraw
+      "Draw"        -> txnNoPayload tag contents >> pure LiquidationDraw
+      "Repay"       -> pure $ LiquidationRepay (T.unpack contents)
+      "Accure"      -> txnNoPayload tag contents >> pure SwapAccrue
+      "SettleIn"    -> pure $ SwapInSettle (T.unpack contents)
+      "SettleOut"   -> pure $ SwapOutSettle (T.unpack contents)
+      "PurchaseAsset" -> do
+        (nm, amt) <- txnField2 tag contents
+        b <- txnReadField tag amt
+        pure $ PurchaseAsset (T.unpack nm) b
+      "TxnDirection" -> TxnDirection <$> txnReadField tag contents
+      "FundWith" -> do
+        (bn, amt) <- txnField2 tag contents
+        b <- txnReadField tag amt
+        pure $ FundWith (T.unpack bn) b
+      "IssuanceProceeds" -> pure $ IssuanceProceeds (T.unpack contents)
+      "Tag"          -> pure $ Tag (T.unpack contents)
+      "PayGroupInt"  -> pure $ PayGroupInt (txnNames contents)
+      "PayGroupPrin" -> pure $ PayGroupPrin (txnNames contents)
+      "BookLedger" -> do
+        (drt, lName) <- txnField2 tag contents
+        dr <- txnReadField tag drt
+        pure $ BookLedgerBy dr (T.unpack lName)
+      "BankInt" -> txnNoPayload tag contents >> pure BankInt
+      _ -> txnFail
+  where
+    txnFail = fail ("parseTxn: invalid or unsupported txn comment: " ++ show t
+                    ++ " (expected canonical form '<Tag:payload>')")
 
 
 mapKVTraversal :: Traversal' (Map.Map k a) (k, a)
@@ -1200,8 +1259,10 @@ getDealStatType (DealStatBool _) = RtnBool
 getDealStatType (ConstTrue) = RtnBool
 getDealStatType (ConstFalse) = RtnBool
 
-getDealStatType (Max dss) = getDealStatType (head dss)
-getDealStatType (Min dss) = getDealStatType (head dss)
+getDealStatType (Max (d:_)) = getDealStatType d
+getDealStatType (Max []) = RtnBalance
+getDealStatType (Min (d:_)) = getDealStatType d
+getDealStatType (Min []) = RtnBalance
 getDealStatType _ = RtnBalance
 
 dealStatType _ = RtnBalance

@@ -5,7 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module AssetClass.Lease
-  (Lease(..),projCashflow,updateOriginDate)
+  (Lease(..),projCashflow,updateOriginDate,calcEndDate)
   where
 
 import qualified Data.Time as T
@@ -79,8 +79,12 @@ getNewRental (AP.BaseByVec rs) sd ed (ByPeriodRental rental per)
       (AP.BaseByVec nextRs, ByPeriodRental newRental per)
 
 calcEndDate :: Date -> Int -> LeaseRateCalc -> Date 
-calcEndDate sd periods (ByDayRate _ dp) = last $ genSerialDates dp Exc sd periods
-calcEndDate sd periods (ByPeriodRental _ per) = last $ genDates sd per periods
+calcEndDate sd periods (ByDayRate _ dp) = case genSerialDates dp Exc sd periods of 
+                                            [] -> sd 
+                                            ds -> last ds
+calcEndDate sd periods (ByPeriodRental _ per) = case genDates sd per periods of 
+                                                  [] -> sd 
+                                                  ds -> last ds
 
 calcGapDays :: AP.LeaseAssetGapAssump -> Date -> Int
 calcGapDays (AP.GapDays days) _ = days
@@ -90,7 +94,7 @@ calcGapDays (AP.GapDaysByCurve ts) d = round $ fromRational $ getValByDate ts Ex
 nextLease :: Lease -> (AP.LeaseAssetRentAssump, TermChangeRate, DayGap) -> (Lease, Date ,(AP.LeaseAssetRentAssump, TermChangeRate, DayGap))
 nextLease l@(RegularLease (LeaseInfo sd ot rental ob) bal rt _) (rAssump,tc,gd) 
   = let
-        leaseEndDate = last $ getPaymentDates l 0
+        leaseEndDate = case getPaymentDates l 0 of [] -> sd; ds -> last ds
         nextStartDate = T.addDays (succ (toInteger gd)) leaseEndDate
 
         nextOriginTerm = round $ mulIR ot (1+tc) 
@@ -106,7 +110,7 @@ nextLease l@(RegularLease (LeaseInfo sd ot rental ob) bal rt _) (rAssump,tc,gd)
 
 nextLease l@(StepUpLease (LeaseInfo sd ot rental ob) lsteupInfo bal rt _) (rAssump,tc,gd) 
   = let 
-        leaseEndDate = last $ getPaymentDates l 0
+        leaseEndDate = case getPaymentDates l 0 of [] -> sd; ds -> last ds
         nextStartDate = T.addDays (succ (toInteger gd)) leaseEndDate -- `debug` ("Gap Day ->"++ show gd)
         nextOriginTerm = round $ mulIR ot (1+tc) 
         nextEndDate = calcEndDate nextStartDate ot rental
@@ -260,7 +264,7 @@ instance Asset Lease where
         let pDates = lastN (getRemainTerms l) $ getPaymentDates l 0 
         let bals = tail $ scanl (-) bal pmts  -- `debug` ("pDates "++ show pDates)
         let defaults = replicate (length pDates) 0.0 -- `debug` ("bals"++ show bals++ ">> d"++ show d)
-        return $ CF.CashFlowFrame (head bals,max d (getOriginDate l), Nothing) $ cutBy Inc Future d (zipWith4 CF.LeaseFlow pDates bals pmts defaults)
+        return $ CF.CashFlowFrame (case bals of [] -> bal; (b:_) -> b ,max d (getOriginDate l), Nothing) $ cutBy Inc Future d (zipWith4 CF.LeaseFlow pDates bals pmts defaults)
 
     getOriginInfo (StepUpLease lInfo lsteupInfo bal rt st) =  lInfo
     getOriginInfo (RegularLease lInfo bal rt st) = lInfo
@@ -299,7 +303,7 @@ instance Asset Lease where
           newLeases = nextLeaseTill 
                         l
                         (rentAssump , 0.0 , pickGapDays gapAssump) 
-                        (last pdates) 
+                        (case pdates of [] -> getOriginDate l; _ -> last pdates) 
                         endType
                         []
           stressRentals  = 0
@@ -335,7 +339,8 @@ instance Asset Lease where
                 StepUpLease (LeaseInfo sd _ _ _) _ bal _ _  -> sd 
       in  
         case calcCashflow l _sd Nothing of
-            Right (CF.CashFlowFrame _ txns) -> CF.mflowBegBalance $ head txns
+            Right (CF.CashFlowFrame _ []) -> 0
+            Right (CF.CashFlowFrame _ (t:_)) -> CF.mflowBegBalance t
             Left _ -> 0
 
     splitWith (RegularLease (LeaseInfo sd ot dr ob) bal rt st ) rs

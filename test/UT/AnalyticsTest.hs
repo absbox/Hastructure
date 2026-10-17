@@ -1,4 +1,4 @@
-module UT.AnalyticsTest(walTest,durationTest,fvTest,assetPricingTest,irrTest,survivorTest)
+module UT.AnalyticsTest(walTest,durationTest,fvTest,assetPricingTest,irrTest,survivorTest,hermiteTest)
 where
 
 import Test.Tasty
@@ -30,7 +30,24 @@ walTest =
         assertEqual ""
           0.74
           (calcWAL ByYear 100 (L.toDate "20230101") _ps )
-    ]
+  ]
+
+hermiteTest =
+  testGroup "Hermite interpolation safety" [
+    testCase "single yield point does not crash" $
+        assertEqual "one point returns that yield"
+            [1.0]
+            (interpolateWithHermite (L.toDate "20230101", [(L.toDate "20230101", 1.0)]) [L.toDate "20230101"])
+    ,testCase "empty yield curve does not crash" $
+        assertEqual "no points returns zeros"
+            [0.0]
+            (interpolateWithHermite (L.toDate "20230101", []) [L.toDate "20230101"])
+    ,testCase "two yield points still interpolate" $
+        assertBool "interior point yields a value between the two yields" $
+          case interpolateWithHermite (L.toDate "20230101", [(L.toDate "20230101", 1.0),(L.toDate "20240101", 2.0)]) [L.toDate "20230701"] of
+            [v] -> v > 1.0 && v < 2.0
+            _ -> False
+  ]
 
 durationTest = 
   testGroup "Duration Test" 

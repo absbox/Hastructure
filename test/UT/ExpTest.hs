@@ -30,7 +30,7 @@ expTests =  testGroup "Expense Tests"
       _calcDate = (L.toDate "20220310")
       _calcDate2 = (L.toDate "20220115")
       _calcDate3 = (L.toDate "20220415")
-      ctx = RunContext {}
+      ctx = defaultRunContext
       feesCalc = sequenceA [(DA.calcDueFee DT.td2 ctx _calcDate f1) ,(DA.calcDueFee DT.td2 ctx _calcDate2 f1) ,(DA.calcDueFee DT.td2 ctx _calcDate3 f2) ,(DA.calcDueFee DT.td2 ctx _calcDate3 f1)]
     in
       testCase "calc on diff same period for recur fee" $
@@ -53,7 +53,7 @@ expTests =  testGroup "Expense Tests"
 
       f1WithDue = Fee "FeeName1" (FeeFlow (L.BalanceCurve tsPoints)) (L.toDate "20210101") 3 Nothing 0 Nothing Nothing
       _f1WithDue = f1WithDue {feeType= FeeFlow (L.BalanceCurve [(L.TsPoint (L.toDate "20220601") 20.0)]), feeDue = 28, feeDueDate = Just _calcDate}
-      ctx = RunContext {}
+      ctx = defaultRunContext
       feesCalc = sequenceA [DA.calcDueFee DT.td2 ctx _calcDate f1
                             ,DA.calcDueFee DT.td2 ctx _calcDate2 f1
                             ,DA.calcDueFee DT.td2 ctx _calcDate3 f1

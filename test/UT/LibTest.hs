@@ -1,19 +1,23 @@
+{-# LANGUAGE OverloadedStrings #-}
 module UT.LibTest(curveTests
                  --,queryStmtTests
                  ,datesTests
                  ,prorataTests
                  ,tsOperationTests
-                 ,pvTests,seqFunTest,periodCurveTest)
+                 ,pvTests,seqFunTest,periodCurveTest
+                 ,libSafetyTests)
 where
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import qualified Data.Time as T
+import qualified Data.Aeson as A
 import Lib
 import Types
 import Util
 import Stmt
+import DateUtil
 import Data.Ratio
 
 curveTests =
@@ -115,6 +119,32 @@ datesTests = testGroup "date related "
      testCase "zero extra" $
      assertEqual "1 Month" [] d2
 
+   ,testCase "Weekly dates" $
+     assertEqual "weekly schedule"
+       (toDates ["20220808","20220815","20220822"])
+       (genDates (toDate "20220801") Weekly 3)
+   ,testCase "BiWeekly dates" $
+     assertEqual "biweekly schedule"
+       (toDates ["20220815","20220829","20220912"])
+       (genDates (toDate "20220801") BiWeekly 3)
+   ,testCase "Daily dates" $
+     assertEqual "daily schedule"
+       (toDates ["20220802","20220803","20220804"])
+       (genDates (toDate "20220801") Daily 3)
+   ,testCase "nextDate weekly is total" $
+     assertEqual "next weekly" (toDate "20220808") (nextDate (toDate "20220801") Weekly)
+   ,testCase "nextDate biweekly is total" $
+     assertEqual "next biweekly" (toDate "20220815") (nextDate (toDate "20220801") BiWeekly)
+   ,testCase "afterNPeriod weekly" $
+     assertEqual "3 weekly" (toDate "20220822") (afterNPeriod (toDate "20220801") 3 Weekly)
+   ,testCase "afterNPeriod biweekly" $
+     assertEqual "2 biweekly" (toDate "20220829") (afterNPeriod (toDate "20220801") 2 BiWeekly)
+   ,testCase "afterNPeriod daily" $
+     assertEqual "5 daily" (toDate "20220806") (afterNPeriod (toDate "20220801") 5 Daily)
+   ,testCase "period rate BiWeekly" $
+     assertEqual "annual->biweekly" 1 (periodRateFromAnnualRate BiWeekly 26.0715)
+   ,testCase "period rate Weekly" $
+     assertEqual "annual->weekly" 1 (periodRateFromAnnualRate Weekly 52.143)
   ]
 
 prorataTests = testGroup "prorata Test"
@@ -134,6 +164,42 @@ prorataTests = testGroup "prorata Test"
         assertEqual ""
           [20,40,0]
           (prorataFactors bals2 60)
+    ,
+    let 
+      bals3 = [100,100,100]
+    in 
+      testCase "residual goes to first on tie" $
+        assertEqual ""
+          [13.34,13.33,13.33]
+          (prorataFactors bals3 40)
+    ,
+    let
+      bals4 = replicate 12 0.01
+      alloc4 = prorataFactors bals4 0.10
+    in
+      testCase "many small bals has no negative allocation" $ do
+        assertBool "all allocations non-negative" (all (>= 0) alloc4)
+        assertEqual "allocations sum to requested amount" 0.10 (sum alloc4)
+    ,
+    testCase "amt greater than total balance is capped" $
+      assertEqual ""
+        [100,200]
+        (prorataFactors [100,200] 500)
+    ,
+    testCase "zero total balance gives zeros" $
+      assertEqual ""
+        [0,0]
+        (prorataFactors [0,0] 40)
+    ,
+    testCase "negative balance carries no weight" $
+      assertEqual ""
+        [50,0,50]
+        (prorataFactors [100, -50, 100] 100)
+    ,
+    testCase "all-negative balances give zeros" $
+      assertEqual ""
+        [0,0]
+        (prorataFactors [-10, -20] 30)
   ]
 
 tsOperationTests =
@@ -196,3 +262,71 @@ seqFunTest =
       [100,10,0]
       (paySeqLiabilitiesAmt 120 [100,10,0])
     ]
+
+libSafetyTests =
+  let
+    d = toDate "20220101"
+    -- one witness per TxnComment constructor, incl. edge shapes
+    -- (empty lists, multi-element lists, colon-bearing content, nested comments)
+    txnWitnesses =
+      [ PayInt [], PayInt ["B1","B2"], PayYield "B1", PayPrin ["B1","B2"]
+      , PayGroupPrin ["B1"], PayGroupInt ["B1","B2"]
+      , WriteOff "B1" 10.5, FundWith "B1" 20, PayPrinResidual ["B1","B2"]
+      , PayFee "F1", SeqPayFee [], SeqPayFee ["F1","F2"], PayFeeYield "F1"
+      , Transfer "A1" "A2", TransferBy "A1" "A2" (DueCapAmt 30)
+      , BookLedgerBy Credit "L1", BookLedgerBy Debit "L2"
+      , PoolInflow Nothing CollectedInterest
+      , PoolInflow (Just [PoolName "p1", PoolConsol]) CollectedCash
+      , LiquidationProceeds [PoolName "p1", PoolConsol]
+      , LiquidationSupport "src", LiquidationDraw, LiquidationRepay "r"
+      , LiquidationSupportInt 1.5 2.5, BankInt, SupportDraw, Empty, Tag "a:b,c"
+      , UsingDS CurrentBondBalance, SwapAccrue, SwapInSettle "s1", SwapOutSettle "s2"
+      , PurchaseAsset "P1" 5, IssuanceProceeds "nb"
+      , TxnDirection Credit, TxnDirection Debit
+      , TxnComments [BankInt, Transfer "a" "b"] ]
+  in
+  testGroup "library safety (total head/last)"
+  [
+    testCase "getValByDate on empty ThresholdCurve returns 0" $
+      assertEqual "0" (0::Rational) (getValByDate (ThresholdCurve []) Inc d)
+  , testCase "getValByDate on empty PricingCurve returns 0" $
+      assertEqual "0" (0::Rational) (getValByDate (PricingCurve []) Inc d)
+  , testCase "getDealStatType (Max []) returns RtnBalance" $
+      assertEqual "RtnBalance" RtnBalance (getDealStatType (Max []))
+  , testCase "getDealStatType (Min []) returns RtnBalance" $
+      assertEqual "RtnBalance" RtnBalance (getDealStatType (Min []))
+  , testCase "genSerialDatesTill2 with empty generated dates does not crash" $
+      assertEqual "sd and ed included for II"
+        [toDate "20220101", toDate "20221231"]
+        (genSerialDatesTill2 II (toDate "20220101") (SingletonDate (toDate "20500101")) (toDate "20221231"))
+  , testCase "parseTxn on invalid string fails instead of crashing" $
+      assertBool "should be a parse error" $
+        case (A.fromJSON (A.String "garbage") :: A.Result TxnComment) of
+          A.Error _ -> True
+          A.Success _ -> False
+  , testCase "parseTxn on valid tag string still parses" $
+      assertBool "should parse Tag" $
+        case (A.fromJSON (A.String "<Tag:hello>") :: A.Result TxnComment) of
+          A.Success (Tag t) -> t == "hello"
+          _ -> False
+  , testCase "TxnComment codec roundtrips every constructor" $
+      mapM_ (\v -> assertEqual ("roundtrip of " ++ show v) (A.Success v)
+                    (A.fromJSON (A.toJSON v) :: A.Result TxnComment))
+            txnWitnesses
+  , testCase "TxnComment codec rejects legacy and malformed forms cleanly" $
+      mapM_ (\s -> assertBool ("should reject " ++ show s)
+                    (case (A.fromJSON (A.String s) :: A.Result TxnComment) of
+                       A.Error _ -> True
+                       A.Success _ -> False))
+            [ "<BankInt>"                                -- legacy literal, no colon
+            , "<BankInterest:>"                          -- pre-0.52.8 encoder output
+            , "<SupportExp:(Int:1.50,Fee:2.50)>"         -- legacy embedded-colon form
+            , "<Pool:PoolName \"p1\":CollectedInterest>" -- legacy colon-separated ids/source
+            , "<BookLedger:L1>"                          -- bare ledger name (no direction)
+            , "<SupportDraw:x>"                          -- payload on a no-payload tag
+            , "<Transfer:one>"                           -- wrong arity
+            , "<WriteOff:a,zz>"                          -- malformed Balance
+            , "<DS:not-a-stat>"                          -- malformed DealStats
+            , "<NoSuchTag:x>"                            -- unknown tag
+            ]
+  ]

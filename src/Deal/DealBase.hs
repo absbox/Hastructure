@@ -16,7 +16,7 @@ module Deal.DealBase (TestDeal(..),SPV(..),dealBonds,dealFees,dealAccounts,dealP
                     ,DealStatFields(..),getDealStatInt,isPreClosing,populateDealDates
                     ,bondTraversal,findBondByNames,updateBondInMap,traverseBondMap,traverseBondMapByFn
                     ,_MultiPool,_ResecDeal,uDealFutureCf,uDealFutureScheduleCf
-                    ,RunContext(..),getNextPoolCfTxn
+                    ,RunContext(..),defaultRunContext,getNextPoolCfTxn
                     )                      
   where
 import qualified Accounts as A
@@ -215,6 +215,10 @@ data RunContext = RunContext{
                   }
                   deriving (Show)
 
+-- | Total default: an empty pool flow and no revolving assumptions/rates.
+defaultRunContext :: RunContext
+defaultRunContext = RunContext Map.empty Nothing Nothing
+
 getNextPoolCfTxn :: Map.Map PoolId CF.PoolCashflow ->  Map.Map PoolId (Maybe CF.TsRow)
 getNextPoolCfTxn poolCfMap = Map.map (\case
                                           ((CF.CashFlowFrame (_,_,_) []),_) -> Nothing --TODO it looks can be deleted
@@ -237,7 +241,9 @@ populateDealDates (CurrentDates (lastCollect,lastPay) mRevolving end (nextCollec
       futureCollectDates = genSerialDatesTill2 IE nextCollect poolDp end 
       pa = [ PoolCollection _d "" | _d <- futureCollectDates]
     in 
-      return (lastCollect, lastPay,head futurePayDates, pa, ba, end, []) 
+      case futurePayDates of 
+        [] -> Left $ "populateDealDates: no payment dates between "++ show nextPay ++ " and "++ show end
+        (firstFuturePay:_) -> return (lastCollect, lastPay, firstFuturePay, pa, ba, end, []) 
 
 populateDealDates (GenericDates m) st 
   = let 

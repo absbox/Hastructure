@@ -583,7 +583,11 @@ calcWalBond d (BondGroup bMap _)
       weightedBy bndBals bndWal
 
 calcWalBond d b
-  = let 
+  | null txns = 0
+  | cutoffBalance == 0 = 0
+  | lastBalance > 0 = 0
+  | otherwise = toRational wal -- `debug` ("WAL-->"++show (bndName b)++">>"++show wal)
+  where
       txns = cutBy Exc Future d $ S.getAllTxns b 
       cutoffBalance =  (S.getTxnBegBalance . head ) txns 
       lastBalance = (S.getTxnBalance . last) txns 
@@ -591,11 +595,6 @@ calcWalBond d b
       gapDays = (daysBetween firstTxnDate) . S.getDate <$> txns
       weightPrins = zipWith (*) (S.getTxnPrincipal <$> txns) (fromIntegral <$> gapDays) 
       wal = sum weightPrins / 365 / cutoffBalance 
-    in 
-      if lastBalance > 0 then
-        0  
-      else
-        toRational wal -- `debug` ("WAL-->"++show (bndName b)++">>"++show wal)
 
 
 getTxnRate :: Txn -> IRate
@@ -616,7 +615,9 @@ priceBond d rc bnd
   | otherwise 
       = let
           cutoffBalance = case S.getTxnAsOf txns d of
-                              Nothing ->  (S.getTxnBegBalance . head) txns
+                              Nothing -> case txns of 
+                                           [] -> 0
+                                           (t:_) -> S.getTxnBegBalance t
                               Just _txn -> S.getTxnBegBalance _txn
           -- TODO: what if in current deal,no transaction before pricing day ? what's the begin day for interest to accrual?
           accruedInt = backoutAccruedInt d (getOriginDate bnd) txns

@@ -24,7 +24,7 @@ capRateTests =
                   (Lib.toDate "20240101") QuarterEnd (Lib.toDate "20270101")
                   0.03 Nothing 0 Nothing
     indexAssump = [RateFlat LIBOR6M 0.04]
-    ctx = D.RunContext {}
+    ctx = D.defaultRunContext
     rc1 = accrueRC td2 ctx (Lib.toDate "20241231") indexAssump rc
   in
     testGroup "Cap Rate Tests"

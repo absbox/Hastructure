@@ -5,7 +5,7 @@
 
 module Cashflow (CashFlowFrame(..),Principals,Interests,Amount
                 ,combine,mergePoolCf,sumTsCF,tsSetLoss,tsSetRecovery
-                ,sizeCashFlowFrame,aggTsByDates,emptyCashFlowFrame
+                ,sizeCashFlowFrame,aggTsByDates,emptyCashFlowFrame,buildCollectedCF
                 ,mflowInterest,mflowPrincipal,mflowRecovery,mflowPrepayment
                 ,mflowRental,mflowRate,sumPoolFlow,splitTrs,aggregateTsByDate
                 ,mflowDefault,mflowLoss
@@ -41,6 +41,7 @@ import qualified Data.Map as Map
 import qualified Data.Time as T
 import qualified Data.List as L
 import Data.Maybe 
+import Data.List.NonEmpty (NonEmpty(..), nonEmpty)
 
 import Data.Aeson hiding (json)
 import Language.Haskell.TH
@@ -450,14 +451,11 @@ buildBegBal [] = 0
 buildBegBal (x:xs) = mflowBegBalance x
 
 
-sumTs :: [TsRow] -> Date -> TsRow
-sumTs trs d = set tsDate d (foldr1 addTs trs)
-
--- ^ group cashflow from same entity by a single date
-sumTsCF :: [TsRow] -> Date -> TsRow
--- sumTsCF [] = tsSetDate (foldl1 addTsCF trs) -- `debug` ("Summing"++show trs++">>"++ show (tsSetDate (foldr1 addTsCF trs) d))
-sumTsCF [] _ = error "sumTsCF failed with empty list"
-sumTsCF trs d = set tsDate d (foldl1 addTsCF trs) --  `debug` ("Summing"++show trs++">>"++ show (tsSetDate (foldr1 addTsCF trs) d))
+-- | Group cashflow rows from the same entity by a single date. The input is
+-- 'NonEmpty' by construction: a group with no rows has no result row to
+-- produce, so callers decide what "no group" means (see 'aggTsByDates').
+sumTsCF :: NonEmpty TsRow -> Date -> TsRow
+sumTsCF (r :| rs) d = set tsDate d (L.foldl addTsCF r rs)
 
 tsTotalCash :: TsRow -> Balance
 tsTotalCash (CashFlow _ x) = x
@@ -574,9 +572,9 @@ aggregateTsByDate (r:rs) (tr:trs)
 
 
 firstDate :: CashFlowFrame -> Date 
-firstDate (CashFlowFrame _ []) = error "empty cashflow frame to get first date"
-firstDate (CashFlowFrame _ [r]) = getDate r
-firstDate (CashFlowFrame _ (r:rs)) = getDate r
+firstDate (CashFlowFrame (_,bd,_) []) = bd
+firstDate (CashFlowFrame _ (r:_)) = getDate r
+firstDate DummyCF = epocDate
 
 
 -- ! combine two cashflow frames from two entities
@@ -596,7 +594,10 @@ combine cf1@(CashFlowFrame st1@(begBal1,begDate1,acc1) txn1) cf2@(CashFlowFrame 
 buildCollectedCF :: [[TsRow]] -> [Date] -> [TsRow] -> [[TsRow]]
 buildCollectedCF [] [] [] = []
 buildCollectedCF trs [] _trs = trs
-buildCollectedCF trs ds [] = trs ++ [ [viewTsRow _d ((last . last) trs)] | _d <- ds ]
+buildCollectedCF trs ds [] = 
+  case Util.lastOf trs (not . null) of
+    Just lastTr -> trs ++ [ [viewTsRow _d (last lastTr)] | _d <- ds ]
+    Nothing -> trs ++ replicate (length ds) []
 buildCollectedCF trs (d:ds) _trs =
   case newFlow of
     [] -> case Util.lastOf trs (not . null) of
@@ -606,12 +607,10 @@ buildCollectedCF trs (d:ds) _trs =
   where 
     (newFlow, remains) = splitBy d Inc _trs
 
-buildCollectedCF a b c = error $ "buildCollectedCF failed"++ show a++">>"++ show b++">>"++ show c
-
 
 aggTsByDates :: [TsRow] -> [Date] -> [TsRow]
 aggTsByDates [] ds = []
-aggTsByDates trs ds = uncurry sumTsCF <$> filter (\(cfs,_d) -> (not . null) cfs) (zip (buildCollectedCF [] ds trs) ds) -- `debug` (">>> to sumTsCF "++ show (zip (buildCollectedCF [] ds trs) ds ))
+aggTsByDates trs ds = mapMaybe (\(cfs,d) -> (\ne -> sumTsCF ne d) <$> nonEmpty cfs) (zip (buildCollectedCF [] ds trs) ds)
 
 mflowPrincipal :: TsRow -> Balance
 mflowPrincipal (BondFlow _ _ p _) = p
@@ -631,6 +630,7 @@ mflowInterest x  = error $ "not supported: getting interest from row" ++ show x
 
 viewTsRow :: Date -> TsRow -> TsRow 
 -- ^ take a snapshot of a record from record balance/stats and a new date
+viewTsRow _d (CashFlow _ _) = CashFlow _d 0
 viewTsRow _d (MortgageDelinqFlow a b c d e f g h i j k l m) = MortgageDelinqFlow _d b 0 0 0 0 0 0 0 j k l m
 viewTsRow _d (MortgageFlow a b c d e f g h i j k l) = MortgageFlow _d b 0 0 0 0 0 0 i j k l
 viewTsRow _d (LoanFlow a b c d e f g i j k) = LoanFlow _d b 0 0 0 0 0 0 j k
@@ -735,7 +735,7 @@ mflowBorrowerNum :: TsRow -> Maybe BorrowerNum
 -- ^ get borrower numfer for Mortgage Flow
 mflowBorrowerNum (MortgageFlow _ _ _ _ _ _ _ _ _ x _ _) = x
 mflowBorrowerNum (MortgageDelinqFlow _ _ _ _ _ _ _ _ _ _ x _ _) = x
-mflowBorrowerNum _ = undefined
+mflowBorrowerNum _ = Nothing
 
 mflowPrepaymentPenalty :: TsRow -> Balance
 -- ^ get prepayment penalty for a cashflow record
@@ -743,7 +743,7 @@ mflowPrepaymentPenalty (MortgageFlow _ _ _ _ _ _ _ _ _ _ (Just x) _) = x
 mflowPrepaymentPenalty (MortgageFlow _ _ _ _ _ _ _ _ _ _ Nothing _) = 0
 mflowPrepaymentPenalty (MortgageDelinqFlow _ _ _ _ _ _ _ _ _ _ _ (Just x) _) = x
 mflowPrepaymentPenalty (MortgageDelinqFlow _ _ _ _ _ _ _ _ _ _ _ Nothing _) = 0
-mflowPrepaymentPenalty _ = undefined
+mflowPrepaymentPenalty _ = 0
 
 -- tobe factor out alongside with similar funciton in bond cashflow
 mflowWeightAverageBalance :: Date -> Date -> [TsRow] -> Balance
@@ -757,6 +757,7 @@ mflowWeightAverageBalance sd ed trs
 
 emptyTsRow :: Date -> TsRow -> TsRow 
 -- ^ reset all cashflow fields to zero and init with a date
+emptyTsRow _d (CashFlow _ _) = CashFlow _d 0
 emptyTsRow _d (MortgageDelinqFlow a x c d e f g h i j k l m) = MortgageDelinqFlow _d 0 0 0 0 0 0 0 0 0 Nothing Nothing Nothing
 emptyTsRow _d (MortgageFlow a x c d e f g h i j k l) = MortgageFlow _d 0 0 0 0 0 0 0 0 Nothing Nothing Nothing
 emptyTsRow _d (LoanFlow a x c d e f g i j k) = LoanFlow _d 0 0 0 0 0 0 0 0 Nothing

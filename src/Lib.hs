@@ -7,7 +7,7 @@ module Lib
     ,StartDate,EndDate,daysBetween,daysBetweenI
     ,Spread,Date
     ,paySeqLiabilities,prorataFactors
-    ,afterNPeriod,Ts(..),periodsBetween
+    ,afterNPeriod,Ts(..),monthsBetween
     ,periodRateFromAnnualRate
     ,Floor,Cap,TsPoint(..)
     ,toDate,toDates,genDates,nextDate
@@ -30,9 +30,6 @@ import Data.Aeson hiding (json)
 import Data.Fixed (Fixed(..), HasResolution,Centi, resolution)
 import Data.Ratio
 import Types
-import Control.Lens
-import Data.List.Lens
-import Control.Lens.TH
 import Data.Decimal
 import Debug.Trace
 debug = flip trace
@@ -45,6 +42,7 @@ periodRateFromAnnualRate Quarterly annual_rate  = annual_rate / 4
 periodRateFromAnnualRate SemiAnnually annual_rate  = annual_rate / 2
 periodRateFromAnnualRate Daily annual_rate  = annual_rate / 365
 periodRateFromAnnualRate Weekly annual_rate  = annual_rate / 52.143
+periodRateFromAnnualRate BiWeekly annual_rate  = annual_rate / 26.0715
 
 addD :: Date -> T.CalendarDiffDays -> Date
 addD d calendarMonth = T.addGregorianDurationClip T.calendarMonth d
@@ -62,24 +60,25 @@ getIntervalFactors ds = (\x -> toRational x / 365) <$> getIntervalDays ds -- `de
 centiToDecimal :: Centi -> Decimal
 centiToDecimal c = Decimal 2 (round c * 100)
 
--- | 
+-- | Allocate amt across balances pro-rata using the largest remainder
+-- method: every allocation is non-negative and allocations sum exactly to
+-- min (sum of balances) amt (to the cent). Residual cents go to the elements
+-- with the largest fractional remainders, ties broken by index order.
+-- Negative balances carry no weight (treated as zero) instead of producing
+-- negative allocations (#322 review L3).
 prorataFactors :: [Balance] -> Balance -> [Balance]
-prorataFactors bals amt =
-  let 
-    s = toRational $ sum bals
-    amtToPay = toRational $ min s (toRational amt)
-  in 
-    case s of 
-      0.0 -> replicate (length bals) 0.0
-      _ -> let 
-             weights = map (\x -> toRational x / s) bals 
-             outPut = (\y -> fromRational (y * amtToPay)) <$> weights 
-             eps = amt - sum outPut
-           in 
-             if eps == 0.00 then
-                outPut
-             else
-                over (ix 0) (+ eps) outPut
+prorataFactors bals amt
+  | totalCents <= 0 = replicate (length bals) 0
+  | otherwise = map (toEnum . fromInteger) $ zipWith (+) baseAdds extraCents
+  where
+    centList = max 0 . toInteger . fromEnum <$> bals
+    totalCents = sum centList
+    payCents = max 0 $ min totalCents (toInteger $ fromEnum amt)
+    baseAdds = [ b * payCents `div` totalCents | b <- centList ]
+    residual = payCents - sum baseAdds
+    order = sortOn (negate . snd) $ zip [0..] [ b * payCents `mod` totalCents | b <- centList ]
+    extraIdx = fst <$> take (fromInteger residual) order
+    extraCents = [ if i `elem` extraIdx then 1 else 0 | i <- [0 .. length bals - 1] ]
 
 -- 
 
@@ -108,24 +107,27 @@ paySeqLiabResi startAmt funds
     allocatedAmts = paySeqLiabilitiesAmt startAmt funds
 
 afterNPeriod :: T.Day -> Integer -> Period -> T.Day
-afterNPeriod d i p =
-  T.addGregorianMonthsClip ( months * i)  d
-  where
-    months = case p of
-      Monthly -> 1
-      Quarterly -> 3
-      SemiAnnually -> 6
-      Annually -> 12
+afterNPeriod d i p = advancePeriod i p d
 
-periodsBetween :: T.Day -> T.Day -> Period -> Integer
-periodsBetween t1 t2 p
-  = case p of
-      Weekly ->  div (T.diffDays t1 t2) 7
-      Monthly -> _diff
-      Annually -> div _diff 12
-      Quarterly -> div _diff 4
-  where
-    _diff = T.cdMonths $ T.diffGregorianDurationClip t1 t2
+-- | Advance a date by @i@ whole periods. Total over every 'Period'
+-- constructor: day-based periods advance by a fixed number of days,
+-- month-based periods by a clipped number of calendar months.
+advancePeriod :: Integer -> Period -> Date -> Date
+advancePeriod i Daily        = T.addGregorianDurationClip (T.CalendarDiffDays 0 i)
+advancePeriod i Weekly       = T.addGregorianDurationClip (T.CalendarDiffDays 0 (7 * i))
+advancePeriod i BiWeekly     = T.addGregorianDurationClip (T.CalendarDiffDays 0 (14 * i))
+advancePeriod i Monthly      = T.addGregorianMonthsClip i
+advancePeriod i Quarterly    = T.addGregorianMonthsClip (3 * i)
+advancePeriod i SemiAnnually = T.addGregorianMonthsClip (6 * i)
+advancePeriod i Annually     = T.addGregorianMonthsClip (12 * i)
+
+-- | Number of whole calendar months between two dates, i.e. how many complete
+-- months have elapsed from @t1@ to @t2@. Partial months are clipped, so e.g.
+-- 2021-01-31 -> 2021-02-01 is 0 months. Returns a negative value when @t2@ is
+-- earlier than @t1@ and 0 when both dates are equal.
+monthsBetween :: Date -> Date -> Integer
+monthsBetween t1 t2
+  = T.cdMonths $ T.diffGregorianDurationClip t2 t1
 
 
 mkTs :: [(Date,Rational)] -> Ts
@@ -223,27 +225,7 @@ daysBetweenI :: Date -> Date -> Int
 daysBetweenI sd ed = fromInteger $ T.diffDays ed sd
 
 genDates :: Date -> Period -> Int -> [Date]
-genDates start_day BiWeekly n = 
-  [ T.addGregorianDurationClip (T.CalendarDiffDays 0 (toInteger i * 14)) start_day | i <- [1..n]] --`debug` ("Hit weekly")
-genDates start_day Weekly n = 
-  [ T.addGregorianDurationClip (T.CalendarDiffDays 0 (toInteger i * 7)) start_day | i <- [1..n]] --`debug` ("Hit weekly")
-genDates start_day p n =
-  [ T.addGregorianDurationClip (T.CalendarDiffDays (toInteger i*mul) 0) start_day | i <- [1..n]]
-   where
-     mul = case p of
-       Monthly -> 1
-       Quarterly -> 3
-       SemiAnnually -> 6
-       Annually -> 12
-       _ -> error $ "Invalid period" ++ show p
+genDates start_day p n = [ advancePeriod (toInteger i) p start_day | i <- [1..n] ]
 
 nextDate :: Date -> Period -> Date
-nextDate d p
-  = T.addGregorianMonthsClip m d
-    where
-      m = case p of
-        Monthly -> 1
-        Quarterly -> 3
-        SemiAnnually -> 6
-        Annually -> 12
-        _ -> 0
+nextDate d p = advancePeriod 1 p d

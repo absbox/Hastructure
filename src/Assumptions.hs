@@ -13,6 +13,7 @@ module Assumptions (BondPricingInput(..),IrrType(..)
                     ,LeaseAssetGapAssump(..)
                     ,LeaseAssetRentAssump(..)
                     ,NonPerfAssumption(..),AssetPerf
+                    ,defaultNonPerfAssumption,nonPerfWithRates
                     ,AssetDelinquencyAssumption(..)
                     ,AssetDelinqPerfAssumption(..),AssetDefaultedPerfAssumption(..)
                     ,IssueBondEvent(..)
@@ -149,6 +150,29 @@ data NonPerfAssumption = NonPerfAssumption {
   ,refinance :: Maybe [TsPoint RefiEvent]
 } deriving (Show, Generic)
 
+-- | Total default: every optional field set to 'Nothing'.
+-- Always build overrides with record-update syntax:
+-- @defaultNonPerfAssumption { interest = mRates }@ so no field is left 'undefined'.
+defaultNonPerfAssumption :: NonPerfAssumption
+defaultNonPerfAssumption = NonPerfAssumption
+  { stopRunBy            = Nothing
+  , projectedExpense     = Nothing
+  , callWhen             = Nothing
+  , revolving            = Nothing
+  , interest             = Nothing
+  , inspectOn            = Nothing
+  , buildFinancialReport = Nothing
+  , pricing              = Nothing
+  , fireTrigger          = Nothing
+  , makeWholeWhen        = Nothing
+  , issueBondSchedule    = Nothing
+  , refinance            = Nothing
+  }
+
+-- | Non-perf assumption carrying only a rate assumption (the pool-run case).
+nonPerfWithRates :: Maybe [RateAssumption] -> NonPerfAssumption
+nonPerfWithRates mRates = defaultNonPerfAssumption { interest = mRates }
+
 data AssumptionInput = Single ApplyAssumptionType  NonPerfAssumption                          -- ^ one assumption request
                      | Multiple (Map.Map String ApplyAssumptionType)  NonPerfAssumption       -- ^ multiple assumption request in a single request
                      deriving (Show,Generic)
@@ -178,6 +202,7 @@ stressDefaultAssump x (DefaultByTerm rss) = DefaultByTerm $ ((capWith 1.0) <$> (
 stressPrepaymentAssump :: Rate -> AssetPrepayAssumption -> AssetPrepayAssumption
 stressPrepaymentAssump x (PrepaymentConstant r) = PrepaymentConstant $ min 1.0 (r*x)
 stressPrepaymentAssump x (PrepaymentCPR r) = PrepaymentCPR $ min 1.0 (r*x)
+stressPrepaymentAssump x (PrepaymentABS r) = PrepaymentABS $ min 1.0 (r*x)
 stressPrepaymentAssump x (PrepaymentVec rs) = PrepaymentVec $ capWith 1.0 ((x*) <$> rs)
 stressPrepaymentAssump x (PrepaymentVecPadding rs) = PrepaymentVecPadding $ capWith 1.0 ((x*) <$> rs)
 stressPrepaymentAssump x (PrepayByAmt (b,rs)) = PrepayByAmt (max (mulBR b x) 0, rs)
@@ -188,6 +213,7 @@ stressPrepaymentAssump x (PrepaymentByTerm rss) = PrepaymentByTerm $ (capWith 1.
 
 data AssetPrepayAssumption = PrepaymentConstant Rate
                            | PrepaymentCPR Rate 
+                           | PrepaymentABS Rate 
                            | PrepaymentVec [Rate] 
                            | PrepaymentVecPadding [Rate] 
                            | PrepayByAmt (Balance,[Rate])

@@ -1,4 +1,4 @@
-module UT.BondTest(pricingTests,bndConsolTest,writeOffTest,accrueTest,selectorTest)
+module UT.BondTest(pricingTests,bndConsolTest,writeOffTest,accrueTest,selectorTest,walSafetyTest)
 where
 
 import Test.Tasty
@@ -318,5 +318,11 @@ selectorTest =
         True
         (isLeft (DB.traverseBondMapByFn fnMap4 bgTest)))
     ]
+
+walSafetyTest = testGroup "Bond WAL safety"
+  [
+    testCase "calcWalBond on a bond with no future txn returns 0 instead of crashing" $
+      assertEqual "0" 0 (B.calcWalBond (L.toDate "20230101") b1)
+  ]
 
 

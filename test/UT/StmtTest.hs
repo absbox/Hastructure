@@ -21,6 +21,14 @@ txnTest =
              (toDate "20221101") 
              (toDate "20221201")
              [(AccTxn (toDate "20221115") 100 20 Empty)]
+       ,testCase "Weight Average Balance with no txn in window" $ 
+           assertEqual "empty window -> 0" 
+            0 $
+            weightAvgBalance (toDate "20221101") (toDate "20221201") []
+       ,testCase "Weight Average Balance with txns outside window" $ 
+           assertEqual "outside window -> 0" 
+            0 $
+            weightAvgBalance (toDate "20221101") (toDate "20221201") [AccTxn (toDate "20230101") 100 0 Empty]
       ,testCase "Weight Average Balance " $ 
            assertEqual "Weight Average Balacne "
            7.26 $

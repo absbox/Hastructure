@@ -578,24 +578,21 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
         Right . toRational $ sum $ map ex stmts
     
     FeeTxnAmtBy d fns mCmt -> 
-      let 
-        fees = (feeMap Map.!) <$> fns -- Map.elems $ getFeeByName t (Just fns)
-      in  
-        Right . toRational $
-          case mCmt of 
-            Just cmt -> sum [ queryTxnAmtAsOf fee d cmt | fee <- fees ]
-            Nothing -> 
-              let 
-                _txn = concat [ (DL.toList .getTxns)(F.feeStmt fee) | fee <- fees ]
-              in 
-                sumTxn $ cutBy Inc Past d _txn 
+      do
+        fees <- lookupVs fns feeMap
+        case mCmt of 
+          Just cmt -> return . toRational $ sum [ queryTxnAmtAsOf fee d cmt | fee <- fees ]
+          Nothing -> 
+            let 
+              _txn = concat [ (DL.toList .getTxns)(F.feeStmt fee) | fee <- fees ]
+            in 
+              return . toRational $ sumTxn $ cutBy Inc Past d _txn 
     
     FeePaidAmt fns -> 
-      let 
-        fees = (feeMap Map.!) <$> fns
-        feeTxns = concat [ (DL.toList .getTxns) (F.feeStmt fee) | fee <- fees ]
-      in 
-        Right . toRational $ sumTxn feeTxns
+      do
+        fees <- lookupVs fns feeMap
+        let feeTxns = concat [ (DL.toList .getTxns) (F.feeStmt fee) | fee <- fees ]
+        return . toRational $ sumTxn feeTxns
     
     BondTxnAmtBy d bns mCmt -> 
       let 
@@ -611,28 +608,25 @@ queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=f
                 sumTxn $ cutBy Inc Past d _txn
 
     AccTxnAmtBy d ans mCmt -> 
-      let 
-        accs = (accMap Map.!) <$> ans
-      in 
-        Right . toRational $
-          case mCmt of
-            Just cmt -> sum [ queryTxnAmtAsOf acc d cmt | acc <- accs ]
-            Nothing ->
-              let 
-                _txn = concat [ (DL.toList . getTxns) (A.accStmt acc) | acc <- accs ]
-              in 
-                sumTxn $ cutBy Inc Past d _txn 
+      do
+        accs <- lookupVs ans accMap
+        case mCmt of
+          Just cmt -> return . toRational $ sum [ queryTxnAmtAsOf acc d cmt | acc <- accs ]
+          Nothing ->
+            let 
+              _txn = concat [ (DL.toList . getTxns) (A.accStmt acc) | acc <- accs ]
+            in 
+              return . toRational $ sumTxn $ cutBy Inc Past d _txn 
 
     LedgerTxnAmt lns mCmt ->
       case ledgersM of 
         Nothing -> Left $ ("Date:"++show d++"No ledgers were modeled , failed to find ledger:"++show lns )
         Just ledgerm ->
-          let 
-            lgs = (ledgerm Map.!) <$> lns
-          in
+          do
+            lgs <- lookupVs lns ledgerm
             case mCmt of
-              Just cmt -> Right . toRational $ sum [ queryTxnAmt lg cmt | lg <- lgs ]
-              Nothing -> Right . toRational $ sum [ (snd . LD.ledgBalance) lg | lg <- lgs ]
+              Just cmt -> return . toRational $ sum [ queryTxnAmt lg cmt | lg <- lgs ]
+              Nothing -> return . toRational $ sum [ (snd . LD.ledgBalance) lg | lg <- lgs ]
 
     BondBalanceGapAt d bName -> 
       queryCompound t rc d (Excess [CurrentBondBalanceOf [bName], BondBalanceTarget [bName]])

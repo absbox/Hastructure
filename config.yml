@@ -1,3 +1,8 @@
 port: 8081
-maxScenario : 10
-maxDealNum : 10
+# workerNum: 8   # in-flight cap per multi-run request; default: HASTRUCTURE_WORKERS env, else RTS -N
+maxRunNum:       # per-endpoint total-run caps per request; default 1000 each, non-positive values abort startup
+  runPoolByScenarios: 1000
+  runDealByScenarios: 1000
+  runMultiDeals: 1000
+  runDealByRunScenarios: 1000
+  runByCombo: 1000
