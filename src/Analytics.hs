@@ -72,7 +72,10 @@ fritschCarlsonSlopes points = adjustSlopes points initialSlopes
           | d1 * d2 > 0 = 2 / (1 / d1 + 1 / d2)
           | otherwise = 0
 
-    -- Adjust slopes for monotonicity
+    -- Adjust slopes for monotonicity.
+    -- INVARIANT: `pts` and `slopes` have the same length (`initialSlopes`
+    -- produces exactly one slope per point). The final clause is a total
+    -- fallback that is unreachable while that invariant holds.
     adjustSlopes :: [TimeYield] -> [Double] -> [Double]
     adjustSlopes pts slopes = go pts slopes []
       where
@@ -87,7 +90,7 @@ fritschCarlsonSlopes points = adjustSlopes points initialSlopes
                              else if r > 3 then (m1 * 3 / r, m2 * 3 / r) -- Scale slopes
                              else (m1, m2)
             in go p2 (m2':ms) (m1':acc)
-        go _ _ _ = error "Invalid input"
+        go _ _ acc = reverse acc -- totality fallback for an impossible length mismatch
 
 interpolateWithHermite :: (Date,[(Date, Double)]) -> Dates -> [Double]
 interpolateWithHermite (_sd, []) ds = replicate (length ds) 0
@@ -105,13 +108,14 @@ interpolateWithHermite (sd, ts) ds
     in 
       lookupFn <$> xs'
 
--- ^ calculate the Weighted Average Life of cashflow, with unit option to Monthly or Yearly
+-- ^ calculate the Weighted Average Life of cashflow, with unit option to Monthly, Quarterly or Yearly
 calcWAL :: TimeHorizion -> Balance -> Date -> [(Balance,Date)] -> Balance 
 calcWAL th bal d ps = 
   let 
     interval = case th of
                   ByYear -> 365
                   ByMonth -> 30
+                  ByQuarter -> 91
     weightedAmts = [ mulBR futureAmt ((daysBetween d futureDate) % interval)  | (futureAmt,futureDate) <- ps ]
   in 
     sum weightedAmts / bal
@@ -252,24 +256,25 @@ pv4 :: (Date,Ts) -> [(Date,Amount)] -> Either ErrorRep Balance
 pv4 _ [] = Left "pv4: No cashflow to get present value"
 pv4 (pricingDate, pvCurve) (cf:cfs)
   | not (isHermiteCurve pvCurve) = Left $ "pv4: unsupported pricing curve type: " ++ tsTypeName pvCurve
-  | null ds' = Left "pv4: empty pricing curve"
-  | head ds' < pricingDate = Left $ "pv4: cashflow date "++ show (head ds') ++" is before pricing date "++ show pricingDate
-  | fst cf < pricingDate = Left $ "pv4: cashflow date "++ show (fst cf) ++" is before pricing date "++ show pricingDate
-  | length ds' > 1 && firstCfDate < head ds' = Left $ "pv4: first cashflow date " ++ show firstCfDate ++ " is before pricing curve start " ++ show (head ds')
-  | otherwise 
-    = let 
-        ds = fst <$> (cf:cfs)
-        rs = let 
-                ds' = getTsDates pvCurve
-                vs'::[Double] = fromRational <$> (getTsVals pvCurve)
-              in 
-                interpolateWithHermite 
-                  (pricingDate, zip ds' vs') 
-                  ds
-        vs' = (fromRational . toRational . snd) <$> (cf:cfs)
-        pvs = [ pv2' r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs' ]
-      in 
-        return $ fromRational . toRational $ foldr (+) 0 pvs
+  | otherwise = case ds' of 
+      [] -> Left "pv4: empty pricing curve"
+      (d0:_) 
+        | d0 < pricingDate -> Left $ "pv4: cashflow date "++ show d0 ++" is before pricing date "++ show pricingDate
+        | fst cf < pricingDate -> Left $ "pv4: cashflow date "++ show (fst cf) ++" is before pricing date "++ show pricingDate
+        | length ds' > 1 && firstCfDate < d0 -> Left $ "pv4: first cashflow date " ++ show firstCfDate ++ " is before pricing curve start " ++ show d0
+        | otherwise 
+          -> let 
+              ds = fst <$> (cf:cfs)
+              rs = let 
+                      vs'::[Double] = fromRational <$> (getTsVals pvCurve)
+                    in 
+                      interpolateWithHermite 
+                        (pricingDate, zip ds' vs') 
+                        ds
+              vs' = (fromRational . toRational . snd) <$> (cf:cfs)
+              pvs = [ pv2' r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs' ]
+            in 
+              return $ fromRational . toRational $ foldr (+) 0 pvs
   where
     ds' = getTsDates pvCurve
     firstCfDate = minimum (fst <$> (cf:cfs))

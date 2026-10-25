@@ -74,6 +74,10 @@ instance Ast.Asset FixedAsset where
                                                  ,residualBalance=rb ,capacity=cap} curBal rt) 
     = curBal
 
+  getOriginBal fa@(FixedAsset FixedAssetInfo{originBalance=ob} _ _) = ob
+  -- ^ a depreciation-modelled asset carries no rate
+  getOriginRate _ = 0
+
   resetToOrig fa@(FixedAsset fai@FixedAssetInfo{originBalance=ob, accRule=ar, originTerm=ot
                                                  ,residualBalance=rb ,capacity=cap} b rt) 
     = FixedAsset fai b ot

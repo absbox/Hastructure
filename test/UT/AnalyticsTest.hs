@@ -66,6 +66,14 @@ walTest =
         assertEqual ""
           0.74
           (calcWAL ByYear 100 (L.toDate "20230101") _ps )
+      ,testCase "WAL by Quarter" $ 
+        assertEqual ""
+          2.98
+          (calcWAL ByQuarter 100 (L.toDate "20230101") _ps )
+      ,testCase "WAL by Quarter uses 91-day quarters" $ 
+        assertEqual "a single cashflow 91 days out has WAL 1.0"
+          1.00
+          (calcWAL ByQuarter 100 (L.toDate "20230101") [(100,T.addDays 91 (L.toDate "20230101"))] )
   ]
 
 hermiteTest =
@@ -103,6 +111,21 @@ hermiteTest =
         assertEqual "single point behaves like a flat 5% curve"
             (Right (pv2 0.05 d0 d1 100))
             (pv4 (d0, L.mkRateTs [(d0, 0.05)]) [(d1, 100)])
+    ,testCase "pv4 rejects an empty cashflow list" $
+        assertEqual "no cashflows returns Left"
+            (Left "pv4: No cashflow to get present value")
+            (pv4 (d0, L.mkRateTs [(d0, 0.05)]) [])
+    ,testCase "pv4 rejects an empty pricing curve" $
+        assertBool "empty curve returns Left instead of throwing"
+            (isLeft (pv4 (d0, L.mkRateTs []) [(d1, 100)]))
+    ,testCase "pv4 rejects a curve starting before the pricing date" $
+        assertEqual "Left names the first curve date"
+            (Left "pv4: cashflow date 2023-01-01 is before pricing date 2023-06-01")
+            (pv4 (L.toDate "20230601", L.mkRateTs [(d0, 0.05)]) [(d1, 100)])
+    ,testCase "pv4 rejects a cashflow before the pricing date" $
+        assertEqual "Left names the cashflow date"
+            (Left "pv4: cashflow date 2023-01-01 is before pricing date 2023-06-01")
+            (pv4 (L.toDate "20230601", L.mkRateTs [(L.toDate "20230601", 0.05)]) [(d0, 100)])
     ,testCase "query exactly at the last node returns its yield (issue #359; was: interpolate throws)" $
         assertEqual "terminal node returns the node yield"
             [4.0]
@@ -173,7 +196,6 @@ hermiteTest =
                     , ("BalanceCurve", BalanceCurve [TsPoint d0 0.05, TsPoint d2 0.05])
                     , ("PricingCurve", PricingCurve [TsPoint d0 0.05, TsPoint d2 0.05]) ]
         in mapM_ (\(n,c) -> assertEqual ("supported " ++ n) expR (pv4 (d0,c) [(d1,1000)])) cases
-
   ]
   where
     d0 = L.toDate "20230101"

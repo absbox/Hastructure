@@ -149,6 +149,12 @@ instance IR.UseRate Account where
 
   getIndex (Account _ an (Just (InvestmentAccount idx _ _ _ _ _)) _ _) = Just idx
   getIndex _ = Nothing 
+
+  getIndexes (Account _ an (Just (InvestmentAccount idx _ _ _ _ _)) _ _) = Just [idx]
+  getIndexes _ = Nothing
+
+  getResetDates _ = []  -- ^ re-investment interest does not reset a contractual index
+  getSpread _ = Nothing
   
 
 makePrisms ''InterestInfo

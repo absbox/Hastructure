@@ -79,6 +79,8 @@ instance Asset Receivable where
 
   getPaymentDates r@(Invoice (ReceivableInfo sd ob oa dd ft _) st) _ = [dd]
 
+  getOriginBal r@(Invoice (ReceivableInfo _ ob _ _ _ _) _) = ob
+
   calcCashflow r@(Invoice (ReceivableInfo sd ob oa dd ft _) st) asOfDay _ 
     = Right $ CF.CashFlowFrame (ob,asOfDay,Nothing) $ cutBy Inc Future asOfDay txns
     where

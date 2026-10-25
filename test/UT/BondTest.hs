@@ -20,6 +20,7 @@ import Util
 import Types
 import Data.Ratio
 import Interface
+import qualified InterestRate as IR
 
 import Debug.Trace
 debug = flip trace
@@ -273,6 +274,40 @@ accrueTest =
      --   assertEqual "accrue int on bond multiple times on diff dates"
      --   (B.bndDueInt (B.accrueInt (L.toDate "20210103") b1))
      --   (B.bndDueInt (B.accrueInt (L.toDate "20210103") (B.accrueInt (L.toDate "20210102") b1)))
+     -- regression tests for UseRate/MultiIntLiable class completeness on bonds
+    ,testCase "UseRate on floating bond" $
+      assertEqual "UseRate on floating bond"
+        (Just 0.015, Just LPR5Y, True, [])
+        (IR.getSpread bfloat, IR.getIndex bfloat, IR.isAdjustableRate bfloat, IR.getResetDates bfloat)
+    ,testCase "MultiIntLiable on bond" $
+      let mIiB = B.MultiIntBond{B.bndName="M"
+                               ,B.bndType=B.Sequential
+                               ,B.bndOriginInfo=B.OriginalInfo{B.originBalance=3000
+                                                              ,B.originDate=L.toDate "20220101"
+                                                              ,B.originRate=0.08
+                                                              ,B.maturityDate=Nothing}
+                               ,B.bndInterestInfos=[B.Floater 0.02 LPR5Y 0.015 (MonthDayOfYear 1 1) DC_ACT_365F Nothing Nothing
+                                                   ,B.Fix 0.08 DC_ACT_365F]
+                               ,B.bndStepUps=Nothing
+                               ,B.bndBalance=3000
+                               ,B.bndRates=[0.05,0.08]
+                               ,B.bndDuePrin=0.0
+                               ,B.bndDueInts=[10,5]
+                               ,B.bndDueIntOverInts=[1,0]
+                               ,B.bndDueIntDate=Nothing
+                               ,B.bndLastIntPays=Nothing
+                               ,B.bndLastPrinPay=Nothing
+                               ,B.bndStmt=Nothing}
+      in assertEqual "interest due by tranche index"
+        (0.0, 0, 10, 5, 1, 0, 11, 5)
+        (getDueIntAt bfloat 0
+         ,getDueIntAt bfloat 1
+         ,getDueIntAt mIiB 0
+         ,getDueIntAt mIiB 1
+         ,getDueIntOverIntAt mIiB 0
+         ,getDueIntOverIntAt mIiB 1
+         ,getTotalDueIntAt mIiB 0
+         ,getTotalDueIntAt mIiB 1)
     ]
 
 selectorTest = 

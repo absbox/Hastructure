@@ -15,6 +15,7 @@ import qualified UT.DealTest as DT
 import Expense
 import Types
 import Interface
+import qualified InterestRate as IR
 import Deal.DealBase
 import qualified Cashflow as CF
 import Data.List (isInfixOf)
@@ -131,4 +132,32 @@ expPayTest =
         assertEqual "test query dueBal"
         (Right 40)
         (getDueBal epocDate Nothing <$> f3'')
+    -- regression tests for Liable/Accruable/UseRate class completeness on Fee
+    ,let
+      f = Fee "FeeClassMethods" (RecurFee MonthFirst 50) (L.toDate "20220101") 60 (Just (L.toDate "20220310")) 5 Nothing Nothing
+      fBooked = bookAccrual (L.toDate "20220201") 10.0 f
+    in
+      testGroup "Class-method completeness on Fee"
+      [
+        testCase "Liable on Fee" $
+          assertEqual "class methods on fee"
+            (60.0, 65.0, 0, 0, 0
+            ,(L.toDate "20220101"), (L.toDate "20220101"), 65.0)
+            (getDueInt f
+             ,getTotalDueInt f
+             ,getCurBalance f
+             ,getCurRate f
+             ,getDueIntOverInt f
+             ,getOriginDate f
+             ,getAccrueBegDate f
+             ,getOutstandingAmount f)
+      ,testCase "Accruable on Fee" $
+        assertEqual "accrual bookkeeping on fee"
+          (70.0, Just (L.toDate "20220201"), f)
+          (feeDue fBooked, feeDueDate fBooked, accrueTo (L.toDate "20220301") f)
+      ,testCase "UseRate on Fee" $
+        assertEqual "UseRate on fee"
+          (Nothing, Nothing, False, [])
+          (IR.getIndexes f, IR.getSpread f, IR.isAdjustableRate f, IR.getResetDates f)
+      ]
     ]

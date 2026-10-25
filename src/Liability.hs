@@ -49,7 +49,7 @@ import qualified Lib
 import GHC.Generics
 import qualified Data.Map as Map
 import Debug.Trace
-import InterestRate (UseRate(getIndexes))
+import InterestRate (UseRate(getIndexes,getSpread,getResetDates))
 import Language.Haskell.TH
 import Control.Lens hiding (Index)
 import Control.Lens.TH
@@ -156,6 +156,16 @@ getDpFromIntInfo (CapRate ii _) = getDpFromIntInfo ii
 getDpFromIntInfo (FloorRate ii _) = getDpFromIntInfo ii
 getDpFromIntInfo (WithIoI ii _) = getDpFromIntInfo ii
 getDpFromIntInfo _ = Nothing
+
+
+-- ^ get spread from interest info
+getSpreadFromIntInfo :: InterestInfo -> Maybe Spread
+getSpreadFromIntInfo (Floater _ _ s _ _ _ _) = Just s
+getSpreadFromIntInfo (RefBal _ ii) = getSpreadFromIntInfo ii
+getSpreadFromIntInfo (CapRate ii _) = getSpreadFromIntInfo ii
+getSpreadFromIntInfo (FloorRate ii _) = getSpreadFromIntInfo ii
+getSpreadFromIntInfo (WithIoI ii _) = getSpreadFromIntInfo ii
+getSpreadFromIntInfo _ = Nothing  -- ^ Fix / RefRate carry no spread
 
 
 getBeginRate :: InterestInfo -> IRate 
@@ -822,10 +832,6 @@ instance Liable Bond where
   getDueInt MultiIntBond{bndDueInts=dis} = sum dis
   getDueInt (BondGroup bMap _) = sum $ getDueInt <$> Map.elems bMap
 
-  getDueIntAt MultiIntBond{bndDueInts=dis} idx = dis !! idx
-  getDueIntOverIntAt MultiIntBond{bndDueIntOverInts=diois} idx = diois !! idx 
-  getTotalDueIntAt b idx = getDueIntAt b idx + getDueIntOverIntAt b idx
-
   -- ^ get due IoI of a bond
   getDueIntOverInt b@Bond{bndDueIntOverInt=dioi} = dioi
   getDueIntOverInt MultiIntBond{bndDueIntOverInts=diois} = sum diois
@@ -838,6 +844,24 @@ instance Liable Bond where
 
   getOutstandingAmount b = getTotalDueInt b + getCurBalance b
 
+
+-- ^ the `Int`-indexed accruals for multi-interest bonds; a plain `Bond` has a single
+--   interest tranche (index 0), a `BondGroup` aggregates the per-bond tranches.
+instance MultiIntLiable Bond where
+  getDueIntAt (BondGroup bMap _) idx = sum $ (\b -> getDueIntAt b idx) <$> Map.elems bMap
+  getDueIntAt MultiIntBond{bndDueInts=dis} idx = dis !! idx
+  getDueIntAt Bond{bndDueInt=di} idx
+    | idx == 0 = di
+    | otherwise = 0
+
+  getDueIntOverIntAt (BondGroup bMap _) idx = sum $ (\b -> getDueIntOverIntAt b idx) <$> Map.elems bMap
+  getDueIntOverIntAt MultiIntBond{bndDueIntOverInts=diois} idx = diois !! idx
+  getDueIntOverIntAt Bond{bndDueIntOverInt=dioi} idx
+    | idx == 0 = dioi
+    | otherwise = 0
+
+  getTotalDueIntAt b idx = getDueIntAt b idx + getDueIntOverIntAt b idx
+
 instance IR.UseRate Bond where 
   isAdjustableRate :: Bond -> Bool
   isAdjustableRate Bond{bndInterestInfo = iinfo} = isAdjustable iinfo
@@ -847,6 +871,31 @@ instance IR.UseRate Bond where
                                   where combined = concat . catMaybes  $ (\b -> getIndexFromInfo (bndInterestInfo b)) <$> Map.elems bMap
   getIndexes MultiIntBond{bndInterestInfos = iis} 
     = Just $ concat $ concat <$> getIndexFromInfo <$> iis
+
+  getIndex b = case getIndexes b of
+                 Just (idx:_) -> Just idx
+                 _ -> Nothing
+
+  -- ^ reset dates of a floater interest schedule, derived from its own reset pattern
+  --   (same derivation as `buildRateResetDates`; `[]` when no maturity is modeled on the bond)
+  getResetDates Bond{bndInterestInfo = iinfo, bndOriginInfo = oi} 
+    = case (getDpFromIntInfo iinfo, maturityDate oi) of
+        (Just dp, Just ed) -> genSerialDatesTill2 NO_IE (originDate oi) dp ed
+        _ -> []
+  getResetDates MultiIntBond{bndInterestInfos = iis, bndOriginInfo = oi}
+    = case maturityDate oi of
+        Nothing -> []
+        Just ed -> concat $ (\dp -> genSerialDatesTill2 NO_IE (originDate oi) dp ed)
+                            <$> mapMaybe getDpFromIntInfo iis
+  getResetDates (BondGroup bMap _) = concat $ IR.getResetDates <$> Map.elems bMap
+
+  getSpread (Bond{bndInterestInfo = iinfo}) = getSpreadFromIntInfo iinfo
+  getSpread MultiIntBond{bndInterestInfos = iis} = case (getSpreadFromIntInfo <$> iis) of
+                                                     (Just sp:_) -> Just sp
+                                                     _ -> Nothing
+  getSpread (BondGroup bMap _) = case catMaybes (IR.getSpread <$> Map.elems bMap) of
+                                   (sp:_) -> Just sp
+                                   _ -> Nothing
 
   
 

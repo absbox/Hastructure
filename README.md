@@ -26,8 +26,7 @@
 # I'm using language XXX
 
 * :snake: [Python wrapper](https://github.com/yellowbean/PyABS) is in ``Beta`` now !
-* :coffee: Easy integration with ``Java/C#/C++/JavaScript/Python`` with ``RESTful`` interface and Docker image are ready. 
-  * C/Java : [here](https://github.com/absbox/Hastructure/issues/106)
+* :coffee: _Protobuf in Progress_
 
 ### Installation
 

@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
-module Interface(Liable(..),Accruable(..),Payable(..),RateResettable(..),Drawable(..),Collectable(..)
+module Interface(Liable(..),MultiIntLiable(..),Accruable(..),Payable(..),RateResettable(..),Drawable(..),Collectable(..)
         ,DueType(..)
         )
 
@@ -10,7 +10,7 @@ import Types
 
 class Liable lb where 
     -- bond / expense / liquidity facility / hedges 
-
+    -- single-interest liabilities
     -- must implement
     isPaidOff :: lb -> Bool
     getCurBalance :: lb -> Balance
@@ -19,12 +19,16 @@ class Liable lb where
     getOriginDate :: lb -> Date
     getAccrueBegDate :: lb -> Date
     getDueInt :: lb -> Balance
-    getDueIntAt :: lb -> Int -> Balance
     getDueIntOverInt :: lb -> Balance
-    getDueIntOverIntAt :: lb -> Int -> Balance
     getTotalDueInt :: lb -> Balance
-    getTotalDueIntAt :: lb -> Int -> Balance
     getOutstandingAmount :: lb -> Balance
+
+
+class Liable lb => MultiIntLiable lb where 
+    -- ^ accrual specifics for multi-interest bonds (bond with multiple interest tranches)
+    getDueIntAt :: lb -> Int -> Balance
+    getDueIntOverIntAt :: lb -> Int -> Balance
+    getTotalDueIntAt :: lb -> Int -> Balance
 
 
 

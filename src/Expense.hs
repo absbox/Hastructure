@@ -28,6 +28,7 @@ import DateUtil
 import Interface
 import qualified Stmt as S
 import qualified InterestRate as IR
+import Data.Maybe (fromMaybe)
 
 import Control.Lens
 import Debug.Trace
@@ -172,6 +173,17 @@ instance Liable Fee where
     
   getOutstandingAmount Fee{feeDue=bal,feeArrears=fa} = bal + fa
 
+  -- ^ a fee carries no principal balance / rate; its amount is model-based
+  --   (deal-stats formulas, tables, ts curves), so due amounts are the whole picture
+  getCurBalance _ = 0
+  getCurRate _ = 0
+  getOriginBalance _ = 0
+  getOriginDate Fee{feeStart = d} = d
+  getAccrueBegDate f@Fee{feeLastPaidDay = mPaid} = fromMaybe (feeStart f) mPaid
+  getDueInt Fee{feeDue = due} = due
+  getDueIntOverInt _ = 0
+  getTotalDueInt Fee{feeDue = due, feeArrears = fa} = due + fa
+
 instance Accruable Fee where
   getAccrualDates ed Fee{feeStart=fs,feeDueDate=fdDay,feeType=RecurFee dp _}
     = projDatesByPattern dp fs ed
@@ -186,9 +198,21 @@ instance Accruable Fee where
   getAccrualDates ed Fee{}
     = []
 
+  -- ^ book an additional due amount directly (ledger-free; see `pay`/`writeOff`
+  --   for booking transactions via the statement)
+  bookAccrual d amt f@Fee{feeDue = due} = f { feeDue = due + amt, feeDueDate = Just d }
+
+  -- ^ fee due computation depends on deal context (DealStats-formula based fee types,
+  --   cf. the commented-out `accrueWithDeal` in Interface.hs); with no context, no accrual
+  accrueTo _ f = f
+
 instance IR.UseRate Fee where
   isAdjustableRate x = False
   getIndex x = Nothing 
+  getIndexes x = Nothing
+  getResetDates x = []
+  getSpread x = Nothing
+
 
 makeLensesFor [("feeName","feeNameLens"),("feeType","feeTypeLens") ,("feeDue","feeDueLens") 
               ,("feeDueDate","feeDueDateLens") ,("feeStmt","feeStmtLens")] ''Fee

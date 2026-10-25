@@ -120,6 +120,20 @@ instance Liable RateSwap where
     | bal < 0 = negate bal
     | otherwise = 0
 
+  -- ^ a swap is a net-settlement instrument: no principal balance, no interest accrual —
+  --   the only balance is the net amount owed to/from the counterparty;
+  --   the accrual rate is the current paying-leg rate
+  getCurBalance rs = getOutstandingAmount rs
+  getCurRate rs@RateSwap{rsPayingRate = r} = r
+  getOriginBalance _ = 0
+  getOriginDate rs@RateSwap{rsStartDate = d} = d
+  getAccrueBegDate rs = case rsLastStlDate rs of
+                          Just lsd -> lsd
+                          Nothing -> rsStartDate rs
+  getDueInt _ = 0
+  getDueIntOverInt _ = 0
+  getTotalDueInt _ = 0
+
 data RateCap = RateCap {
                 rcIndex :: Types.Index
                 ,rcStrikeRate :: Ts
@@ -143,6 +157,14 @@ receiveRC d rc@RateCap{rcNetCash = receiveAmt, rcStmt = stmt}
 instance IR.UseRate RateCap where 
   getIndexes rc@RateCap{rcIndex = idx} = Just [idx]
 
+  -- ^ a rate cap is always indexed to a rate index
+  isAdjustableRate _ = True
+  getIndex rc@RateCap{rcIndex = idx} = Just idx
+  -- ^ reset/settle dates over the cap's life
+  getResetDates rc@RateCap{rcStartDate = sd,rcSettleDates = dp,rcEndDate = ed} 
+    = genSerialDatesTill2 NO_IE sd dp ed 
+  getSpread _ = Nothing  -- ^ the index carries no spread
+
 instance QueryByComment RateCap where 
     queryStmt RateCap{rcStmt = Nothing} tc = []
     queryStmt RateCap{rcStmt = Just (Statement txns)} tc
@@ -160,6 +182,28 @@ instance IR.UseRate RateSwap where
         FloatingToFixed (idx1,_) _ -> Just [idx1]
         FixedToFloating _ (idx1,_) -> Just [idx1]
         _ -> Nothing
+
+  -- ^ each swap type has at least one floating leg
+  isAdjustableRate rs = case rsType rs of
+                          FloatingToFloating _ _ -> True
+                          FloatingToFixed _ _ -> True
+                          FixedToFloating _ _ -> True
+                          FormulaToFloating _ _ -> True
+                          FloatingToFormula _ _ -> True
+
+  getIndex rs = case IR.getIndexes rs of
+                  Just (idx:_) -> Just idx
+                  _ -> Nothing
+
+  -- ^ the floating leg's spread (the only leg that carries one)
+  getSpread rs = case rsType rs of
+                   FloatingToFloating (_,spr) _ -> Just spr
+                   FloatingToFixed (_,spr) _ -> Just spr
+                   FixedToFloating _ (_,spr) -> Just spr
+                   FormulaToFloating _ (_,spr) -> Just spr
+                   FloatingToFormula (_,spr) _ -> Just spr
+
+  getResetDates _ = [] -- ^ settle/reset dates are computed by the deal run from `rsSettleDates` with deal dates
 
 makeLensesFor [("rsType","rsTypeLens"),("rsRefBalance","rsRefBalLens")] ''RateSwap
 
@@ -190,11 +234,35 @@ instance Liable SRT where
     | bal==0 && duePremium==0 = True
     | otherwise = False
 
+  -- ^ the SRT facility: open balance is the drawn/outstanding amount, premium accrues on
+  --   the reference balance, the current rate is the premium rate
+  getCurBalance srt@SRT{srtOpenBalance = bal} = bal
+  getCurRate srt@SRT{srtPremiumRate = r} = r
+  getOriginBalance srt@SRT{srtOpenBalance = bal} = bal
+  getOriginDate srt@SRT{srtStart = d} = d
+  getAccrueBegDate srt@SRT{srtDuePremiumDate = mLastCalcDate} 
+    = fromMaybe (srtStart srt) mLastCalcDate
+  getDueInt srt@SRT{srtDuePremium = amt} = amt
+  getDueIntOverInt _ = 0
+  getTotalDueInt srt@SRT{srtDuePremium = amt} = amt
+  getOutstandingAmount srt@SRT{srtOpenBalance = bal,srtDuePremium = duePremium} = bal + duePremium
+
 instance IR.UseRate SRT where 
   getIndexes srt@SRT{srtPremiumType = rt} 
     = case rt of 
         (IR.Floater _ idx _ _ _ _ _ _ ) -> Just [idx]
         _ -> Nothing
+
+  isAdjustableRate srt@SRT{srtPremiumType = rt} 
+    = case rt of 
+        (IR.Floater {}) -> True
+        _ -> False
+
+  getIndex srt = case IR.getIndexes srt of
+                   Just (idx:_) -> Just idx
+                   _ -> Nothing
+
+  getSpread srt@SRT{srtPremiumType = rt} = IR._getSpread rt
   
   getResetDates srt@SRT{srtPremiumType = rt , srtStart = sd, srtEnds = Just ed} 
     = case rt of 
