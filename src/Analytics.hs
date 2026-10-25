@@ -116,17 +116,51 @@ calcWAL th bal d ps =
   in 
     sum weightedAmts / bal
 
+-- | Curve types that take part in Hermite rate interpolation (the same set as
+-- getTsDates/getTsVals). Everything else keeps the getValByDate lookup.
+isHermiteCurve :: Ts -> Bool
+isHermiteCurve (IRateCurve _)   = True
+isHermiteCurve (RatioCurve _)   = True
+isHermiteCurve (FloatCurve _)   = True
+isHermiteCurve (PricingCurve _) = True
+isHermiteCurve (BalanceCurve _) = True
+isHermiteCurve _                = False
+
+-- | The single discount-rate evaluator shared by pv, pv3, pv3', duration and
+-- convexity: Hermite (Fritsch-Carlson) through the curve nodes with constant
+-- extension at both borders, exactly like pv4. Flat curves short-circuit to the
+-- constant rate so legacy constant-rate arithmetic stays bit-identical.
+curveRatesAt :: Date -> Ts -> [Date] -> [Double]
+curveRatesAt d curve ds
+  | isHermiteCurve curve = rates
+  | otherwise            = map (fromRational . getValByDate curve Exc) ds
+  where
+    rates = case rs of
+      []                    -> replicate (length ds) 0
+      (r:_) | all (== r) rs -> replicate (length ds) r
+            | otherwise     -> interpolateWithHermite (d, zip (getTsDates curve) rs) ds
+    rs = map fromRational (getTsVals curve)
+
+-- | Discount one amount at an explicit rate (same arithmetic as pv).
+pvWithRate :: Double -> Date -> Date -> Amount -> Amount
+pvWithRate discount_rate today d amt
+  = realToFrac $ (realToFrac amt) * (1 / factor)
+  where
+    distance::Double = fromIntegral $ daysBetween today d
+    factor::Double = (1 + realToFrac discount_rate) ** (distance / 365)
+
 calcDuration :: DayCount -> Date -> [(Date,Balance)] -> Ts -> Rate
 calcDuration dc d ps pricingCurve 
-  = (foldr (\(_d,_b) acc ->
+  = (foldr (\(r,(_d,_b)) acc ->
                     (*) 
-                      (divideBB (pv pricingCurve d _d _b) presentValue) 
+                      (divideBB (pvWithRate r d _d _b) presentValue) 
                       (yearCountFraction dc d _d)
                     + acc)
                     0.0000
-                    ps)
+                    (zip rates ps))
     where 
-      presentValue = sum [ pv pricingCurve d _d _b | (_d,_b) <- ps ] 
+      rates = curveRatesAt d pricingCurve (fst <$> ps)
+      presentValue = sum [ pvWithRate r d _d _b | (r,(_d,_b)) <- zip rates ps ] 
 
 calcConvexity :: DayCount -> Date -> [(Date,Balance)] -> Ts -> Rate
 calcConvexity dc d ps pricingCurve 
@@ -134,24 +168,23 @@ calcConvexity dc d ps pricingCurve
       (*)
         presentValue' $
         (foldr (\(_t,_c,_f) acc ->
-                      (_t * (_t + 1) * fromRational _c) / ((1.000 + _f) ** (_t+2))
+                      (_t * (_t + 1) * fromRational _c) / ((1.000 + _f) ** (_t+2)) + acc
                       )
                       0.0000
-                      (zip3 ts payments pvFactors)) -- `debug` ("'v"++show presentValue'++"others"++ show (zip3 ts payments pvFactors))
+                      (zip3 ts payments pvFactors))
     where 
-      pvFactors::[Double] = fromRational <$> getValByDate pricingCurve Inc <$> fst <$> ps
-      presentValue'::Double = 1 / (fromRational . toRational) (sum [ pv pricingCurve d _d _b | (_d,_b) <- ps ])
+      pvFactors::[Double] = curveRatesAt d pricingCurve (fst <$> ps)
+      presentValue'::Double = 1 / (fromRational . toRational) (sum [ pvWithRate r d _d _b | (r,(_d,_b)) <- zip pvFactors ps ])
       payments = toRational . snd <$> ps
       ts::[Double] = fromRational <$> yearCountFraction dc d <$> fst <$> ps
 
 -- ^ calculate present value of input amount in future with given a curve and PV date
 pv :: Ts -> Date -> Date -> Amount -> Amount
-pv pc today d amt = 
-  realToFrac $ (realToFrac amt) * (1 / factor) --  `debug` ("DF:"++show factor++" PV AMT"++show amt)
+pv pc today d amt = pvWithRate rate today d amt
   where
-    distance::Double = fromIntegral $ daysBetween today d
-    discount_rate = fromRational $ getValByDate pc Exc d -- `debug` ("Get val by ts"++show pc ++">>d"++ show d)
-    factor::Double = (1 + realToFrac discount_rate) ** (distance / 365) --  `debug` ("discount_rate"++show(discount_rate) ++" dist days=>"++show(distance))
+    rate = case curveRatesAt today pc [d] of
+             (r:_) -> r
+             []    -> 0
 
 -- ^ calculate present value in the future using constant rate
 pv2 :: IRate -> Date -> Date -> Amount -> Amount
@@ -186,15 +219,15 @@ pv22 r d ds vs = sum [ pv2' r d _d amt | (_d,amt) <- zip ds vs ]
 pv3 :: Ts -> Date -> [Date] -> [Amount] -> Balance 
 pv3 pvCurve pricingDate ds vs 
   = let 
-      rs = fromRational <$> getValByDates pvCurve Inc ds
-      pvs = [ pv2 r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs ]
+      rs = curveRatesAt pricingDate pvCurve ds
+      pvs = [ pvWithRate r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs ]
     in 
       sum pvs
 
 pv3' :: Ts -> Date -> [Date] -> [Amount] -> Balance
 pv3' pvCurve pricingDate ds vs 
   = let 
-      rs = fromRational <$> getValByDates pvCurve Inc ds
+      rs = curveRatesAt pricingDate pvCurve ds
       vs' = (fromRational . toRational) <$> vs
       pvs = [ pv2' r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs' ]
     in 

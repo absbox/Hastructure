@@ -94,7 +94,7 @@ pricingTests = testGroup "Pricing Tests"
     in
       testCase "flat rate discount " $
       assertEqual "Test Pricing on case 01" 
-        (Right (PriceResult 1979.54 65.984666 1.18 1.188138 0.491335 52.60 (DL.toList b1Txn)))
+        (Right (PriceResult 1979.54 65.984666 1.18 1.188138 2.524282 52.60 (DL.toList b1Txn)))
         pr
     ,
     let
@@ -114,7 +114,7 @@ pricingTests = testGroup "Pricing Tests"
     in
       testCase " discount curve with two rate points " $
       assertEqual "Test Pricing on case 01" 
-            (Right (PriceResult 4049.03 134.967666 0.44 0.364542 0.006193 286.42 (DL.toList b2Txn)))
+            (Right (PriceResult 4049.03 134.967666 0.44 0.364553 0.461079 286.42 (DL.toList b2Txn)))
             pr  --TODO need to confirm in UI
     ,
     let
@@ -143,6 +143,24 @@ pricingTests = testGroup "Pricing Tests"
       (Right 0.176754)
       (B.calcZspread  (100.0,pday) b6 rateCurve)
       --(B.calcZspread  (500.0,pday) (103.0,1/100) Nothing rateCurve)
+    ,
+    let
+      rateCurve5 = IRateCurve [ TsPoint (L.toDate "20220201") 0.02
+                              , TsPoint (L.toDate "20220315") 0.04
+                              , TsPoint (L.toDate "20220601") 0.05
+                              , TsPoint (L.toDate "20220815") 0.03 ]
+      pd5 = L.toDate "20220201"
+      s0  = 0.005 :: Double
+      shifted = shiftTsByAmt rateCurve5 (toRational s0)
+    in
+      testCase "Z spread round-trips the pricing curve" $
+      case B.priceBond pd5 shifted b1 of
+        Left e -> assertFailure e
+        Right (PriceResult _ perFace _ _ _ _ _) ->
+          case B.calcZspread (toRational perFace, pd5) b1 rateCurve5 of
+            Left e -> assertFailure e
+            Right s -> assertBool ("solved spread " ++ show s ++ " should match " ++ show s0)
+                         (abs (fromRational (toRational s) - s0) < 1e-4)
 
   ]
 

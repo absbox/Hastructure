@@ -5,6 +5,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import qualified Data.Time as T
+import Data.Either (isLeft)
 import qualified Lib as L
 import Analytics 
 import Assumptions
@@ -13,8 +14,43 @@ import Asset (priceAsset)
 import AssetClass.AssetBase
 import AssetClass.Loan
 import InterestRate
+import DateUtil (yearCountFraction)
+import Util (getValByDate, getTsDates, getTsVals, divideBB)
+import Data.Fixed (Micro)
 
 import Data.Ratio
+
+-- Independent oracle helpers for the curve-consistency tests. They evaluate
+-- the curve with the public Hermite interpolant and re-derive PV/duration/
+-- convexity from the formulas, without calling the functions under test.
+oracleRates ts d dds =
+  interpolateWithHermite (d, zip (getTsDates ts) (map (fromRational . toRational) (getTsVals ts))) dds
+
+oraclePvAt :: Double -> T.Day -> T.Day -> Amount -> Amount
+oraclePvAt r d dd amt = realToFrac $ (fromRational (toRational amt) :: Double) * (1 / ((1 + r) ** t))
+  where
+    t = fromIntegral (T.diffDays dd d) / 365 :: Double
+
+oracleDurRates :: [Double] -> T.Day -> [(T.Day, Amount)] -> Double
+oracleDurRates zs d ps =
+  let pvs = zipWith (\z (dd,amt) -> oraclePvAt z d dd amt) zs ps
+      total = sum pvs
+  in fromRational (sum [ divideBB pvi total * yearCountFraction DC_ACT_365F d dd | (pvi,(dd,_)) <- zip pvs ps ])
+
+oracleConvRates :: [Double] -> T.Day -> [(T.Day, Amount)] -> Double
+oracleConvRates zs d ps =
+  let pvs = zipWith (\z (dd,amt) -> oraclePvAt z d dd amt) zs ps
+      total = sum pvs
+      pvD = 1 / (fromRational (toRational total) :: Double)
+      tms = [ fromRational (yearCountFraction DC_ACT_365F d dd) | (dd,_) <- ps ]
+      pays = [ toRational a | (_,a) <- ps ]
+  in pvD * sum [ t*(t+1)*fromRational c / ((1+f)**(t+2)) | (t,c,f) <- zip3 tms pays zs ]
+
+oracleDur ts d ps = oracleDurRates (oracleRates ts d (map fst ps)) d ps
+oracleConv ts d ps = oracleConvRates (oracleRates ts d (map fst ps)) d ps
+
+near :: Double -> Double -> Bool
+near a b = abs (a - b) < 1e-9
 
 walTest = 
   let 
@@ -95,6 +131,34 @@ hermiteTest =
         assertEqual "a one-point curve is a flat rate everywhere"
             (Right (pv2 0.05 d0 (L.toDate "20230601") 1000))
             (pv4 (d0, L.mkRateTs [(d1, 0.05)]) [(L.toDate "20230601", 1000)])
+    ,testCase "pv uses the same curve as pv4 (single-cashflow parity)" $
+        let cases = [ (L.mkRateTs [(d0,0.02),(d1,0.04),(d2,0.05)], L.toDate "20240601")
+                    , (L.mkRateTs [(d0,0.02),(d1,0.04),(d2,0.05)], L.toDate "20250101")
+                    , (L.mkRateTs [(d0,0.05),(d2,0.05)], L.toDate "20250601")
+                    , (L.mkRateTs [(d0,0.05)], L.toDate "20230701") ]
+        in mapM_ (\(c,dd) -> assertEqual ("pv vs pv4 at " ++ show dd)
+                    (pv4 (d0, c) [(dd, 1000)]) (Right (pv c d0 dd 1000))) cases
+    ,testCase "pv3 equals the sum of pv over its cashflows" $
+        let c = L.mkRateTs [(d0,0.02),(d1,0.04),(d2,0.05),(T.addDays 365 d2,0.045)]
+            ds = [d1,d2,T.addDays 365 d2]
+            amts = [50,50,1050]
+        in assertEqual "pv3 = sum of pv"
+             (sum [pv c d0 dd amt | (dd,amt) <- zip ds amts]) (pv3 c d0 ds amts)
+    ,testCase "pv matches an independent Hermite oracle" $
+        let c = L.mkRateTs [(d0,0.02),(d1,0.04),(d2,0.05),(T.addDays 365 d2,0.045)]
+            dd = L.toDate "20240601"
+        in case oracleRates c d0 [dd] of
+             [z] -> assertEqual "pv uses the Hermite rate" (oraclePvAt z d0 dd 1000) (pv c d0 dd 1000)
+             _   -> assertFailure "oracle rate lookup"
+    ,testCase "pv on a single-point curve before the node uses the node rate" $
+        let c  = L.mkRateTs [(d1,0.05)]
+            dd = L.toDate "20230601"
+        in assertEqual "single-point curve extends left" (oraclePvAt 0.05 d0 dd 1000) (pv c d0 dd 1000)
+    ,testCase "flat curve pv matches the constant-rate pv2" $
+        let c  = L.mkRateTs [(d0,0.05),(d2,0.05)]
+            dd = L.toDate "20240601"
+        in assertEqual "flat curve = constant rate" (pv2 0.05 d0 dd 1000) (pv c d0 dd 1000)
+
   ]
   where
     d0 = L.toDate "20230101"
@@ -137,7 +201,70 @@ durationTest =
         (L.toDate "20230101")
         [(L.toDate "20231231",104)]
         (L.mkRateTs [(L.toDate "20230101",0.05)]))
+  , testCase "multi-point curve metrics follow the Hermite PV curve" $
+      let c  = L.mkRateTs [(d0,0.02),(d1,0.04),(d2,0.05),(T.addDays 365 d2,0.045)]
+          ps = [(d1,50),(d2,50),(T.addDays 365 d2,1050)]
+      in do
+        assertEqual "duration on the PV curve" 2.863001
+          (fromRational (calcDuration DC_ACT_365F d0 ps c) :: Micro)
+        assertEqual "convexity sums all cashflows on the PV curve" 10.323628
+          (fromRational (calcConvexity DC_ACT_365F d0 ps c) :: Micro)
+  , testCase "convexity sums every cashflow (2-CF)" $
+      let c = L.mkRateTs [(d0,0.02),(d1,0.04),(d2,0.05),(T.addDays 365 d2,0.045)]
+      in assertEqual "both cashflow terms are included" 3.599626
+           (fromRational (calcConvexity DC_ACT_365F d0 [(d1,50),(d2,50)] c) :: Micro)
+  , testCase "node-date cashflows use the node rate" $
+      let c  = L.mkRateTs [(d0,0.02),(d1,0.04),(d2,0.05)]
+          ps = [(d1,100),(d2,1100)]
+      in do
+        assertBool "duration uses the node rate, not the previous node"
+          (near (fromRational (calcDuration DC_ACT_365F d0 ps c)) (oracleDur c d0 ps))
+        assertBool "convexity uses the node rate too"
+          (near (fromRational (calcConvexity DC_ACT_365F d0 ps c)) (oracleConv c d0 ps))
+  , testCase "flat multi-point curve matches a single-point curve" $
+      let ps = [(d1,50),(d2,1050)]
+          cFlat = L.mkRateTs [(d0,0.05),(d2,0.05)]
+          cOne  = L.mkRateTs [(d0,0.05)]
+      in do
+        assertEqual "duration parity" (calcDuration DC_ACT_365F d0 ps cOne) (calcDuration DC_ACT_365F d0 ps cFlat)
+        assertEqual "convexity parity" (calcConvexity DC_ACT_365F d0 ps cOne) (calcConvexity DC_ACT_365F d0 ps cFlat)
+  , testCase "duplicate-date flat curve behaves like a single point" $
+      let ps = [(d1,50),(d2,1050)]
+          cDup = L.mkRateTs [(d0,0.05),(d0,0.05)]
+          cOne = L.mkRateTs [(d0,0.05)]
+      in assertEqual "MakeWhole-style [d,d] curve"
+           (calcDuration DC_ACT_365F d0 ps cOne) (calcDuration DC_ACT_365F d0 ps cDup)
+  , testCase "empty curve keeps the zero-rate fallback" $
+      let ps = [(d1,50),(d2,1050)]
+          c  = L.mkRateTs []
+      in do
+        assertBool "duration at 0%" (near (fromRational (calcDuration DC_ACT_365F d0 ps c)) (oracleDur c d0 ps))
+        assertBool "convexity at 0%" (near (fromRational (calcConvexity DC_ACT_365F d0 ps c)) (oracleConv c d0 ps))
+  , testCase "curve starting after the valuation date uses the first node rate" $
+      let c  = L.mkRateTs [(d1,0.02),(d2,0.05)]
+          pd = L.toDate "20230601"
+          ps = [(L.toDate "20231001",100),(L.toDate "20240601",1100)]
+      in do
+        assertBool "metrics extend the first node rate to the left"
+          (near (fromRational (calcDuration DC_ACT_365F pd ps c)) (oracleDur c pd ps))
+        assertBool "convexity same"
+          (near (fromRational (calcConvexity DC_ACT_365F pd ps c)) (oracleConv c pd ps))
+        assertBool "pv4 still rejects an under-covered curve"
+          (isLeft (pv4 (pd, c) ps))
+  , testCase "non-rate curve types fall back to getValByDate" $
+      let c  = ThresholdCurve [TsPoint d0 0.02, TsPoint d2 0.05]
+          ps = [(L.toDate "20230701",50),(L.toDate "20240601",1050)]
+          zs = map (fromRational . getValByDate c Exc . fst) ps
+      in do
+        assertBool "duration fallback"
+          (near (fromRational (calcDuration DC_ACT_365F d0 ps c)) (oracleDurRates zs d0 ps))
+        assertBool "convexity fallback"
+          (near (fromRational (calcConvexity DC_ACT_365F d0 ps c)) (oracleConvRates zs d0 ps))
   ]
+  where
+    d0 = L.toDate "20230101"
+    d1 = L.toDate "20240101"
+    d2 = L.toDate "20250101"
 
 fvTest = 
   testGroup "FV Test" [
@@ -155,7 +282,7 @@ assetPricingTest =
   testGroup "Pricing on Asset" [
     testCase "Loan Pricing(Inc Int)" $
       assertEqual "Loan Pricing"
-        (Right (AssetPrice 1037.38 0.76 0.726208 0.0005369 0.21))
+        (Right (AssetPrice 1037.38 0.76 0.72622 1.189754 0.21))
         (priceAsset (PersonalLoan (LoanOriginalInfo 1200 (Fix DC_30_360_US 0.08) 12 Monthly (L.toDate "20240701") I_P Nothing) 1000 0.08 10 Current)
                     (L.toDate "20241002") 
                     (PvRate 0.03) 
@@ -164,13 +291,20 @@ assetPricingTest =
                     Inc)
     ,testCase "Loan Pricing(Exc Int)" $
       assertEqual "Loan Pricing"
-        (Right (AssetPrice 1037.17 0.76  0.72633840 0.00052012  0.21))
+        (Right (AssetPrice 1037.17 0.76 0.72635 1.189978 0.21))
         (priceAsset (PersonalLoan (LoanOriginalInfo 1200 (Fix DC_30_360_US 0.08) 12 Monthly (L.toDate "20240701") I_P Nothing) 1000 0.08 10 Current)
                     (L.toDate "20241002") 
                     (PvRate 0.03) 
                     (LoanAssump Nothing Nothing Nothing Nothing,DummyDelinqAssump,DummyDefaultAssump)
                     Nothing 
                     Exc)
+    ,testCase "PVCurve on a flat curve matches PvRate pricing" $
+      let loan = PersonalLoan (LoanOriginalInfo 1200 (Fix DC_30_360_US 0.08) 12 Monthly (L.toDate "20240701") I_P Nothing) 1000 0.08 10 Current
+          d = L.toDate "20241002"
+          assumps = (LoanAssump Nothing Nothing Nothing Nothing,DummyDelinqAssump,DummyDefaultAssump)
+      in assertEqual "asset PV curve path uses the same rates"
+           (priceAsset loan d (PvRate 0.03) assumps Nothing Inc)
+           (priceAsset loan d (PVCurve (L.mkRateTs [(d,0.03)])) assumps Nothing Inc)
   ]
 
 irrTest = 
