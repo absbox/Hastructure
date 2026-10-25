@@ -672,7 +672,7 @@ performActionWrap d
                                   mergedCf = CF.mergePoolCf2 cfOrigin cfBought 
                                 in 
                                   ((over CF.cashflowTxn (`CF.aggTsByDates` (dsInterval ++ newAggDates)) mergedCf), (++ [cfBought]) <$> mAflow)
-				) 
+                                ) 
                             pIdToChange
                             pFlowMap
 
@@ -1302,7 +1302,7 @@ performAction d t@TestDeal{accounts=accs, liqProvider = Just _liqProvider} rc (W
                              (ByAvailAmount av, Just (DS ds)) -> (min (toRational av)) <$> queryCompound t rc d (patchDateToStats d ds) 
                              (_ , Just _x) -> Left $ "Date:"++show d ++"Not support limit in LiqSupport(Account)"++ show _x 
             let dAmt = fromRational transferAmt
-	    newLiqMap <- adjustM (draw d dAmt LiquidationDraw) pName _liqProvider
+            newLiqMap <- adjustM (draw d dAmt LiquidationDraw) pName _liqProvider
             return t { accounts = Map.adjust (A.deposit dAmt d (LiquidationSupport pName)) an accs
                      , liqProvider = Just newLiqMap }
   | otherwise = Left $ "Date:"++show d ++"There should only one account for LiqToAcc of LiqSupport"

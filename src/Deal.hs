@@ -432,8 +432,8 @@ getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status
       let financialRptDates = case mNonPerfAssump of 
                                 Just AP.NonPerfAssumption{AP.buildFinancialReport= Just dp } 
                                   -> case genSerialDatesTill2 II startDate dp endDate of
-				       (s:_ds) -> [ BuildReport _sd _ed  | (_sd,_ed) <- zip (s:_ds) _ds ]
-				       [] -> []
+                                       (s:_ds) -> [ BuildReport _sd _ed  | (_sd,_ed) <- zip (s:_ds) _ds ]
+                                       [] -> []
                                 _ -> []
 
       let irUpdateSwapDates = case rateSwap t of

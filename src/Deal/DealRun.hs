@@ -246,25 +246,25 @@ appendCollectedCF d t@TestDeal { pool = MultiPool poolM } poolInflowMap
                                                    Nothing -> set P.poolFutureCf (Just (CF.CashFlowFrame st txnCollected , Nothing)) _v
                                                    Just _ -> over (P.poolFutureCf . _Just . _1 . CF.cashflowTxn) (++ txnToAppend) _v
                                          )
-        		   	                     k
-       			   	                     acc 
-       			 -- insert breakdown asset flow
-       			 accUpdated' = case mAssetFlow of 
-       			   	  Nothing -> accUpdated
-       			   	  Just collectedAssetFlow -> 
-       			   	    let 
-       			   	      appendFn Nothing = Just collectedAssetFlow   
-       			   	      appendFn (Just cfs) 
-       			   	        | length cfs == length collectedAssetFlow 
-       	                                           = Just $ [ origin & over CF.cashflowTxn (++ (view CF.cashflowTxn new)) | (origin,new) <- zip cfs  collectedAssetFlow ] 
-       			   		| length collectedAssetFlow  > length cfs 
+                                                     k
+                                                     acc 
+                         -- insert breakdown asset flow
+                         accUpdated' = case mAssetFlow of 
+                                  Nothing -> accUpdated
+                                  Just collectedAssetFlow -> 
+                                    let 
+                                      appendFn Nothing = Just collectedAssetFlow   
+                                      appendFn (Just cfs) 
+                                        | length cfs == length collectedAssetFlow 
+                                                   = Just $ [ origin & over CF.cashflowTxn (++ (view CF.cashflowTxn new)) | (origin,new) <- zip cfs  collectedAssetFlow ] 
+                                        | length collectedAssetFlow  > length cfs 
                                                           = let 
                                                               dummyCashFrames = replicate (length collectedAssetFlow - length cfs) CF.emptyCashflow 
-       			   		      in 
-       			   		        Just $ [ origin & over (CF.cashflowTxn) (++ (view CF.cashflowTxn new)) | (origin,new) <- zip (cfs++dummyCashFrames) collectedAssetFlow ]
-       			   		| otherwise = error "incomping cashflow number shall greater than existing cashflow number"
-       			   	    in 
-       			   	      accUpdated & ix k %~ (over (P.poolFutureCf . _Just . _2) appendFn)
+                                              in 
+                                                Just $ [ origin & over (CF.cashflowTxn) (++ (view CF.cashflowTxn new)) | (origin,new) <- zip (cfs++dummyCashFrames) collectedAssetFlow ]
+                                        | otherwise = error "incomping cashflow number shall greater than existing cashflow number"
+                                    in 
+                                      accUpdated & ix k %~ (over (P.poolFutureCf . _Just . _2) appendFn)
                        in 
                          Map.adjust 
                            (over P.poolIssuanceStat (Map.insert RuntimeCurrentPoolBalance balInCollected))
@@ -280,7 +280,7 @@ appendCollectedCF d t@TestDeal { pool = ResecDeal uds } poolInflowMap
                 Map.foldrWithKey
                   (\k (CF.CashFlowFrame _ newTxns, _) acc-> Map.adjust (over uDealFutureCf (`CF.appendMCashFlow` newTxns)) k acc)
                   uds
-		          poolInflowMap
+                          poolInflowMap
    in 
      t {pool = newPt} 
 
@@ -713,7 +713,7 @@ run t@TestDeal{accounts=accMap,fees=feeMap,triggers=mTrgMap,bonds=bndMap,status=
                 True -> 
                   let 
                     newStLogs
-		                  | null cleanUpActions = DL.fromList [DealStatusChangeTo d dStatus Called "by Date-Based Call"]
+                                  | null cleanUpActions = DL.fromList [DealStatusChangeTo d dStatus Called "by Date-Based Call"]
                       | otherwise = DL.fromList [DealStatusChangeTo d dStatus Called "by Date-Based Call", RunningWaterfall d W.CleanUp]
                   in  
                     do 

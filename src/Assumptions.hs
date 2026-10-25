@@ -127,9 +127,9 @@ data CallOpt = LegacyOpts [C.CallOption]                 -- ^ legacy support
              | CallOnDates DatePattern [Pre]             -- ^ test call at end of day
              deriving (Show, Generic, Read, Ord, Eq)
 
-data StopBy = StopByDate Date		     -- ^ stop by date
-	    | StopByPre DatePattern [Pre]    -- ^ stop by precondition
-	    deriving (Show, Generic, Read)
+data StopBy = StopByDate Date                -- ^ stop by date
+            | StopByPre DatePattern [Pre]    -- ^ stop by precondition
+            deriving (Show, Generic, Read)
 
 
 data NonPerfAssumption = NonPerfAssumption {
