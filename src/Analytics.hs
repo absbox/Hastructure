@@ -207,6 +207,7 @@ pv4 (pricingDate, pvCurve) (cf:cfs)
   | null ds' = Left "pv4: empty pricing curve"
   | head ds' < pricingDate = Left $ "pv4: cashflow date "++ show (head ds') ++" is before pricing date "++ show pricingDate
   | fst cf < pricingDate = Left $ "pv4: cashflow date "++ show (fst cf) ++" is before pricing date "++ show pricingDate
+  | length ds' > 1 && firstCfDate < head ds' = Left $ "pv4: first cashflow date " ++ show firstCfDate ++ " is before pricing curve start " ++ show (head ds')
   | otherwise 
     = let 
         ds = fst <$> (cf:cfs)
@@ -223,6 +224,7 @@ pv4 (pricingDate, pvCurve) (cf:cfs)
         return $ fromRational . toRational $ foldr (+) 0 pvs
   where
     ds' = getTsDates pvCurve
+    firstCfDate = minimum (fst <$> (cf:cfs))
 
 
 

@@ -83,6 +83,18 @@ hermiteTest =
         assertEqual "cashflow past the curve end discounts off the last yield (flat 5%)"
             (Right (pv2 0.05 d0 (T.addDays 365 d2) 1000))
             (pv4 (d0, L.mkRateTs [(d0, 0.05), (d1, 0.05), (d2, 0.05)]) [(T.addDays 365 d2, 1000)])
+    ,testCase "pv4 accepts a curve that starts at the first cashflow (issue #359 follow-up #2)" $
+        assertEqual "coverage from the first cashflow is enough; the node rate is exact"
+            (Right (pv2 0.05 (L.toDate "20230601") d1 1000))
+            (pv4 (L.toDate "20230601", L.mkRateTs [(d1, 0.05), (d2, 0.06)]) [(d1, 1000)])
+    ,testCase "pv4 rejects a cashflow before the pricing-curve start (issue #359 follow-up #2)" $
+        assertEqual "Left names the first cashflow and the curve start"
+            (Left "pv4: first cashflow date 2023-06-01 is before pricing curve start 2024-01-01")
+            (pv4 (d0, L.mkRateTs [(d1, 0.05), (d2, 0.06)]) [(L.toDate "20230601", 1000)])
+    ,testCase "pv4 keeps the single-point flat-rate curve for a pre-node cashflow (issue #359 follow-up #2)" $
+        assertEqual "a one-point curve is a flat rate everywhere"
+            (Right (pv2 0.05 d0 (L.toDate "20230601") 1000))
+            (pv4 (d0, L.mkRateTs [(d1, 0.05)]) [(L.toDate "20230601", 1000)])
   ]
   where
     d0 = L.toDate "20230101"
