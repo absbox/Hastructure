@@ -67,6 +67,22 @@ hermiteTest =
         assertEqual "single point behaves like a flat 5% curve"
             (Right (pv2 0.05 d0 d1 100))
             (pv4 (d0, L.mkRateTs [(d0, 0.05)]) [(d1, 100)])
+    ,testCase "query exactly at the last node returns its yield (issue #359; was: interpolate throws)" $
+        assertEqual "terminal node returns the node yield"
+            [4.0]
+            (interpolateWithHermite (d0, [(d0, 1.0), (d1, 2.0), (d2, 4.0)]) [d2])
+    ,testCase "query beyond the last node holds the last yield (issue #359)" $
+        assertEqual "one year past the curve end is flat at the last yield"
+            [4.0]
+            (interpolateWithHermite (d0, [(d0, 1.0), (d1, 2.0), (d2, 4.0)]) [T.addDays 365 d2])
+    ,testCase "pv4 prices a cashflow dated exactly at the last curve node (issue #359)" $
+        assertEqual "3-point curve reaches an exact terminal-node cashflow like a flat 5% curve"
+            (Right (pv2 0.05 d0 d2 1000))
+            (pv4 (d0, L.mkRateTs [(d0, 0.05), (d1, 0.05), (d2, 0.05)]) [(d2, 1000)])
+    ,testCase "pv4 prices a cashflow dated beyond the last curve node (issue #359)" $
+        assertEqual "cashflow past the curve end discounts off the last yield (flat 5%)"
+            (Right (pv2 0.05 d0 (T.addDays 365 d2) 1000))
+            (pv4 (d0, L.mkRateTs [(d0, 0.05), (d1, 0.05), (d2, 0.05)]) [(T.addDays 365 d2, 1000)])
   ]
   where
     d0 = L.toDate "20230101"

@@ -100,7 +100,7 @@ interpolateWithHermite (sd, ts) ds
       nodes = Nodes.fromList $
                 zipWith3 (\x' y' yd' -> (x',(y',yd'))) xs ys yds -- `debug` ("x y yd"++ show xs ++">>"++ show ys ++">>"++show yds)
 
-      lookupFn = Piecewise.interpolate Type.hermite1 nodes
+      lookupFn = Piecewise.interpolateConstantExt Type.hermite1 nodes
       xs' = (fromRational . yearCountFraction DC_ACT_365F sd) <$> ds 
     in 
       lookupFn <$> xs'
