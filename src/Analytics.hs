@@ -126,6 +126,20 @@ isHermiteCurve (PricingCurve _) = True
 isHermiteCurve (BalanceCurve _) = True
 isHermiteCurve _                = False
 
+-- | Curve tag for pv4's typed error on unsupported pricing-curve types.
+tsTypeName :: Ts -> String
+tsTypeName (FloatCurve _)          = "FloatCurve"
+tsTypeName (BoolCurve _)           = "BoolCurve"
+tsTypeName (BalanceCurve _)        = "BalanceCurve"
+tsTypeName (LeftBalanceCurve _)    = "LeftBalanceCurve"
+tsTypeName (RatioCurve _)          = "RatioCurve"
+tsTypeName (ThresholdCurve _)      = "ThresholdCurve"
+tsTypeName (IRateCurve _)          = "IRateCurve"
+tsTypeName (FactorCurveClosed _ _) = "FactorCurveClosed"
+tsTypeName (PricingCurve _)        = "PricingCurve"
+tsTypeName (PeriodCurve _)         = "PeriodCurve"
+tsTypeName (IntCurve _)            = "IntCurve"
+
 -- | The single discount-rate evaluator shared by pv, pv3, pv3', duration and
 -- convexity: Hermite (Fritsch-Carlson) through the curve nodes with constant
 -- extension at both borders, exactly like pv4. Flat curves short-circuit to the
@@ -237,6 +251,7 @@ pv3' pvCurve pricingDate ds vs
 pv4 :: (Date,Ts) -> [(Date,Amount)] -> Either ErrorRep Balance
 pv4 _ [] = Left "pv4: No cashflow to get present value"
 pv4 (pricingDate, pvCurve) (cf:cfs)
+  | not (isHermiteCurve pvCurve) = Left $ "pv4: unsupported pricing curve type: " ++ tsTypeName pvCurve
   | null ds' = Left "pv4: empty pricing curve"
   | head ds' < pricingDate = Left $ "pv4: cashflow date "++ show (head ds') ++" is before pricing date "++ show pricingDate
   | fst cf < pricingDate = Left $ "pv4: cashflow date "++ show (fst cf) ++" is before pricing date "++ show pricingDate

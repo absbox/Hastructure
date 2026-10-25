@@ -158,6 +158,21 @@ hermiteTest =
         let c  = L.mkRateTs [(d0,0.05),(d2,0.05)]
             dd = L.toDate "20240601"
         in assertEqual "flat curve = constant rate" (pv2 0.05 d0 dd 1000) (pv c d0 dd 1000)
+    ,testCase "pv4 returns Left for unsupported curve types" $
+        do assertEqual "ThresholdCurve"
+             (Left "pv4: unsupported pricing curve type: ThresholdCurve")
+             (pv4 (d0, ThresholdCurve [TsPoint d1 0.02, TsPoint d2 0.05]) [(d1, 1000)])
+           assertEqual "FactorCurveClosed"
+             (Left "pv4: unsupported pricing curve type: FactorCurveClosed")
+             (pv4 (d0, FactorCurveClosed [TsPoint d1 0.9, TsPoint d2 0.8] d2) [(d1, 1000)])
+    ,testCase "pv4 accepts every supported Hermite curve type" $
+        let expR = Right (pv2 0.05 d0 d1 1000)
+            cases = [ ("IRateCurve", L.mkRateTs [(d0,0.05),(d2,0.05)])
+                    , ("RatioCurve", RatioCurve [TsPoint d0 0.05, TsPoint d2 0.05])
+                    , ("FloatCurve", FloatCurve [TsPoint d0 0.05, TsPoint d2 0.05])
+                    , ("BalanceCurve", BalanceCurve [TsPoint d0 0.05, TsPoint d2 0.05])
+                    , ("PricingCurve", PricingCurve [TsPoint d0 0.05, TsPoint d2 0.05]) ]
+        in mapM_ (\(n,c) -> assertEqual ("supported " ++ n) expR (pv4 (d0,c) [(d1,1000)])) cases
 
   ]
   where
