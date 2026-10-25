@@ -6,7 +6,7 @@ module AssetClass.Loan
   (projectLoanFlow,updateOriginDate)
   where
 
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
 import qualified Assumptions as A
 import InterestRate
@@ -18,22 +18,20 @@ import Types
 import qualified Data.Map as Map
 import Data.List
 import Data.Maybe
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
-import GHC.Generics
+import Data.Aeson ()
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
+import GHC.Generics ()
 
 import AssetClass.AssetBase
 import AssetClass.AssetCashflow
 
-import Debug.Trace
-import Assumptions (AssetDefaultAssumption(DefaultCDR))
+import Assumptions ()
 import qualified Asset as A
-import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens ()
+import Control.Lens.TH ()
 import qualified Data.DList as DL
-debug = flip trace
 
 
 -- instance Asset Loan where

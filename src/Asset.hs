@@ -9,18 +9,15 @@
 module Asset ( Asset(..),
       buildAssumptionPpyDefRecRate,buildAssumptionPpyDelinqDefRecRate
       ,calcRecoveriesFromDefault
-      ,priceAsset,applyHaircut,buildPrepayRates,buildDefaultRates,getObligorFields
-      ,getObligorTags,getObligorId,getRecoveryLagAndRate,getDefaultDelinqAssump,getOriginInfo
+      ,priceAsset,applyHaircut,buildPrepayRates,buildDefaultRates
+      ,getRecoveryLagAndRate,getDefaultDelinqAssump
 ) where
 
 import qualified Data.Time as T
-import qualified Data.Text as Text
-import Text.Read (readMaybe)
+import qualified Data.Text as Text ()
+import Text.Read ()
 
-import Lib (Period(..)
-          ,Ts(..),periodRateFromAnnualRate,toDate
-          ,getIntervalDays,zipWith9,mkTs,monthsBetween
-          ,mkRateTs,daysBetween, getIntervalFactors)
+import Lib (getIntervalDays, mkTs, monthsBetween, daysBetween)
 
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
 import qualified Assumptions as A
@@ -30,31 +27,29 @@ import AssetClass.AssetCashflow
 import qualified Data.Map as Map
 import Analytics
 import Data.List
-import Data.Maybe
-import Data.Ratio
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
-import GHC.Generics
-import Data.Aeson.TH
-import Data.Aeson.Types
-import Types hiding (Current)
-import Text.Printf
-import Data.Fixed
+import Data.Maybe ()
+import Data.Ratio ()
+import Data.Aeson ()
+import Language.Haskell.TH ()
+import GHC.Generics ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
+import Types
+import Text.Printf ()
+import Data.Fixed ()
 import qualified InterestRate as IR
 import qualified Data.Set as Set
 import Util
 
-import AssetClass.AssetBase ( OriginalInfo(..), calcPmt, AssetUnion, Obligor(..) )
+import AssetClass.AssetBase (OriginalInfo(..), Obligor(..))
 
-import Debug.Trace
 import Assumptions (ExtraStress(ExtraStress))
 
-import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens ()
+import Control.Lens.TH ()
 import DateUtil (yearCountFraction)
 
 
-debug = flip trace
 
 class (Show a,IR.UseRate a) => Asset a where
   -- | project contractual cashflow of an asset with interest assumptions
@@ -171,8 +166,6 @@ applyExtraStress (Just ExtraStress{A.defaultFactors= mDefFactor
 cpr2smm :: Rate -> Rate
 cpr2smm r = toRational $ 1 - (1 - fromRational r :: Double) ** (1/12)
 
-normalPerfVector :: [Rate] -> [Rate]
-normalPerfVector = floorWith 0.0 . capWith 1.0
 
 
 -- ^ Given a prerpayment assumption , convert it to <period> based prepayment rate
@@ -325,9 +318,6 @@ getDefaultDelinqAssump (Just (A.DelinqCDR r (lag,pct))) ds
     ,lag 
     ,pct)
 
-getDefaultLagAndRate :: Maybe A.RecoveryAssumption -> (Rate,Int)
-getDefaultLagAndRate Nothing = (0,0)
-getDefaultLagAndRate (Just (A.Recovery (r,lag))) = (r,lag)
 
 -- | build prepayment rates/ delinq rates and (%,lag) convert to default, recovery rate, recovery lag
 buildAssumptionPpyDelinqDefRecRate :: Asset a => a -> [Date] -> A.AssetPerfAssumption -> Either String ([Rate],[Rate],(Rate,Lag),Rate,Int)

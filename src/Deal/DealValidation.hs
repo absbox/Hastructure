@@ -27,7 +27,7 @@ import Interface
 import Deal.DealCollection (CollectionRule(..))
 
 import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens.TH ()
 
 extractRequiredRates :: (P.Asset a,IR.UseRate a) => TestDeal a -> Set.Set Types.Index
 extractRequiredRates t@TestDeal{accounts = accM 

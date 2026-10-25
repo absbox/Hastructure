@@ -4,7 +4,9 @@ name: Docker Image CI
 # (e.g. `v0.52.12`), which:
 #   * builds native binaries for linux/amd64, linux/arm64, macOS/arm64 and
 #     Windows/amd64 and publishes them automatically to the GitHub "Releases"
-#     page for that tag (the release is created non-draft, with generated notes)
+#     page for that tag (the release is created non-draft, with generated notes);
+#     every target is also published stripped, and Linux/Windows additionally
+#     as a UPX-packed binary
 #   * builds and pushes the amd64 image to Docker Hub (:latest + semver tags)
 #   * publishes the tagged version to Hackage (the tag must match the cabal
 #     version, e.g. `v0.53.0` <-> `version: 0.53.0`)
@@ -89,6 +91,131 @@ jobs:
             EXT=""
           fi
           mv "dist/Hastructure-exe${EXT}" "dist/Hastructure-${GITHUB_REF_NAME}-${{ matrix.name }}${EXT}"
+
+      # Publish three variants of every Linux/Windows target (two on macOS),
+      # all from the exact same build:
+      #   Hastructure-<tag>-<target><ext>              normal, full symbol table
+      #   Hastructure-<tag>-<target>-stripped<ext>     same code/data, no symbols
+      #   Hastructure-<tag>-<target>-upx<ext>          stripped + UPX (-9)
+      # Stripping here (instead of a second `cabal install`) guarantees the
+      # binaries differ only in the symbol/debug metadata, and avoids doubling
+      # the build time.
+      - name: Create stripped variant
+        id: variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXT=""
+          if [ "$RUNNER_OS" = "Windows" ]; then EXT=".exe"; fi
+          base="dist/Hastructure-${GITHUB_REF_NAME}-${{ matrix.name }}"
+          full="${base}${EXT}"
+          slim="${base}-stripped${EXT}"
+          cp "$full" "$slim"
+          chmod +x "$slim"
+
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # Apple's strip does not know --strip-unneeded. Rewriting the Mach-O
+            # invalidates the linker's ad-hoc arm64 signature, so re-sign or the
+            # binary is killed at exec time.
+            /usr/bin/strip -x "$slim"
+            codesign --force --sign - "$slim"
+            codesign --verify --strict "$slim"
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            ghc_lib="$(ghc --print-libdir 2>/dev/null | sed 's|\\|/|g' || true)"
+            candidates=()
+            if [ -n "$ghc_lib" ]; then
+              candidates+=("$(dirname "$ghc_lib")/mingw/bin/strip.exe")
+            fi
+            candidates+=("C:/msys64/usr/bin/strip.exe" "C:/Strawberry/c/bin/strip.exe")
+            strip_bin=""
+            for c in "${candidates[@]}"; do
+              if [ -x "$c" ]; then strip_bin="$c"; break; fi
+            done
+            if [ -z "$strip_bin" ]; then strip_bin="$(command -v strip || true)"; fi
+            if [ -z "$strip_bin" ]; then
+              echo "No strip executable found (tried GHC mingw, MSYS2, Strawberry, PATH)" >&2
+              exit 1
+            fi
+            echo "Using $strip_bin"
+            "$strip_bin" --strip-unneeded "$slim"
+          else
+            strip --strip-unneeded "$slim"
+          fi
+
+          size_full=$(wc -c <"$full")
+          size_slim=$(wc -c <"$slim")
+          echo "unstripped: $size_full bytes, stripped: $size_slim bytes"
+          test "$size_slim" -lt "$size_full"
+          echo "stripped=$slim" >> "$GITHUB_OUTPUT"
+
+      # Third variant for Linux and Windows only: strip first, then let UPX
+      # pack a *copy* (the action compresses in place). macOS is excluded
+      # because UPX/ghaction-upx does not support Mach-O.
+      - name: Stage UPX variant
+        id: upx
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXT=""
+          if [ "$RUNNER_OS" = "Windows" ]; then EXT=".exe"; fi
+          path="dist/Hastructure-${GITHUB_REF_NAME}-${{ matrix.name }}-upx${EXT}"
+          cp "${{ steps.variants.outputs.stripped }}" "$path"
+          chmod +x "$path"
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+
+      - name: Compress UPX variant
+        if: runner.os != 'macOS'
+        uses: crazy-max/ghaction-upx@v4
+        with:
+          version: v5.2.1
+          files: ${{ steps.upx.outputs.path }}
+          args: -9
+
+      - name: Verify UPX variant
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          size_stripped=$(wc -c <"${{ steps.variants.outputs.stripped }}")
+          size_upx=$(wc -c <"${{ steps.upx.outputs.path }}")
+          echo "stripped: $size_stripped bytes, upx: $size_upx bytes"
+          test "$size_upx" -lt "$size_stripped"
+
+      # The stripped and UPX assets are the ones at risk (symbols removed,
+      # macOS re-signed, UPX-packed), so start each and require a real HTTP
+      # answer before anything is published. Runs in `smoke/`, not `dist/`, to
+      # keep config.yml/swagger.json out of the release assets.
+      - name: Smoke test stripped and UPX variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXT=""
+          if [ "$RUNNER_OS" = "Windows" ]; then EXT=".exe"; fi
+          variants=(stripped)
+          if [ "$RUNNER_OS" != "macOS" ]; then variants+=(upx); fi
+          mkdir -p smoke
+          cd smoke
+          port=18080
+          for variant in "${variants[@]}"; do
+            bin="Hastructure-${GITHUB_REF_NAME}-${{ matrix.name }}-${variant}${EXT}"
+            cp "../dist/$bin" .
+            printf 'port: %s\n' "$port" > config.yml
+            "./$bin" > "$variant.log" 2>&1 &
+            pid=$!
+            ok=0
+            for _ in $(seq 1 60); do
+              if curl -fsS "http://127.0.0.1:${port}/version" 2>/dev/null; then ok=1; break; fi
+              sleep 1
+            done
+            kill "$pid" 2>/dev/null || true
+            if [ "$ok" -ne 1 ]; then
+              echo "$variant binary failed to serve /version" >&2
+              cat "$variant.log" >&2
+              exit 1
+            fi
+            port=$((port + 1))
+          done
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

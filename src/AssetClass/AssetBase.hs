@@ -15,15 +15,17 @@ module AssetClass.AssetBase
   )
   where
 
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import GHC.Generics
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 --import Asset
 
 import Data.OpenApi hiding (Server,contentType)
 
-import Types hiding (Current,startDate,originTerm)
+import Types hiding (startDate)
+import DateUtil (genSerialDatesTill2)
+import qualified Data.Time as T
 import Data.Ratio
 import Data.Proxy
 import Data.Decimal
@@ -32,10 +34,8 @@ import qualified Data.Map as Map
 import qualified InterestRate as IR
 import qualified Cashflow as CF
 import Control.Lens hiding (element,Index)
-import Control.Lens.TH
+import Control.Lens.TH ()
 
-import Debug.Trace (trace)
-debug = flip Debug.Trace.trace
 
 
 type DailyRate = Balance
@@ -259,6 +259,25 @@ data AssetUnion = MO Mortgage
                 deriving (Show, Generic,Ord,Eq)
 
 
+-- ^ end date of an original term expressed in payment periods
+termEndDate :: Period -> Date -> Int -> Date
+termEndDate p sd n = case p of 
+    Daily        -> T.addDays (toInteger n) sd
+    Weekly       -> T.addDays (toInteger n * 7) sd
+    BiWeekly     -> T.addDays (toInteger n * 14) sd
+    Monthly      -> T.addGregorianDurationClip (T.CalendarDiffDays (toInteger n) 0) sd
+    Quarterly    -> T.addGregorianDurationClip (T.CalendarDiffDays (toInteger n * 3) 0) sd
+    SemiAnnually -> T.addGregorianDurationClip (T.CalendarDiffDays (toInteger n * 6) 0) sd
+    Annually     -> T.addGregorianDurationClip (T.CalendarDiffDays (toInteger n * 12) 0) sd
+
+
+-- ^ reset dates of a floating rate type over the asset's original term
+rateResetDatesOverTerm :: IR.RateType -> Date -> Int -> Period -> Dates
+rateResetDatesOverTerm (IR.Floater _ _ _ _ dp _ _ _) sd n p 
+  = genSerialDatesTill2 NO_IE sd dp (termEndDate p sd n)
+rateResetDatesOverTerm _ _ _ _ = []
+
+
 instance IR.UseRate AssetUnion where
   getIndex (MO ma) = IR.getIndex ma
   getIndex (LO ma) = IR.getIndex ma
@@ -268,6 +287,38 @@ instance IR.UseRate AssetUnion where
   getIndex (RE ma) = IR.getIndex ma
   getIndex (PF ma) = IR.getIndex ma
 
+  getIndexes (MO ma) = IR.getIndexes ma
+  getIndexes (LO ma) = IR.getIndexes ma
+  getIndexes (IL ma) = IR.getIndexes ma
+  getIndexes (LS ma) = IR.getIndexes ma
+  getIndexes (FA ma) = IR.getIndexes ma
+  getIndexes (RE ma) = IR.getIndexes ma
+  getIndexes (PF ma) = IR.getIndexes ma
+
+  isAdjustableRate (MO ma) = IR.isAdjustableRate ma
+  isAdjustableRate (LO ma) = IR.isAdjustableRate ma
+  isAdjustableRate (IL ma) = IR.isAdjustableRate ma
+  isAdjustableRate (LS ma) = IR.isAdjustableRate ma
+  isAdjustableRate (FA ma) = IR.isAdjustableRate ma
+  isAdjustableRate (RE ma) = IR.isAdjustableRate ma
+  isAdjustableRate (PF ma) = IR.isAdjustableRate ma
+
+  getResetDates (MO ma) = IR.getResetDates ma
+  getResetDates (LO ma) = IR.getResetDates ma
+  getResetDates (IL ma) = IR.getResetDates ma
+  getResetDates (LS ma) = IR.getResetDates ma
+  getResetDates (FA ma) = IR.getResetDates ma
+  getResetDates (RE ma) = IR.getResetDates ma
+  getResetDates (PF ma) = IR.getResetDates ma
+
+  getSpread (MO ma) = IR.getSpread ma
+  getSpread (LO ma) = IR.getSpread ma
+  getSpread (IL ma) = IR.getSpread ma
+  getSpread (LS ma) = IR.getSpread ma
+  getSpread (FA ma) = IR.getSpread ma
+  getSpread (RE ma) = IR.getSpread ma
+  getSpread (PF ma) = IR.getSpread ma
+
 
 instance IR.UseRate Mortgage where 
   getIndex (Mortgage oi@MortgageOriginalInfo{ originRate = IR.Floater _ idx _ _ _ _ _ _ } _ _ _ _ _) = Just idx 
@@ -275,23 +326,89 @@ instance IR.UseRate Mortgage where
   getIndex (AdjustRateMortgage oi@MortgageOriginalInfo{ originRate = IR.Floater _ idx _ _ _ _ _ _ } _ _ _ _ _ _) = Just idx 
   getIndex AdjustRateMortgage {} = Nothing
 
+  -- ^ look-up from the single origin index
+  getIndexes m@Mortgage {} = case IR.getIndex m of
+                                Just idx -> Just [idx]
+                                _ -> Nothing
+  getIndexes m@AdjustRateMortgage {} = case IR.getIndex m of
+                                          Just idx -> Just [idx]
+                                          _ -> Nothing
+
+  isAdjustableRate m@Mortgage {} = case IR.getIndex m of
+                                      Just _ -> True
+                                      _ -> False
+  isAdjustableRate m@AdjustRateMortgage {} = case IR.getIndex m of
+                                                Just _ -> True
+                                                _ -> False
+
+  -- ^ spread from the origin rate
+  getSpread (Mortgage oi@MortgageOriginalInfo{originRate = rt} _ _ _ _ _) = IR._getSpread rt
+  getSpread (AdjustRateMortgage oi@MortgageOriginalInfo{originRate = rt} _ _ _ _ _ _) = IR._getSpread rt
+
+  -- ^ reset dates of the origin floating rate over the originated term
+  getResetDates (Mortgage oi@MortgageOriginalInfo{originRate = rt, originTerm = ot, startDate = sd, period = p} _ _ _ _ _) 
+    = rateResetDatesOverTerm rt sd ot p
+  getResetDates (AdjustRateMortgage oi@MortgageOriginalInfo{originRate = rt, originTerm = ot, startDate = sd, period = p} _ _ _ _ _ _)
+    = rateResetDatesOverTerm rt sd ot p
+
 instance IR.UseRate Loan where
   getIndex (PersonalLoan oi@LoanOriginalInfo{originRate = IR.Floater _ idx _ _ _ _ _ _ } _ _ _ _) = Just idx 
   getIndex PersonalLoan {} = Nothing
 
+  getIndexes p@PersonalLoan {} = case IR.getIndex p of
+                                    Just idx -> Just [idx]
+                                    _ -> Nothing
+
+  isAdjustableRate p@PersonalLoan {} = case IR.getIndex p of
+                                          Just _ -> True
+                                          _ -> False
+
+  getSpread (PersonalLoan oi@LoanOriginalInfo{originRate = rt} _ _ _ _) = IR._getSpread rt
+
+  getResetDates (PersonalLoan oi@LoanOriginalInfo{originRate = rt, originTerm = ot, startDate = sd, period = p} _ _ _ _)
+    = rateResetDatesOverTerm rt sd ot p
+
 instance IR.UseRate Installment where 
   getIndex (Installment oi@LoanOriginalInfo{originRate = IR.Floater _ idx _ _ _ _ _ _ } _ _ _) = Just idx 
   getIndex Installment {} = Nothing
+
+  getIndexes p@Installment {} = case IR.getIndex p of
+                                   Just idx -> Just [idx]
+                                   _ -> Nothing
+
+  isAdjustableRate p@Installment {} = case IR.getIndex p of
+                                         Just _ -> True
+                                         _ -> False
+
+  getSpread (Installment oi@LoanOriginalInfo{originRate = rt} _ _ _) = IR._getSpread rt
+
+  getResetDates (Installment oi@LoanOriginalInfo{originRate = rt, originTerm = ot, startDate = sd, period = p} _ _ _)
+    = rateResetDatesOverTerm rt sd ot p
   
 instance IR.UseRate Lease where
   getIndex :: Lease -> Maybe Index
   getIndex _ = Nothing
+  -- ^ the rental rate is contractual (fixed by day), no floating index
+  getIndexes _ = Nothing
+  isAdjustableRate _ = False
+  getResetDates _ = []
+  getSpread _ = Nothing
 
 instance IR.UseRate FixedAsset where
   getIndex _ = Nothing
+  -- ^ depreciation-type asset with no indexed rate
+  getIndexes _ = Nothing
+  isAdjustableRate _ = False
+  getResetDates _ = []
+  getSpread _ = Nothing
 
 instance IR.UseRate Receivable where
   getIndex _ = Nothing
+  -- ^ receivable pays a face balance, no indexed rate
+  getIndexes _ = Nothing
+  isAdjustableRate _ = False
+  getResetDates _ = []
+  getSpread _ = Nothing
 
 instance IR.UseRate ProjectedCashFlow where 
   getIndex (ProjectedByFactor cf _ _ []) = Nothing
@@ -302,6 +419,8 @@ instance IR.UseRate ProjectedCashFlow where
   isAdjustableRate (ProjectedByFactor _ _ _ []) = False
   isAdjustableRate (ProjectedByFactor _ _ _ _) = True
   isAdjustableRate (ProjectedCashflow _ _ _) = False
+  getResetDates _ = []
+  getSpread _ = Nothing
 
 
 $(concat <$> traverse (deriveJSON defaultOptions) [''Obligor, ''OriginalInfo, ''FixedAsset, ''AmortPlan, ''PrepayPenaltyType

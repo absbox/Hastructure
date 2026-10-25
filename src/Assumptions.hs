@@ -29,29 +29,27 @@ module Assumptions (BondPricingInput(..),IrrType(..)
 where
 
 import Call as C
-import Lib (Ts(..),TsPoint(..),toDate,mkRateTs)
+import Lib (mkRateTs)
 import Liability (Bond,InterestInfo(..))
 import Util
 import DateUtil
 import qualified Data.Map as Map 
 import Data.List
 import qualified Data.Set as Set
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
+import Data.Aeson
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 import Types
-import qualified Data.Time as T
-import Data.Fixed
-import Data.Ratio
+import qualified Data.Time as T ()
+import Data.Fixed ()
+import Data.Ratio ()
 import Revolving
 import GHC.Generics
-import AssetClass.AssetBase
-import Debug.Trace
+import AssetClass.AssetBase ()
 import qualified InterestRate as IR
 import Control.Lens hiding (Index) 
 
-debug = flip trace
 
 type AssetPerf = (AssetPerfAssumption,AssetDelinqPerfAssumption,AssetDefaultedPerfAssumption)
 type StratPerfByIdx = ([Int],AssetPerf)
@@ -129,9 +127,9 @@ data CallOpt = LegacyOpts [C.CallOption]                 -- ^ legacy support
              | CallOnDates DatePattern [Pre]             -- ^ test call at end of day
              deriving (Show, Generic, Read, Ord, Eq)
 
-data StopBy = StopByDate Date		     -- ^ stop by date
-	    | StopByPre DatePattern [Pre]    -- ^ stop by precondition
-	    deriving (Show, Generic, Read)
+data StopBy = StopByDate Date                -- ^ stop by date
+            | StopByPre DatePattern [Pre]    -- ^ stop by precondition
+            deriving (Show, Generic, Read)
 
 
 data NonPerfAssumption = NonPerfAssumption {
@@ -258,7 +256,6 @@ data ExtraStress = ExtraStress {
                      ,poolHairCut :: Maybe [(PoolSource, Rate)] -- ^ haircut on pool income source
                    } deriving (Show,Generic,Read)
 
-type ExtendCashflowDates = DatePattern
 
 data AssetDefaultedPerfAssumption = DefaultedRecovery Rate Int [Rate]
                                   | DummyDefaultAssump
@@ -286,7 +283,6 @@ data RevolvingAssumption = AvailableAssets RevolvingPool ApplyAssumptionType
 type HistoryCash = [(Date,Amount)]
 type CurrentHolding = Balance -- as of the deal date
 type PricingDate = Date
-type AmountToBuy = Balance
 
 
 data TradeType = ByCash Balance 
@@ -334,8 +330,7 @@ getRateAssumption :: [RateAssumption] -> Index -> Maybe RateAssumption
 getRateAssumption assumps idx
   = find (\case
            (RateCurve _idx _) -> idx == _idx 
-           (RateFlat _idx _) -> idx == _idx
-           _ -> False)
+           (RateFlat _idx _) -> idx == _idx)
          assumps
 
 -- | project rates used by rate type ,with interest rate assumptions and observation dates
@@ -363,8 +358,6 @@ projRates sr (IR.Floater _ idx spd r dp rfloor rcap mr) (Just assumps) ds
               (Just fv, Just cv) -> capWith cv $ floorWith fv $ fromRational <$> ratesUsedByDates 
               (Just fv, Nothing) -> floorWith fv $ fromRational <$> ratesUsedByDates 
               (Nothing, Just cv) -> capWith cv $ fromRational <$> ratesUsedByDates 
-
-projRates _ rt rassump ds = Left ("Invalid rate type: "++ show rt++" assump: "++ show rassump)
 
 -- ^ split call option assumption , 
 -- lefts are for waterfall payment days

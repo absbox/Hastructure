@@ -7,31 +7,29 @@ module AssetClass.AssetCashflow
   ,patchLossRecovery,getRecoveryLagFromAssumption)
   where
 
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import qualified Cashflow as CF 
 import Types
-import Lib
+import Lib ()
 import Util
-import DateUtil
-import InterestRate as IR
+import DateUtil ()
+import InterestRate as IR ()
 
-import qualified Data.Map as Map
+import qualified Data.Map as Map ()
 import Data.List
-import Data.Ratio
-import Data.Maybe
-import GHC.Generics
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Ratio ()
+import Data.Maybe ()
+import GHC.Generics ()
+import Data.Aeson ()
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
 
 import AssetClass.AssetBase
 
-import Debug.Trace
 import qualified Assumptions as A 
-import GHC.Float.RealFracMethods (truncateFloatInteger)
+import GHC.Float.RealFracMethods ()
 import Cashflow (mflowDefault)
-debug = flip trace
 
 -- This module is a collection of common cashflow functions to project cashflow for different asset types.
 

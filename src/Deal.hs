@@ -18,32 +18,32 @@ module Deal (run,getInits,runDeal,ExpectReturn(..)
             ,changeDealStatus
             ) where
 
-import Control.Parallel.Strategies
+import Control.Parallel.Strategies ()
 import qualified Accounts as A
-import qualified Ledger as LD
+import qualified Ledger as LD ()
 import qualified Asset as Ast
 import qualified Pool as P
 import qualified Expense as F
 import qualified Liability as L
 import qualified CreditEnhancement as CE
 import qualified Analytics
-import qualified Waterfall as W
+import qualified Waterfall as W ()
 import qualified Cashflow as CF
 import qualified Assumptions as AP
-import qualified Reports as Rpt
-import qualified AssetClass.AssetBase as ACM
-import AssetClass.Mortgage
-import AssetClass.Lease
-import AssetClass.Loan
-import AssetClass.Installment
+import qualified Reports as Rpt ()
+import qualified AssetClass.AssetBase as ACM ()
+import AssetClass.Mortgage ()
+import AssetClass.Lease ()
+import AssetClass.Loan ()
+import AssetClass.Installment ()
 import AssetClass.MixedAsset
 
-import qualified Call as C
-import qualified InterestRate as IR
+import qualified Call as C ()
+import qualified InterestRate as IR ()
 import Deal.DealBase
 import Deal.DealQuery
 import Deal.DealAction
-import Deal.DealCollection
+import Deal.DealCollection ()
 import Deal.DealRun
 import qualified Deal.DealValidation as V
 import Stmt
@@ -51,60 +51,44 @@ import Lib
 import Util
 import DateUtil
 import Types
-import Revolving
-import Triggers
+import Revolving ()
+import Triggers ()
 
 import qualified Data.Map as Map hiding (mapEither)
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import qualified Data.Set as S
-import qualified Control.Lens as LS
+import qualified Control.Lens as LS ()
 import Data.List
 import qualified Data.DList as DL
-import Data.Fixed
-import Data.Time.Clock
+import Data.Fixed ()
+import Data.Time.Clock ()
 import Data.Maybe
-import Data.Either
-import Data.Bifunctor (bimap)
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
+import Data.Either ()
+import Data.Bifunctor ()
+import Data.Aeson
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 import GHC.Generics
-import Control.Monad
-import Control.Monad.Writer
-import Control.Monad.Loops (allM,anyM)
-import Control.Applicative (liftA2)
+import Control.Monad ()
+import Control.Monad.Writer ()
+import Control.Monad.Loops ()
+import Control.Applicative ()
 
-import Debug.Trace
-import Cashflow (buildBegTsRow)
-import Assumptions (NonPerfAssumption(NonPerfAssumption),lookupRate0)
+import Cashflow ()
+import Assumptions ()
 import Asset ()
-import Pool (issuanceStat)
-import qualified Types as P
+import Pool ()
+import qualified Types as P ()
 import Control.Lens hiding (element)
-import Control.Lens.TH
-import Data.Either.Utils
+import Control.Lens.TH ()
+import Data.Either.Utils ()
 import InterestRate (calcInt)
-import Liability (getDayCountFromInfo,getTxnRate)
-import Hedge (RateCap(..),RateSwapBase(..),RateSwap(rsRefBalance))
+import Liability (getTxnRate)
+import Hedge ()
 import qualified Hedge as HE
 
-debug = flip trace
 
-
-updateSrtRate :: Ast.Asset a => TestDeal a -> Date -> [RateAssumption] -> HE.SRT -> Either String HE.SRT
-updateSrtRate t d ras srt@HE.SRT{HE.srtPremiumType = rt} 
-    = do 
-        r <- AP.applyFloatRate2 rt d ras 
-        return srt { HE.srtPremiumRate = r }
-
-
-
-queryTrigger :: Ast.Asset a => TestDeal a -> DealCycle -> [Trigger]
-queryTrigger t@TestDeal{ triggers = trgs } wt 
-  = case trgs of 
-      Nothing -> []
-      Just _trgs -> maybe [] Map.elems $ Map.lookup wt _trgs
 
 -- ^ test triggers in the deal and add a log if deal status changed
 changeDealStatus:: Ast.Asset a => (Date,String)-> DealStatus -> TestDeal a -> (Maybe ResultComponent, TestDeal a)
@@ -448,8 +432,8 @@ getInits er t@TestDeal{accounts = accMap, fees=feeMap,pool=thePool,status=status
       let financialRptDates = case mNonPerfAssump of 
                                 Just AP.NonPerfAssumption{AP.buildFinancialReport= Just dp } 
                                   -> case genSerialDatesTill2 II startDate dp endDate of
-				       (s:_ds) -> [ BuildReport _sd _ed  | (_sd,_ed) <- zip (s:_ds) _ds ]
-				       [] -> []
+                                       (s:_ds) -> [ BuildReport _sd _ed  | (_sd,_ed) <- zip (s:_ds) _ds ]
+                                       [] -> []
                                 _ -> []
 
       let irUpdateSwapDates = case rateSwap t of

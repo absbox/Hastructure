@@ -29,9 +29,9 @@ import qualified Hedge as HE
 import qualified Waterfall as W
 import qualified Cashflow as CF
 import qualified Assumptions as AP
-import qualified AssetClass.AssetBase as ACM
-import qualified Call as C
-import qualified InterestRate as IR
+import qualified AssetClass.AssetBase as ACM ()
+import qualified Call as C ()
+import qualified InterestRate as IR ()
 import Interface
 import Stmt
 import Lib
@@ -44,30 +44,28 @@ import Triggers
 import Deal.DealCollection (CollectionRule(..))
 
 import qualified Data.Map as Map
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import qualified Data.Set as S
 import qualified Data.DList as DL
 import Data.List
-import Data.Fixed
+import Data.Fixed ()
 import Data.Maybe
-import Data.Ratio
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
+import Data.Ratio ()
+import Data.Aeson
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 import GHC.Generics
 import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens.TH ()
 import Control.Monad (foldM)
-import Data.IntMap (filterWithKey)
-import qualified Data.Text as T
-import Text.Read (readMaybe)
+import Data.IntMap ()
+import qualified Data.Text as T ()
+import Text.Read ()
 import qualified Pool as P
-import qualified Types as CF
+import qualified Types as CF ()
 
-import Debug.Trace
-import qualified Control.Lens as P
-debug = flip trace
+import qualified Control.Lens as P ()
 
 
 data DealComp = CompBond 
@@ -82,9 +80,6 @@ data DealComp = CompBond
               | CompLiqProvider 
               deriving (Show,Eq,Ord,Generic,Read)
 
-data ActionTypeOnDate = DoSettle
-                      | DoAccrue
-                      | DoUpdateRate
 
 data ActionOnDate = EarnAccInt Date AccName              -- ^ sweep bank account interest
                   | ChangeDealStatusTo Date DealStatus   -- ^ change deal status
@@ -601,11 +596,6 @@ poolTypePool = lens getter setter
     getter = \case MultiPool pm -> pm
     setter (MultiPool pm) newPm = MultiPool newPm
 
-poolTypeUnderDeal :: Ast.Asset a => Lens' (PoolType a) (Map.Map PoolId (UnderlyingDeal a))
-poolTypeUnderDeal = lens getter setter
-  where 
-    getter = \case ResecDeal dm -> dm
-    setter (ResecDeal dm) newDm = ResecDeal newDm
 
 getPoolIds :: Ast.Asset a => TestDeal a -> [PoolId]
 getPoolIds t@TestDeal{pool = pt} 
@@ -711,7 +701,6 @@ bondTraversal :: Traversal' (TestDeal a) L.Bond
 bondTraversal f t@TestDeal{bonds = bndMap} =
   (\newBndMap -> t {bonds = newBndMap}) <$> traverse f bndMap
 
-data UnderBond b = UnderBond BondName Rate (TestDeal b)
 
 opts :: JSONKeyOptions
 opts = defaultJSONKeyOptions

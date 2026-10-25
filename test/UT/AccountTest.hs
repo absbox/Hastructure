@@ -5,6 +5,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Accounts 
 import Lib
+import qualified InterestRate as IR
 import Stmt
 import Util
 import DateUtil
@@ -73,6 +74,11 @@ investTests =
           assertEqual "MonthEnd with txns"
           152.40
           (accBalance (depositInt (toDate "20221101") acc2 ))
+        -- regression tests for UseRate class completeness on Account
+        ,testCase "UseRate on InvestmentAccount" $
+          assertEqual "index/spread/reset on investment account"
+            (Just [SOFR1Y], Just SOFR1Y, True, Nothing, [])
+            (IR.getIndexes acc1, IR.getIndex acc1, IR.isAdjustableRate acc1, IR.getSpread acc1, IR.getResetDates acc1)
       ]
 
 

@@ -5,23 +5,18 @@
 module Ledger (Ledger(..),LedgerName,queryGap,clearLedgersBySeq
               ,entryLogByDr,bookToTarget,bookToClear)
     where
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import Stmt 
 import Types
-import Lib
-import Util
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
+import Lib ()
+import Util ()
+import Data.Aeson
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 import qualified Data.DList as DL
 import GHC.Generics
 
-import Control.Lens hiding (element)
-
-import Control.Lens.TH
-import Debug.Trace
-debug = flip trace
 
 
 type LedgerName = String
@@ -114,7 +109,6 @@ instance QueryByComment Ledger where
 
     queryTxnAmt a tc = sum $ map getTxnAmt $ queryStmt a tc
 
-makeLensesFor [("ledgName","ledgNameLens"),("ledgBalance","ledgBalLens"),("ledgStmt","ledgStmtLens")] ''Ledger
 
 
 $(deriveJSON defaultOptions ''Ledger)

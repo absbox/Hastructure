@@ -6,30 +6,27 @@
 module InterestRate
   (ARM(..),RateType(..),runInterestRate2,runInterestRate,UseRate(..)
   ,getRateResetDates,getDayCount,calcInt, calcIntRate,calcIntRateCurve
-  ,getSpread,_getSpread,calcIntRates)
+  ,_getSpread,calcIntRates)
   
   where
 
-import Language.Haskell.TH
-import Data.Aeson       hiding (json)
+import Language.Haskell.TH ()
+import Data.Aeson
 import Data.Aeson.TH
 import Data.Maybe
-import Data.Fixed
+import Data.Fixed ()
 import GHC.Generics
 import DateUtil
-import Data.Decimal
+import Data.Decimal ()
 
 import Types
 import Util
 import Lib
 
-import Debug.Trace
-debug = flip trace
 
 type InitPeriod = Int 
 type PeriodicCap = Maybe Spread
 type LifetimeCap = Maybe IRate
-type PaymentCap = Maybe Balance
 type RateFloor = Maybe IRate
 type RateCap = Maybe IRate
 type InitCap = Maybe IRate

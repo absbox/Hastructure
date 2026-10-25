@@ -7,21 +7,21 @@ module Triggers(
 )
  where
 
-import qualified Data.Text as T
+import qualified Data.Text as T ()
 import qualified Stmt as S
 import qualified Liability as L
-import Text.Read (readMaybe)
-import Lib 
+import Text.Read ()
+import Lib ()
 import Types
 import Accounts (ReserveAmount)
 import Waterfall (Action)
-import Data.Aeson ( defaultOptions )
-import Language.Haskell.TH
+import Data.Aeson ()
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
-import Data.Fixed
-import Data.Maybe
-import Data.Map
+import Data.Aeson.Types ()
+import Data.Fixed ()
+import Data.Maybe ()
+import Data.Map ()
 import GHC.Generics
 import Control.Lens
 import Deal.DealCollection (CollectionRule(..))
@@ -50,9 +50,6 @@ data Trigger = Trigger {
             ,trgStmt :: Maybe S.Statement             -- ^ Transaction stmt
             } deriving (Show, Eq, Generic,Ord)
 
-makeLensesFor [("trgStatus","trgStatusLens") 
-                ,("trgEffects","trgEffectsLens") 
-                ,("trgCondition","trgConditionLens") 
-                ,("trgCurable","trgCurableLens")] ''Trigger
+makeLensesFor [("trgStatus","trgStatusLens")] ''Trigger
 
 $(concat <$> traverse (deriveJSON defaultOptions) [''TriggerEffect, ''Trigger])

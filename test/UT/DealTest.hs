@@ -6,7 +6,7 @@ where
 import Test.Tasty
 import Test.Tasty.HUnit
 import Deal
-import Deal.DealQuery (queryCompound)
+import Deal.DealQuery (queryCompound, calcBondTargetBalance)
 import Deal.DealValidation (validatePreRun)
 
 import qualified Accounts as A
@@ -306,6 +306,16 @@ queryTests =  testGroup "deal stat query Tests"
     in
       testCase "query current assets in defaulted status" $
       assertEqual "should be 200" (Right 200) currentDefBal
+  ,let
+      bA = fromJust (Map.lookup "A" (D.bonds td2))
+      badBond = bA { L.bndType = L.PAC (IRateCurve [TsPoint (toDate "20220101") 0.05]) }
+      badDeal = td2 { D.bonds = Map.insert "A" badBond (D.bonds td2) }
+    in
+      testCase "PAC target with a non-balance curve returns Left" $
+      assertBool "error mentions BalanceCurve" $
+        case calcBondTargetBalance badDeal D.defaultRunContext (toDate "20220101") badBond of
+          Left e -> "BalanceCurve" `isInfixOf` e
+          Right _ -> False
   ]
 
 triggerTests = testGroup "Trigger Tests"

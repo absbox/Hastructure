@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Util
     (mulBR,mulBIR,mulBI,mulBInt,mulBInteger,lastN
@@ -20,12 +21,12 @@ module Util
     ,debugOnDate,paySeqM,payProM,splitByLengths,showLength
     )
     where
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import qualified Data.Map as Map
 import Data.List
 import Data.Fixed
-import Data.Ratio ((%))
-import Data.Ix
+import Data.Ratio ((%), numerator, denominator)
+import Data.Ix ()
 import Data.Maybe
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -34,19 +35,29 @@ import Types
 import DateUtil
 
 import Numeric.Limits (infinity)
-import Text.Printf
+import Text.Printf ()
 import Control.Exception
 
 import Control.Parallel.Strategies (parBuffer, rseq, using)
-import Data.Time (addDays)
-import Debug.Trace
-debug = flip trace
+import Data.Time ()
 
+-- | Resolution of 'IRate'/'Balance'. Kept internal: 'Micro' is 1,000,000 and
+-- 'Centi' is 100. Using 'resolution' keeps this correct if the aliases change.
+-- NB: the fast paths below pattern-match on 'Data.Fixed.MkFixed'; if
+-- 'Balance'/'IRate' ever move away from 'Data.Fixed', update them together.
+microScale, balanceScale :: Integer
+microScale = resolution (0 :: IRate)
+balanceScale = resolution (0 :: Balance)
+
+-- | The old implementation went through 'Rational' and 'fromRational'.
+-- 'Data.Fixed''s 'fromRational' rounds down (floor, including for negatives),
+-- so for a rate @n/d@ the result is exactly @(cents * n) `div` d@. 'div'
+-- (not 'quot') preserves that behaviour for negative balances as well.
 mulBR :: Balance -> Rate -> Balance
-mulBR b r = fromRational $ toRational b * r 
+mulBR (MkFixed b) r = MkFixed ((b * numerator r) `div` denominator r)
 
 mulBIR :: Balance -> IRate -> Balance
-mulBIR b r = fromRational $ toRational b * toRational r
+mulBIR (MkFixed b) (MkFixed r) = MkFixed ((b * r) `div` microScale)
 
 mulIR :: Int -> Rational -> Rational
 mulIR i r = toRational i * r 
@@ -54,23 +65,23 @@ mulIR i r = toRational i * r
 splitBal :: Rate -> Balance -> (Balance,Balance)
 splitBal r b = (mulBR b r, mulBR b (1-r))
 
-mulIntegerR :: Integer -> Rational -> Rational
-mulIntegerR i r = toRational i * r
 
 mulBInt :: Balance -> Int -> Rational 
-mulBInt b i = toRational b * toRational i
+mulBInt (MkFixed b) i = (b * toInteger i) % balanceScale
 
 mulBInteger :: Balance -> Integer -> Rational 
 mulBInteger b i = mulBInt b (fromInteger i)
 
 mulBI :: Balance -> IRate -> Amount
-mulBI bal r = fromRational  $ toRational bal * toRational r
+mulBI = mulBIR
 
 divideBI :: Balance -> Int -> Balance
-divideBI b i = fromRational $ toRational b / toRational i
+divideBI (MkFixed b) i
+  | i == 0    = throw RatioZeroDenominator
+  | otherwise = MkFixed (b `div` toInteger i)
 
 divideBB :: Balance -> Balance -> Rational
-divideBB b1 b2 = toRational b1 / toRational b2
+divideBB (MkFixed b1) (MkFixed b2) = b1 % b2
 
 safeDivide :: RealFloat a => a -> a -> a
 safeDivide _ 0 = Numeric.Limits.infinity
@@ -169,7 +180,7 @@ getValByDate (PricingCurve dps) _ d
       (True,_) -> tsPointVal $ last dps
       (_,True) -> tsPointVal $ head dps
       _  -> let 
-              rindex = fromMaybe 0 $findIndex (\(TsPoint _dl _) -> ( _dl > d )) dps
+              rindex = fromMaybe 0 $ findIndex (\(TsPoint _dl _) -> ( _dl > d )) dps
               rdp@(TsPoint _dr _rv) = dps!!rindex 
               ldp@(TsPoint _dl _lv) = dps!!(pred rindex)
               leftDistance = toRational $ daysBetween _dl d  -- `debug` ("LEFT"++show d)
@@ -185,12 +196,71 @@ getValByDate (PricingCurve dps) _ d
 getValByDate a b c = error $ "Not match for curve type"++show a++" > "++show b++" > " ++show c
 
 
-getIndexRateByDates :: RateAssumption  -> [Date] -> [IRate]
-getIndexRateByDates (RateCurve idx rc) ds = fromRational <$> getValByDates rc Inc ds
-getIndexRateByDates (RateFlat idx r) ds = replicate (length ds) r 
 
+-- | Curve points are traversed with a single forward cursor when the input
+-- dates are ascending. This avoids reversing the curve for every date, which
+-- is what the per-date 'getValByDate' path does. Unsorted dates (or unsorted
+-- points) fall back to the legacy implementation, so results are unchanged.
 getValByDates :: Ts -> CutoffType -> [Date] -> [Rational]
-getValByDates rc ct = map (getValByDate rc ct)
+getValByDates _ _ [] = []
+getValByDates rc@(LeftBalanceCurve pts) ct ds
+  | isAscendingPoints pts = mergeLastBy toRational (getValByDate rc ct) ct pts ds
+getValByDates rc@(BalanceCurve pts) ct ds
+  | isAscendingPoints pts = mergeLastBy toRational (getValByDate rc ct) ct pts ds
+getValByDates rc@(FloatCurve pts) ct ds
+  | isAscendingPoints pts = mergeLastBy id (getValByDate rc ct) ct pts ds
+getValByDates rc@(IRateCurve pts) ct ds
+  | isAscendingPoints pts = mergeLastBy toRational (getValByDate rc ct) ct pts ds
+getValByDates rc@(RatioCurve pts) ct ds
+  | isAscendingPoints pts = mergeLastBy id (getValByDate rc ct) ct pts ds
+getValByDates rc@(FactorCurveClosed pts ed) Exc ds
+  | isAscendingPoints pts = mergeFactorClosed ed (getValByDate rc Exc) pts ds
+getValByDates rc ct ds = map (getValByDate rc ct) ds
+
+isAscendingPoints :: [TsPoint a] -> Bool
+isAscendingPoints (TsPoint d1 _ : rest@(TsPoint d2 _ : _)) = d1 <= d2 && isAscendingPoints rest
+isAscendingPoints _ = True
+
+mergeLastBy :: (a -> Rational) -> (Date -> Rational) -> CutoffType
+            -> [TsPoint a] -> [Date] -> [Rational]
+mergeLastBy valOf fallback ct pts0 ds = go pts0 0 ds
+  where
+    go _ !prev [] = []
+    go pts !prev (d:ds) =
+      let (pts', prev') = advance pts prev d
+          rest = case ds of
+                   (d2:_) | d2 < d -> map fallback ds
+                   _               -> go pts' prev' ds
+      in prev' : rest
+
+    advance [] prev _ = ([], prev)
+    advance allPts@(TsPoint pd pv : rest) prev d
+      | within pd d = advance rest (valOf pv) d
+      | otherwise   = (allPts, prev)
+
+    within pd d = case ct of
+                    Inc -> pd <= d
+                    Exc -> pd < d
+
+mergeFactorClosed :: Date -> (Date -> Rational) -> [TsPoint Rational]
+                  -> [Date] -> [Rational]
+mergeFactorClosed ed fallback pts0 ds = go pts0 Nothing ds
+  where
+    go _ _ [] = []
+    go pts !prevM (d:ds) =
+      let (pts', prevM') = advance pts prevM d
+          value = case prevM' of
+                    Nothing -> 1.0
+                    Just v  -> if d >= ed then 1.0 else v
+          rest = case ds of
+                   (d2:_) | d2 < d -> map fallback ds
+                   _               -> go pts' prevM' ds
+      in value : rest
+
+    advance [] prev _ = ([], prev)
+    advance allPts@(TsPoint pd pv : rest) prev d
+      | pd < d    = advance rest (Just (toRational pv)) d
+      | otherwise = (allPts, prev)
 
 getTsVals :: Ts -> [Rational]
 getTsVals (FloatCurve ts) = [ v | (TsPoint d v) <- ts ]
@@ -259,8 +329,6 @@ scaleByFstElement y (b:xs) =
     y:[ x * s | x <- xs ]
 
 
-debugLine :: Show a => [a] -> String 
-debugLine xs = ""
 
 -- | Like 'Map.map' but evaluates the mapped values in parallel, keeping at most
 -- @n@ computations in flight at once. Bounding the in-flight work avoids spark
@@ -321,8 +389,6 @@ calcWeightBalanceByDates dc bals ds
         ds_length = length ds
         weights = getIntervalFactorsDc dc ds
 
-testSumToOne :: [Rate] -> Bool
-testSumToOne rs = sum rs == 1.0
 
 maximum' :: Ord a => [a] -> a
 maximum' = foldr1 (\x y ->if x >= y then x else y)

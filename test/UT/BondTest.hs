@@ -1,4 +1,4 @@
-module UT.BondTest(pricingTests,bndConsolTest,writeOffTest,accrueTest,selectorTest,walSafetyTest)
+module UT.BondTest(pricingTests,bndConsolTest,writeOffTest,accrueTest,selectorTest,walSafetyTest,bondGroupSafetyTest)
 where
 
 import Test.Tasty
@@ -20,6 +20,7 @@ import Util
 import Types
 import Data.Ratio
 import Interface
+import qualified InterestRate as IR
 
 import Debug.Trace
 debug = flip trace
@@ -94,7 +95,7 @@ pricingTests = testGroup "Pricing Tests"
     in
       testCase "flat rate discount " $
       assertEqual "Test Pricing on case 01" 
-        (Right (PriceResult 1979.54 65.984666 1.18 1.188138 0.491335 52.60 (DL.toList b1Txn)))
+        (Right (PriceResult 1979.54 65.984666 1.18 1.188138 2.524282 52.60 (DL.toList b1Txn)))
         pr
     ,
     let
@@ -114,7 +115,7 @@ pricingTests = testGroup "Pricing Tests"
     in
       testCase " discount curve with two rate points " $
       assertEqual "Test Pricing on case 01" 
-            (Right (PriceResult 4049.03 134.967666 0.44 0.364542 0.006193 286.42 (DL.toList b2Txn)))
+            (Right (PriceResult 4049.03 134.967666 0.44 0.364553 0.461079 286.42 (DL.toList b2Txn)))
             pr  --TODO need to confirm in UI
     ,
     let
@@ -143,6 +144,24 @@ pricingTests = testGroup "Pricing Tests"
       (Right 0.176754)
       (B.calcZspread  (100.0,pday) b6 rateCurve)
       --(B.calcZspread  (500.0,pday) (103.0,1/100) Nothing rateCurve)
+    ,
+    let
+      rateCurve5 = IRateCurve [ TsPoint (L.toDate "20220201") 0.02
+                              , TsPoint (L.toDate "20220315") 0.04
+                              , TsPoint (L.toDate "20220601") 0.05
+                              , TsPoint (L.toDate "20220815") 0.03 ]
+      pd5 = L.toDate "20220201"
+      s0  = 0.005 :: Double
+      shifted = shiftTsByAmt rateCurve5 (toRational s0)
+    in
+      testCase "Z spread round-trips the pricing curve" $
+      case B.priceBond pd5 shifted b1 of
+        Left e -> assertFailure e
+        Right (PriceResult _ perFace _ _ _ _ _) ->
+          case B.calcZspread (toRational perFace, pd5) b1 rateCurve5 of
+            Left e -> assertFailure e
+            Right s -> assertBool ("solved spread " ++ show s ++ " should match " ++ show s0)
+                         (abs (fromRational (toRational s) - s0) < 1e-4)
 
   ]
 
@@ -255,6 +274,40 @@ accrueTest =
      --   assertEqual "accrue int on bond multiple times on diff dates"
      --   (B.bndDueInt (B.accrueInt (L.toDate "20210103") b1))
      --   (B.bndDueInt (B.accrueInt (L.toDate "20210103") (B.accrueInt (L.toDate "20210102") b1)))
+     -- regression tests for UseRate/MultiIntLiable class completeness on bonds
+    ,testCase "UseRate on floating bond" $
+      assertEqual "UseRate on floating bond"
+        (Just 0.015, Just LPR5Y, True, [])
+        (IR.getSpread bfloat, IR.getIndex bfloat, IR.isAdjustableRate bfloat, IR.getResetDates bfloat)
+    ,testCase "MultiIntLiable on bond" $
+      let mIiB = B.MultiIntBond{B.bndName="M"
+                               ,B.bndType=B.Sequential
+                               ,B.bndOriginInfo=B.OriginalInfo{B.originBalance=3000
+                                                              ,B.originDate=L.toDate "20220101"
+                                                              ,B.originRate=0.08
+                                                              ,B.maturityDate=Nothing}
+                               ,B.bndInterestInfos=[B.Floater 0.02 LPR5Y 0.015 (MonthDayOfYear 1 1) DC_ACT_365F Nothing Nothing
+                                                   ,B.Fix 0.08 DC_ACT_365F]
+                               ,B.bndStepUps=Nothing
+                               ,B.bndBalance=3000
+                               ,B.bndRates=[0.05,0.08]
+                               ,B.bndDuePrin=0.0
+                               ,B.bndDueInts=[10,5]
+                               ,B.bndDueIntOverInts=[1,0]
+                               ,B.bndDueIntDate=Nothing
+                               ,B.bndLastIntPays=Nothing
+                               ,B.bndLastPrinPay=Nothing
+                               ,B.bndStmt=Nothing}
+      in assertEqual "interest due by tranche index"
+        (0.0, 0, 10, 5, 1, 0, 11, 5)
+        (getDueIntAt bfloat 0
+         ,getDueIntAt bfloat 1
+         ,getDueIntAt mIiB 0
+         ,getDueIntAt mIiB 1
+         ,getDueIntOverIntAt mIiB 0
+         ,getDueIntOverIntAt mIiB 1
+         ,getTotalDueIntAt mIiB 0
+         ,getTotalDueIntAt mIiB 1)
     ]
 
 selectorTest = 
@@ -326,3 +379,16 @@ walSafetyTest = testGroup "Bond WAL safety"
   ]
 
 
+bondGroupSafetyTest =
+  let
+    d = L.toDate "20200101"
+    bg = B.BondGroup (Map.fromList [("A1",b1)]) Nothing
+  in
+    testGroup "bond group safety" [
+      testCase "pay principal on a bond group returns Left" $
+        assertBool "expected Left" (isLeft (pay d DuePrincipal 10 bg))
+    , testCase "pay residual on a bond group returns Left" $
+        assertBool "expected Left" (isLeft (pay d DueResidual 10 bg))
+    , testCase "draw on a bond group returns Left" $
+        assertBool "expected Left" (isLeft (draw d 10 S.Empty bg))
+    ]

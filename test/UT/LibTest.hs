@@ -19,6 +19,8 @@ import Util
 import Stmt
 import DateUtil
 import Data.Ratio
+import Data.List (isInfixOf, sortOn)
+import Data.Fixed (Fixed(MkFixed))
 
 curveTests =
     let
@@ -147,6 +149,28 @@ datesTests = testGroup "date related "
      assertEqual "annual->weekly" 1 (periodRateFromAnnualRate Weekly 52.143)
   ]
 
+-- | The pre-optimization implementation, kept as an oracle for the IntSet
+-- membership change.
+legacyProrataFactors :: [Balance] -> Balance -> [Balance]
+legacyProrataFactors bals amt
+  | totalCents <= 0 = replicate (length bals) 0
+  | otherwise = map (toEnum . fromInteger) $ zipWith (+) baseAdds extraCents
+  where
+    centList = max 0 . toInteger . fromEnum <$> bals
+    totalCents = sum centList
+    payCents = max 0 $ min totalCents (toInteger $ fromEnum amt)
+    baseAdds = [ b * payCents `div` totalCents | b <- centList ]
+    residual = payCents - sum baseAdds
+    order = sortOn (negate . snd) $ zip [0..] [ b * payCents `mod` totalCents | b <- centList ]
+    extraIdx = fst <$> take (fromInteger residual) order
+    extraCents = [ if i `elem` extraIdx then 1 else 0 | i <- [0 .. length bals - 1] ]
+
+assertProrataGrid :: String -> [[Balance]] -> [Balance] -> IO ()
+assertProrataGrid label balss amts =
+  mapM_ (\bs -> mapM_ (\a ->
+    assertEqual (label ++ ": " ++ show bs ++ " / " ++ show a)
+      (legacyProrataFactors bs a) (prorataFactors bs a)) amts) balss
+
 prorataTests = testGroup "prorata Test"
   [
     let 
@@ -200,6 +224,68 @@ prorataTests = testGroup "prorata Test"
       assertEqual ""
         [0,0]
         (prorataFactors [-10, -20] 30)
+    ,
+    let
+      curatedBalances :: [[Balance]]
+      curatedBalances =
+        [ []
+        , [0]
+        , [1]
+        , [0.01]
+        , [100,200,300]
+        , [100,200,0]
+        , [100,-50,100]
+        , [-10,-20]
+        , [0,0]
+        , [1,1,1]
+        , [0.01,0.01,0.01]
+        , [0.01,0.02,0.03]
+        , replicate 12 0.01
+        , [100,100,100]
+        ]
+      curatedAmounts :: [Balance]
+      curatedAmounts = [0, 0.01, 0.10, 1, 2, 40, 60, 100, 1000, -1]
+
+      generatedBalances :: [[Balance]]
+      generatedBalances =
+        [ [ MkFixed (toInteger ((i * 37 + j) `mod` 500)) | i <- [0 .. n - 1] ]
+        | (j, n) <- [(0,0), (1,1), (2,3), (3,7), (5,13), (11,31)]
+        ]
+      generatedAmounts :: [Balance]
+      generatedAmounts = [ MkFixed (toInteger a) | a <- [0, 1, 2, 7, 50, 123, 1000] ]
+    in
+      testGroup "IntSet membership equivalence and edge cases"
+      [ testCase "matches the legacy elem oracle on a curated grid" $
+          assertProrataGrid "curated" curatedBalances curatedAmounts
+      , testCase "matches the legacy elem oracle on a generated grid" $
+          assertProrataGrid "generated" generatedBalances generatedAmounts
+      , testCase "matches the legacy oracle on a large list" $
+          let
+            balsL = [ MkFixed (toInteger ((i * 17) `mod` 10000 + 1)) | i <- [0..1999] ] :: [Balance]
+            totalL = sum balsL
+            amtL = MkFixed (toInteger (fromEnum totalL `div` 3))
+            allocL = prorataFactors balsL amtL
+          in do
+            assertEqual "legacy match" (legacyProrataFactors balsL amtL) allocL
+            assertEqual "length" 2000 (length allocL)
+            assertEqual "sum preserved" amtL (sum allocL)
+            assertBool "non-negative" (all (>= 0) allocL)
+      , testCase "empty balances" $
+          assertEqual "empty" ([] :: [Balance]) (prorataFactors [] 100)
+      , testCase "single balance" $ do
+          assertEqual "exact amount" [40] (prorataFactors [100] 40)
+          assertEqual "capped amount" [100] (prorataFactors [100] 500)
+      , testCase "zero amount gives zeros" $
+          assertEqual "zeros" [0,0,0] (prorataFactors [1,2,3] 0)
+      , testCase "negative amount gives zeros" $
+          assertEqual "zeros" [0,0] (prorataFactors [1,2] (-1))
+      , testCase "amount equal to total is fully allocated" $
+          assertEqual "all" [100,200] (prorataFactors [100,200] 300)
+      , testCase "residual tie goes to first indices" $
+          assertEqual "two cents" [0.01,0.01,0.00] (prorataFactors [0.01,0.01,0.01] 0.02)
+      , testCase "residual goes to the largest remainder" $
+          assertEqual "largest" [0.00,0.00,0.01] (prorataFactors [0.01,0.02,0.03] 0.01)
+      ]
   ]
 
 tsOperationTests =
@@ -224,11 +310,41 @@ tsOperationTests =
        (BalanceCurve [TsPoint (toDate "20221101") 100,TsPoint (toDate "20221201") 50] 
        ,(BalanceCurve [])) $ 
        splitTsByDate bcurve (toDate "20221202")
-    ,testCase "split ts by date on left 3" $ 
+    ,testCase "split ts by date on left 3" $
        assertEqual " split on out of scope"
        (BalanceCurve [TsPoint (toDate "20221101") 100]
        ,BalanceCurve [TsPoint (toDate "20221201") 50]) $
        splitTsByDate bcurve (toDate "20221101")
+    ,testCase "getValOnByDate keeps working for a balance curve" $
+       assertEqual "value on date" 100 (getValOnByDate bcurve (toDate "20221115"))
+    ,testCase "tryGetValOnByDate rejects a non-balance curve" $
+        assertBool "error names both curves" $
+          case tryGetValOnByDate (IRateCurve [TsPoint (toDate "20221101") 0.05]) (toDate "20221115") of
+            Left e -> "BalanceCurve" `isInfixOf` e && "IRateCurve" `isInfixOf` e
+            Right _ -> False
+    ,testCase "tryGetIntValOnByDate reads an int curve" $
+       assertEqual "int value" (Right 7) $
+          tryGetIntValOnByDate (IntCurve [TsPoint (toDate "20221101") 7]) (toDate "20221115")
+    ,testCase "tryGetIntValOnByDate rejects a balance curve" $
+        assertBool "error mentions IntCurve" $
+          either (isInfixOf "IntCurve") (const False) (tryGetIntValOnByDate bcurve (toDate "20221115"))
+    ,testCase "trySplitTsByDate rejects a non-balance curve" $
+        assertBool "error mentions BalanceCurve" $
+          either (isInfixOf "BalanceCurve") (const False) (trySplitTsByDate (FloatCurve []) (toDate "20221115"))
+    ,testCase "trySumValTs sums a balance curve" $
+       assertEqual "sum" (Right 150) (trySumValTs bcurve)
+    ,testCase "trySumValTs rejects a non-balance curve" $
+        assertBool "error mentions BalanceCurve" $
+          either (isInfixOf "BalanceCurve") (const False) (trySumValTs (IRateCurve []))
+    ,testCase "subTsBetweenDates with no bounds returns the curve" $
+       assertEqual "unchanged" bcurve (subTsBetweenDates bcurve Nothing Nothing)
+    ,testCase "subTsBetweenDates filters both bounds" $
+       assertEqual "only middle point"
+          (BalanceCurve [TsPoint (toDate "20221201") 50])
+          (subTsBetweenDates bcurve (Just (toDate "20221110")) (Just (toDate "20221202")))
+    ,testCase "trySubTsBetweenDates rejects a non-balance curve" $
+        assertBool "error mentions BalanceCurve" $
+          either (isInfixOf "BalanceCurve") (const False) (trySubTsBetweenDates (BoolCurve []) Nothing Nothing)
    ]
 
 pvTests = 

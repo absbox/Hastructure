@@ -12,18 +12,18 @@ module Deal.DealCollection
 import GHC.Generics
 
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 
 import qualified Accounts as A
-import qualified Waterfall as W
+import qualified Waterfall as W ()
 import qualified Cashflow as CF
 import qualified Data.Map as Map hiding (mapEither)
 
-import Data.List
+import Data.List ()
 import Control.Monad
 import Types
 import Util
-import Lib
+import Lib ()
 import Control.Lens hiding (element)
 
 data CollectionRule

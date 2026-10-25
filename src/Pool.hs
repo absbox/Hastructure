@@ -11,42 +11,37 @@ module Pool (Pool(..),aggPool
 ) where
 
 
-import Lib (Period(..)
-           ,Ts(..),periodRateFromAnnualRate,toDate
-           ,getIntervalDays,zipWith9,mkTs,monthsBetween
-           ,mkRateTs,daysBetween, prorataFactors)
+import Lib (prorataFactors)
 
 import Control.Parallel.Strategies
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
 import qualified Assumptions as A
 import qualified Analytics as AN
-import qualified AssetClass.AssetBase as ACM 
-import AssetClass.Mortgage
-import AssetClass.AssetCashflow
+import qualified AssetClass.AssetBase as ACM ()
+import AssetClass.Mortgage ()
+import AssetClass.AssetCashflow ()
 import Asset (Asset(..))
 import qualified Data.Map as Map
 
-import Data.Ratio
+import Data.Ratio ()
 import qualified Data.Set as S
 import Data.List
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
+import Data.Aeson
+import Language.Haskell.TH ()
 import GHC.Generics
 import Data.Aeson.TH
-import Data.Aeson.Types
-import Types hiding (Current)
+import Data.Aeson.Types ()
+import Types
 
 import Data.Maybe
 import Control.Lens
-import Control.Lens.TH
-import Assumptions (ApplyAssumptionType)
+import Control.Lens.TH ()
+import Assumptions ()
 
 import Util
-import Cashflow (CashFlowFrame)
-import qualified Stmt as CF
+import Cashflow ()
+import qualified Stmt as CF ()
 import Stmt
-import Debug.Trace
-debug = flip trace
 
 
 data Pool a = Pool {assets :: [a]                                            -- ^ a list of assets in the pool

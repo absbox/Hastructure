@@ -12,21 +12,18 @@ import Types
 import Lib
 import Util
 import DateUtil
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
-import Data.Ord (comparing)
-import Data.List (sortBy, uncons)
-import GHC.Generics
+import Data.Aeson ()
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
+import Data.List (uncons)
+import GHC.Generics ()
 import Data.Ratio
 import Numeric.RootFinding
 import qualified Numeric.Interpolation.Piecewise as Piecewise
 import qualified Numeric.Interpolation.Type as Type
 import qualified Numeric.Interpolation.NodeList as Nodes
 
-import Debug.Trace
-debug = flip trace
 
 calcSurvivorFactors :: Date -> [Date] -> Double -> [Double]
 calcSurvivorFactors sd ds 0 = replicate (length ds) 1.0 
@@ -40,48 +37,35 @@ calcSurvivorFactors sd ds survivalRate =
 
 -- ^ interpolate the yield curve using Fritsch-Carlson method
 type TimeYield = (Double, Double)
-type YieldPoint = (Date, Double)
 
-toTimeYield :: Date -> [YieldPoint] -> [TimeYield]
-toTimeYield refDate points 
-  = let 
-        sorted = sortBy (comparing fst) points
-    in 
-        [ (fromRational (yearCountFraction DC_ACT_365F refDate d), y) | (d, y) <- sorted]
 
 secantSlopes :: [TimeYield] -> [Double]
-secantSlopes points = zipWith 
-                        (\(t1, y1) (t2, y2) -> (y2 - y1) / (t2 - t1)) 
-                        points 
-                        (tail points)
-
--- Compute initial slopes (average of adjacent secant slopes for interior points)
-initialSlopes :: [TimeYield] -> [Double]
-initialSlopes [] = []
-initialSlopes [_] = [0]
-initialSlopes points@((t0, y0):rest) = 
-    let deltas = secantSlopes points
-        n = length points
-        slopes = [head deltas] ++ -- First slope: use first secant slope
-                  [ (d1 + d2) / 2 | (d1, d2) <- zip deltas (tail deltas) ] ++ -- Interior slopes
-                  [last deltas] -- Last slope: use last secant slope
-    in slopes
+secantSlopes ((t1, y1) : rest@((t2, y2) : _)) =
+    (y2 - y1) / (t2 - t1) : secantSlopes rest
+secantSlopes _ = []
 
 fritschCarlsonSlopes :: [TimeYield] -> [Double]
-fritschCarlsonSlopes points
-  | length points < 2 = replicate (length points) 0
-  | otherwise = adjustSlopes points initialSlopes
+fritschCarlsonSlopes [] = []
+fritschCarlsonSlopes [_] = [0]
+fritschCarlsonSlopes points = adjustSlopes points initialSlopes
   where
     -- Compute initial slopes
     initialSlopes :: [Double]
-    initialSlopes = let deltas = secantSlopes points
-                        n = length points
-                    in [head deltas] ++ -- First slope: use first secant slope
-                       [ if d1 * d2 > 0 then 2 / (1 / d1 + 1 / d2) else 0
-                         | (d1, d2) <- zip deltas (tail deltas) ] ++ -- Interior slopes: harmonic mean
-                       [last deltas] -- Last slope: use last secant slope
+    initialSlopes = case secantSlopes points of
+        [] -> []
+        (d0:ds) -> d0 : go d0 ds
+      where
+        go prev [] = [prev]
+        go prev (d:rest) = harmonicMean prev d : go d rest
 
-    -- Adjust slopes for monotonicity
+        harmonicMean d1 d2
+          | d1 * d2 > 0 = 2 / (1 / d1 + 1 / d2)
+          | otherwise = 0
+
+    -- Adjust slopes for monotonicity.
+    -- INVARIANT: `pts` and `slopes` have the same length (`initialSlopes`
+    -- produces exactly one slope per point). The final clause is a total
+    -- fallback that is unreachable while that invariant holds.
     adjustSlopes :: [TimeYield] -> [Double] -> [Double]
     adjustSlopes pts slopes = go pts slopes []
       where
@@ -96,7 +80,7 @@ fritschCarlsonSlopes points
                              else if r > 3 then (m1 * 3 / r, m2 * 3 / r) -- Scale slopes
                              else (m1, m2)
             in go p2 (m2':ms) (m1':acc)
-        go _ _ _ = error "Invalid input"
+        go _ _ acc = reverse acc -- totality fallback for an impossible length mismatch
 
 interpolateWithHermite :: (Date,[(Date, Double)]) -> Dates -> [Double]
 interpolateWithHermite (_sd, []) ds = replicate (length ds) 0
@@ -109,33 +93,82 @@ interpolateWithHermite (sd, ts) ds
       nodes = Nodes.fromList $
                 zipWith3 (\x' y' yd' -> (x',(y',yd'))) xs ys yds -- `debug` ("x y yd"++ show xs ++">>"++ show ys ++">>"++show yds)
 
-      lookupFn = Piecewise.interpolate Type.hermite1 nodes
+      lookupFn = Piecewise.interpolateConstantExt Type.hermite1 nodes
       xs' = (fromRational . yearCountFraction DC_ACT_365F sd) <$> ds 
     in 
       lookupFn <$> xs'
 
--- ^ calculate the Weighted Average Life of cashflow, with unit option to Monthly or Yearly
+-- ^ calculate the Weighted Average Life of cashflow, with unit option to Monthly, Quarterly or Yearly
 calcWAL :: TimeHorizion -> Balance -> Date -> [(Balance,Date)] -> Balance 
 calcWAL th bal d ps = 
   let 
     interval = case th of
                   ByYear -> 365
                   ByMonth -> 30
+                  ByQuarter -> 91
     weightedAmts = [ mulBR futureAmt ((daysBetween d futureDate) % interval)  | (futureAmt,futureDate) <- ps ]
   in 
     sum weightedAmts / bal
 
+-- | Curve types that take part in Hermite rate interpolation (the same set as
+-- getTsDates/getTsVals). Everything else keeps the getValByDate lookup.
+isHermiteCurve :: Ts -> Bool
+isHermiteCurve (IRateCurve _)   = True
+isHermiteCurve (RatioCurve _)   = True
+isHermiteCurve (FloatCurve _)   = True
+isHermiteCurve (PricingCurve _) = True
+isHermiteCurve (BalanceCurve _) = True
+isHermiteCurve _                = False
+
+-- | Curve tag for pv4's typed error on unsupported pricing-curve types.
+tsTypeName :: Ts -> String
+tsTypeName (FloatCurve _)          = "FloatCurve"
+tsTypeName (BoolCurve _)           = "BoolCurve"
+tsTypeName (BalanceCurve _)        = "BalanceCurve"
+tsTypeName (LeftBalanceCurve _)    = "LeftBalanceCurve"
+tsTypeName (RatioCurve _)          = "RatioCurve"
+tsTypeName (ThresholdCurve _)      = "ThresholdCurve"
+tsTypeName (IRateCurve _)          = "IRateCurve"
+tsTypeName (FactorCurveClosed _ _) = "FactorCurveClosed"
+tsTypeName (PricingCurve _)        = "PricingCurve"
+tsTypeName (PeriodCurve _)         = "PeriodCurve"
+tsTypeName (IntCurve _)            = "IntCurve"
+
+-- | The single discount-rate evaluator shared by pv, pv3, duration and
+-- convexity: Hermite (Fritsch-Carlson) through the curve nodes with constant
+-- extension at both borders, exactly like pv4. Flat curves short-circuit to the
+-- constant rate so legacy constant-rate arithmetic stays bit-identical.
+curveRatesAt :: Date -> Ts -> [Date] -> [Double]
+curveRatesAt d curve ds
+  | isHermiteCurve curve = rates
+  | otherwise            = map (fromRational . getValByDate curve Exc) ds
+  where
+    rates = case rs of
+      []                    -> replicate (length ds) 0
+      (r:_) | all (== r) rs -> replicate (length ds) r
+            | otherwise     -> interpolateWithHermite (d, zip (getTsDates curve) rs) ds
+    rs = map fromRational (getTsVals curve)
+
+-- | Discount one amount at an explicit rate (same arithmetic as pv).
+pvWithRate :: Double -> Date -> Date -> Amount -> Amount
+pvWithRate discount_rate today d amt
+  = realToFrac $ (realToFrac amt) * (1 / factor)
+  where
+    distance::Double = fromIntegral $ daysBetween today d
+    factor::Double = (1 + realToFrac discount_rate) ** (distance / 365)
+
 calcDuration :: DayCount -> Date -> [(Date,Balance)] -> Ts -> Rate
 calcDuration dc d ps pricingCurve 
-  = (foldr (\(_d,_b) acc ->
+  = (foldr (\(r,(_d,_b)) acc ->
                     (*) 
-                      (divideBB (pv pricingCurve d _d _b) presentValue) 
+                      (divideBB (pvWithRate r d _d _b) presentValue) 
                       (yearCountFraction dc d _d)
                     + acc)
                     0.0000
-                    ps)
+                    (zip rates ps))
     where 
-      presentValue = sum [ pv pricingCurve d _d _b | (_d,_b) <- ps ] 
+      rates = curveRatesAt d pricingCurve (fst <$> ps)
+      presentValue = sum [ pvWithRate r d _d _b | (r,(_d,_b)) <- zip rates ps ] 
 
 calcConvexity :: DayCount -> Date -> [(Date,Balance)] -> Ts -> Rate
 calcConvexity dc d ps pricingCurve 
@@ -143,24 +176,23 @@ calcConvexity dc d ps pricingCurve
       (*)
         presentValue' $
         (foldr (\(_t,_c,_f) acc ->
-                      (_t * (_t + 1) * fromRational _c) / ((1.000 + _f) ** (_t+2))
+                      (_t * (_t + 1) * fromRational _c) / ((1.000 + _f) ** (_t+2)) + acc
                       )
                       0.0000
-                      (zip3 ts payments pvFactors)) -- `debug` ("'v"++show presentValue'++"others"++ show (zip3 ts payments pvFactors))
+                      (zip3 ts payments pvFactors))
     where 
-      pvFactors::[Double] = fromRational <$> getValByDate pricingCurve Inc <$> fst <$> ps
-      presentValue'::Double = 1 / (fromRational . toRational) (sum [ pv pricingCurve d _d _b | (_d,_b) <- ps ])
+      pvFactors::[Double] = curveRatesAt d pricingCurve (fst <$> ps)
+      presentValue'::Double = 1 / (fromRational . toRational) (sum [ pvWithRate r d _d _b | (r,(_d,_b)) <- zip pvFactors ps ])
       payments = toRational . snd <$> ps
       ts::[Double] = fromRational <$> yearCountFraction dc d <$> fst <$> ps
 
 -- ^ calculate present value of input amount in future with given a curve and PV date
 pv :: Ts -> Date -> Date -> Amount -> Amount
-pv pc today d amt = 
-  realToFrac $ (realToFrac amt) * (1 / factor) --  `debug` ("DF:"++show factor++" PV AMT"++show amt)
+pv pc today d amt = pvWithRate rate today d amt
   where
-    distance::Double = fromIntegral $ daysBetween today d
-    discount_rate = fromRational $ getValByDate pc Exc d -- `debug` ("Get val by ts"++show pc ++">>d"++ show d)
-    factor::Double = (1 + realToFrac discount_rate) ** (distance / 365) --  `debug` ("discount_rate"++show(discount_rate) ++" dist days=>"++show(distance))
+    rate = case curveRatesAt today pc [d] of
+             (r:_) -> r
+             []    -> 0
 
 -- ^ calculate present value in the future using constant rate
 pv2 :: IRate -> Date -> Date -> Amount -> Amount
@@ -195,43 +227,39 @@ pv22 r d ds vs = sum [ pv2' r d _d amt | (_d,amt) <- zip ds vs ]
 pv3 :: Ts -> Date -> [Date] -> [Amount] -> Balance 
 pv3 pvCurve pricingDate ds vs 
   = let 
-      rs = fromRational <$> getValByDates pvCurve Inc ds
-      pvs = [ pv2 r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs ]
+      rs = curveRatesAt pricingDate pvCurve ds
+      pvs = [ pvWithRate r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs ]
     in 
       sum pvs
 
-pv3' :: Ts -> Date -> [Date] -> [Amount] -> Balance
-pv3' pvCurve pricingDate ds vs 
-  = let 
-      rs = fromRational <$> getValByDates pvCurve Inc ds
-      vs' = (fromRational . toRational) <$> vs
-      pvs = [ pv2' r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs' ]
-    in 
-      fromRational . toRational $ foldr (+) 0 pvs
 
 -- ^ using hermite interpolation to get present value
 pv4 :: (Date,Ts) -> [(Date,Amount)] -> Either ErrorRep Balance
 pv4 _ [] = Left "pv4: No cashflow to get present value"
 pv4 (pricingDate, pvCurve) (cf:cfs)
-  | null ds' = Left "pv4: empty pricing curve"
-  | head ds' < pricingDate = Left $ "pv4: cashflow date "++ show (head ds') ++" is before pricing date "++ show pricingDate
-  | fst cf < pricingDate = Left $ "pv4: cashflow date "++ show (fst cf) ++" is before pricing date "++ show pricingDate
-  | otherwise 
-    = let 
-        ds = fst <$> (cf:cfs)
-        rs = let 
-                ds' = getTsDates pvCurve
-                vs'::[Double] = fromRational <$> (getTsVals pvCurve)
-              in 
-                interpolateWithHermite 
-                  (pricingDate, zip ds' vs') 
-                  ds
-        vs' = (fromRational . toRational . snd) <$> (cf:cfs)
-        pvs = [ pv2' r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs' ]
-      in 
-        return $ fromRational . toRational $ foldr (+) 0 pvs
+  | not (isHermiteCurve pvCurve) = Left $ "pv4: unsupported pricing curve type: " ++ tsTypeName pvCurve
+  | otherwise = case ds' of 
+      [] -> Left "pv4: empty pricing curve"
+      (d0:_) 
+        | d0 < pricingDate -> Left $ "pv4: cashflow date "++ show d0 ++" is before pricing date "++ show pricingDate
+        | fst cf < pricingDate -> Left $ "pv4: cashflow date "++ show (fst cf) ++" is before pricing date "++ show pricingDate
+        | length ds' > 1 && firstCfDate < d0 -> Left $ "pv4: first cashflow date " ++ show firstCfDate ++ " is before pricing curve start " ++ show d0
+        | otherwise 
+          -> let 
+              ds = fst <$> (cf:cfs)
+              rs = let 
+                      vs'::[Double] = fromRational <$> (getTsVals pvCurve)
+                    in 
+                      interpolateWithHermite 
+                        (pricingDate, zip ds' vs') 
+                        ds
+              vs' = (fromRational . toRational . snd) <$> (cf:cfs)
+              pvs = [ pv2' r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs' ]
+            in 
+              return $ fromRational . toRational $ foldr (+) 0 pvs
   where
     ds' = getTsDates pvCurve
+    firstCfDate = minimum (fst <$> (cf:cfs))
 
 
 

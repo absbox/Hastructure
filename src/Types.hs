@@ -35,7 +35,7 @@ module Types
   ,Table(..),lookupTable,Direction(..),epocDate,BorrowerNum
   ,Txn(..),TxnComment(..)
   ,RoundingBy(..),DateDirection(..)
-  ,BookDirection(..),IRR(..),DealCycle(..),Limit(..),Pre(..)
+  ,BookDirection(..),IRR,DealCycle(..),Limit(..),Pre(..)
   ,CumPrepay,CumDefault,CumDelinq,CumPrincipal,CumLoss,CumRecovery,PoolId(..)
   ,DealName,lookupIntervalTable,CutoffFields(..),PriceResult(..)
   ,DueInt,DuePremium, DueIoI,DateVector,DealStats(..)
@@ -55,35 +55,32 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Time as Time
 import qualified Data.Time.Format as TF
-import qualified Data.Map as Map
 import qualified Data.List.Split
 import GHC.Generics
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 
 import Control.Lens hiding (element,Index,Empty)
-import Control.Lens.TH
+import Control.Lens.TH ()
 
-import Text.Read (readMaybe, get)
-import Data.Aeson (ToJSON, toJSON, Value(String))
+import Text.Read (readMaybe)
+import Data.Aeson ()
 
-import Data.Ratio (Ratio, numerator, denominator)
-import Data.Text (pack)
-import Control.DeepSeq (NFData,rnf)
-import Control.Monad (foldM)
+import Data.Ratio (Ratio)
+import Data.Text ()
+import Control.DeepSeq (NFData)
+import Control.Monad ()
 
-import Data.Scientific (fromRationalRepetend,formatScientific, Scientific,FPFormat(Fixed))
+import Data.Scientific (fromRationalRepetend, formatScientific, FPFormat(Fixed))
 
-import Data.Aeson hiding (json)
+import Data.Aeson
 import Data.Aeson.TH
 import Data.Aeson.Types
-import Data.Fixed hiding (Ratio)
+import Data.Fixed
 import Data.Decimal
-import Data.Ix
-import Data.List (intercalate, findIndex, find)
-import Debug.Trace
+import Data.Ix ()
+import Data.List (findIndex, find)
 import Data.Scientific (scientific)
 import Data.Text (unpack)
-debug = flip trace
 
 
 
@@ -95,13 +92,11 @@ type AccName = String
 type AccountName = String
 type AccNames = [String]
 type CeName = String
-type Comment = String
 
 type Date = Time.Day
 type Dates = [Time.Day]
 type StartDate = Date
 type EndDate = Date
-type LastIntPayDate = Date
 
 type Balance = Centi
 type Amount = Balance
@@ -128,7 +123,6 @@ type WAL = Balance
 type PerFace = Micro
 type Duration = Micro
 type Convexity = Micro
-type Yield = Micro
 type IRR = Micro
 type AccrueAmt = Micro
 
@@ -182,6 +176,7 @@ data Index = LPR5Y
 
 type Floater = (Index,Spread)
 
+epocDate :: Date
 epocDate = Time.fromGregorian 1970 1 1
 -- http://www.deltaquants.com/day-count-conventions
 data DayCount = DC_30E_360       -- ^ ISMA European 30S/360 Special German Eurobond Basis
@@ -1166,8 +1161,6 @@ parseTxn t =
                     ++ " (expected canonical form '<Tag:payload>')")
 
 
-mapKVTraversal :: Traversal' (Map.Map k a) (k, a)
-mapKVTraversal = itraversed . withIndex
 
 data DealStatType = RtnBalance 
                   | RtnRate 
@@ -1264,7 +1257,6 @@ getDealStatType (Min (d:_)) = getDealStatType d
 getDealStatType (Min []) = RtnBalance
 getDealStatType _ = RtnBalance
 
-dealStatType _ = RtnBalance
 
 data CustomDataType = CustomConstant Rational 
                     | CustomCurve    Ts 

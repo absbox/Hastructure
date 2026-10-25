@@ -21,7 +21,9 @@ import qualified Assumptions as A
 import qualified Cashflow as CF
 import qualified Deal as D
 import Types
+import qualified InterestRate as IR
 import Data.Either
+import Data.List (isInfixOf)
 import InterestRate
 
 import Debug.Trace
@@ -362,6 +364,17 @@ leaseTests =
         --     assertEqual "Month Gap by Table : New Lease at period 1"
         --     (CF.LeaseFlow (L.toDate "20240229") 306 29)
         --     ((cf5 ^. CF.cashflowTxn)!!8)
+        ,testCase "GapDaysByCurve with a non-int curve returns Left" $
+            assertBool "error mentions IntCurve" $
+              case Ast.projCashflow lease1 asofDate
+                     (A.LeaseAssump Nothing
+                        (A.GapDaysByCurve (L.BalanceCurve [L.TsPoint asofDate 10]))
+                        (A.BaseAnnualRate 0.0)
+                        (A.CutByDate (L.toDate "20240601"))
+                      , A.DummyDelinqAssump, A.DummyDefaultAssump)
+                     Nothing of
+                Left e -> "IntCurve" `isInfixOf` e
+                Right _ -> False
       ]
 
 installmentTest = 
@@ -521,6 +534,12 @@ armTest =
         assertEqual "life cap"
         (Just (CF.MortgageFlow (L.toDate "20250401") 91.24 12.65 0.77 0 0 0 0 0.09 Nothing Nothing (Just (148.76,0.00,0.00,0.00,0.00,0.00))))
         (CF.cfAt arm1_cf 12)
+      -- regression tests for UseRate class completeness on an adjustable mortgage
+      ,testCase "UseRate on AdjustRateMortgage" $
+        assertEqual "index/spread/reset on ARM"
+          (Just [SOFR3M], Just SOFR3M, True, Just 0.01, 8)
+          (IR.getIndexes arm1, IR.getIndex arm1, IR.isAdjustableRate arm1, IR.getSpread arm1
+          ,length (IR.getResetDates arm1))
 
     ]
 
@@ -900,6 +919,11 @@ receivableTest =
         assertEqual "Defauted invoice "
         (Right (Just (CF.ReceivableFlow (L.toDate "20240501") 0 0 0 0 1500 0 1500.0 (Just (0.0,0.0,0.0,1500.0,0.0,1500.0)))))
         ((`CF.cfAt` 0) <$> (fst <$> Ast.projCashflow invoice0 (L.toDate "20240501") invoiceAssump Nothing))
+      -- regression tests for Asset class completeness on Receivable
+      ,testCase "Asset getOriginBal/getOriginRate on Receivable" $
+        assertEqual "origin balance / rate of a receivable"
+          (1500, 0)
+          (Ast.getOriginBal invoice1, Ast.getOriginRate invoice1)
     ]
   
 fixedAssetTest = 
@@ -992,6 +1016,11 @@ fixedAssetTest =
       --     in 
       --       ((`CF.cfAt` 9) <$> (fst <$> (Ast.projCashflow asset2 (L.toDate "20240101") 
       --                             ((A.FixedAssetAssump utilCurve priceCurve Nothing) ,A.DummyDelinqAssump ,A.DummyDefaultAssump) Nothing))))
+      -- regression tests for Asset class completeness on FixedAsset
+      ,testCase "Asset getOriginBal/getOriginRate on FixedAsset" $
+        assertEqual "origin balance / rate of a fixed asset"
+          (11000, 0)
+          (Ast.getOriginBal asset, Ast.getOriginRate asset)
     ]
 
 buildRateSafetyTest =

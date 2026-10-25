@@ -20,14 +20,14 @@ import qualified Cashflow as CF
 import qualified Assumptions as AP
 import qualified AssetClass.AssetBase as ACM
 import AssetClass.Mortgage
-import AssetClass.Lease
-import AssetClass.Loan
-import AssetClass.Installment
+import AssetClass.Lease ()
+import AssetClass.Loan ()
+import AssetClass.Installment ()
 import AssetClass.MixedAsset
 
-import qualified Call as C
+import qualified Call as C ()
 import qualified InterestRate as IR
-import qualified Analytics as AN
+import qualified Analytics as AN ()
 
 import Deal.DealBase
 import Deal.DealQuery
@@ -45,28 +45,27 @@ import Interface
 import qualified Data.Map as Map
 import qualified Data.Time as T
 import qualified Data.Set as S
-import qualified Control.Lens as LS
+import qualified Control.Lens as LS ()
 import Data.List
 import qualified Data.DList as DL
-import Data.Fixed
-import Data.Time.Clock
+import Data.Fixed ()
+import Data.Time.Clock ()
 import Data.Maybe
-import Data.Either
-import Data.Either.Utils
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
-import GHC.Generics
-import Control.Applicative
-import Debug.Trace
-import Cashflow (CashFlowFrame(CashFlowFrame))
+import Data.Either ()
+import Data.Either.Utils ()
+import Data.Bifunctor (first)
+import Data.Aeson ()
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
+import GHC.Generics ()
+import Control.Applicative ()
+import Cashflow ()
 import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens.TH ()
 import Control.Lens.Extras (is)
 import Control.Monad
 
-debug = flip trace
 
 -- ^ Test triggers
 testTrigger :: Ast.Asset a => TestDeal a -> RunContext -> Date -> Trigger -> Either ErrorRep Trigger
@@ -136,11 +135,10 @@ calcDueFee t rc calcDay f@(F.Fee fn (F.PctFee ds _r ) fs fd fdDay fa lpd _)
 
 -- ^ time series based fee, can be accrued multiple times
 calcDueFee t rc calcDay f@(F.Fee fn (F.FeeFlow ts)  fs fd _ fa mflpd _)
-  = let 
-      (currentNewDue,futureDue) = splitTsByDate ts calcDay 
-      cumulativeDue = sumValTs currentNewDue
-      newFeeDue =  cumulativeDue + fd  
-    in 
+  = do
+      (currentNewDue,futureDue) <- first (("Fee " ++ fn ++ " FeeFlow: ") ++) (trySplitTsByDate ts calcDay)
+      cumulativeDue <- first (("Fee " ++ fn ++ " FeeFlow: ") ++) (trySumValTs currentNewDue)
+      let newFeeDue =  cumulativeDue + fd
       return f{ F.feeDue = newFeeDue ,F.feeDueDate = Just calcDay ,F.feeType = F.FeeFlow futureDue}
 
 -- ^ fee based on a recurring date pattern, exempt by reAccruableFeeType check
@@ -286,7 +284,9 @@ calcDueInt t rc d b@(L.Bond bn bt bo (L.WithIoI intInfo ioiIntInfo) _ bond_bal b
     in 
       do 
         newBondWithIntInfo <- calcDueInt t rc d newBond
-        return newBondWithIntInfo { L.bndInterestInfo = L.WithIoI intInfo ioiIntInfo}
+        case newBondWithIntInfo of
+          b'@(L.Bond {}) -> return b' { L.bndInterestInfo = L.WithIoI intInfo ioiIntInfo}
+          _ -> Left "calcDueInt: WithIoI bond accrued to an unexpected constructor"
 
 -- TODO: to enable override rate & balance
 -- accure interest by rate
@@ -530,9 +530,6 @@ showInspection (InspectBal d ds r) = show r
 showInspection x = error $ "not implemented for showing ResultComponent " ++ show x
 
 
-calcAvailFund :: Ast.Asset a => TestDeal a -> RunContext -> Date -> A.Account -> Maybe W.ExtraSupport -> Either ErrorRep SupportAvailType
-calcAvailFund t rc d acc Nothing = return $ ByAvailAmount $ A.accBalance acc
-calcAvailFund t rc d acc (Just support) = (\x -> sumSupport ((ByAvailAmount (A.accBalance acc)):[x]) ) <$> evalExtraSupportBalance d t rc support
 
 -- ^ Deal, Date , cap balance, due balance
 applyLimit :: Ast.Asset a => TestDeal a -> RunContext -> Date -> Balance -> Balance -> Maybe Limit -> Either ErrorRep Balance
@@ -675,7 +672,7 @@ performActionWrap d
                                   mergedCf = CF.mergePoolCf2 cfOrigin cfBought 
                                 in 
                                   ((over CF.cashflowTxn (`CF.aggTsByDates` (dsInterval ++ newAggDates)) mergedCf), (++ [cfBought]) <$> mAflow)
-				) 
+                                ) 
                             pIdToChange
                             pFlowMap
 
@@ -683,23 +680,6 @@ performActionWrap d
                         ,revolvingAssump = Just (Map.insert revolvingPoolName (poolAfterBought, perfAssumps) rMap)} 
         return (t { accounts = newAccMap , pool = newPt}, newRc, logs)
 
-performActionWrap d 
-                  (t
-                  ,rc@RunContext{runPoolFlow=pcf
-                                ,revolvingAssump=Nothing
-                                ,revolvingInterestRateAssump=mRates}
-                  ,logs)
-                  (W.BuyAsset ml pricingMethod accName _)
-  = Left $ "Date:"++ show d ++"Missing revolving Assumption(asset assumption & asset to buy)" ++ name t
-
-performActionWrap d 
-                  (t
-                  ,rc@RunContext{runPoolFlow=pcf
-                                ,revolvingAssump=Nothing
-                                ,revolvingInterestRateAssump=mRates}
-                  ,logs)
-                  (W.BuyAssetFrom {})
-  = Left $ "Date:"++ show d ++"Missing revolving Assumption(asset assumption & asset to buy)" ++ name t
 -- TODO need to set a limit to sell
 performActionWrap d 
                   (t@TestDeal{accounts = accMap, pool = pt}  
@@ -785,6 +765,19 @@ performActionWrap d (t, rc, logs) a
   = do 
       dealAfterExe <- performAction d t rc a 
       return (dealAfterExe, rc, logs)
+
+-- | Reject a 'BondGroup' where a single bond is required. Group-level
+-- principal is handled by the group-specific waterfall actions.
+requireSingleBond :: L.Bond -> Either ErrorRep L.Bond
+requireSingleBond b@(L.Bond {}) = Right b
+requireSingleBond b@(L.MultiIntBond {}) = Right b
+requireSingleBond (L.BondGroup {}) = Left "Bond group is not supported by this action; use the group-specific waterfall action"
+
+-- | Set the due principal on a single bond, rejecting bond groups.
+setBondDuePrin :: Balance -> L.Bond -> Either ErrorRep L.Bond
+setBondDuePrin amt b@(L.Bond {}) = Right b { L.bndDuePrin = amt }
+setBondDuePrin amt b@(L.MultiIntBond {}) = Right b { L.bndDuePrin = amt }
+setBondDuePrin _ (L.BondGroup {}) = Left "Cannot set due principal on a bond group"
 
 performAction :: Ast.Asset a => Date -> TestDeal a -> RunContext -> W.Action -> Either ErrorRep (TestDeal a)
 performAction d t@TestDeal{accounts=accMap, ledgers = Nothing} _ (W.TransferAndBook _ _ _ _ _) 
@@ -1163,20 +1156,22 @@ performAction d t@TestDeal{bonds=bndMap,accounts=accMap} rc (W.PayPrin mLimit an
 
 -- ^ pay principal without any limit
 performAction d t@TestDeal{accounts=accMap, bonds=bndMap} rc (W.PayPrinResidual an bnds) = 
-  let
-    bndsToPay = [ b { L.bndDuePrin = L.bndBalance b}  | b <- getActiveBonds t bnds ]
-    bndsToPayNames = L.bndName <$> bndsToPay
-    bndsDueAmts = map L.getCurBalance bndsToPay
-  in 
-    do 
-      acc <- lookupM an accMap
-      let availBal = A.accBalance acc
-      let actualPaidOut = min availBal $ sum bndsDueAmts -- `debug` ("bonds totoal due ->"++show(bndsDueAmts))
-      let bndsAmountToBePaid = zip bndsToPay (prorataFactors bndsDueAmts actualPaidOut)
-      bndsPaid <- sequenceA $ map (\(l,amt) -> pay d DuePrincipal amt l) bndsAmountToBePaid  
-      let bndMapUpdated =  (Map.fromList $ zip bndsToPayNames bndsPaid) <> bndMap
-      accMapAfterPay <- adjustM (A.draw d actualPaidOut (PayPrin bnds)) an accMap
-      return $ t {accounts = accMapAfterPay, bonds = bndMapUpdated} -- `debug` ("Bond Prin Pay Result"++show(bndMapUpdated))
+  do
+    bndsToPay <- traverse duePrinToCurBal (getActiveBonds t bnds)
+    acc <- lookupM an accMap
+    let bndsToPayNames = L.bndName <$> bndsToPay
+    let bndsDueAmts = map L.getCurBalance bndsToPay
+    let availBal = A.accBalance acc
+    let actualPaidOut = min availBal $ sum bndsDueAmts -- `debug` ("bonds totoal due ->"++show(bndsDueAmts))
+    let bndsAmountToBePaid = zip bndsToPay (prorataFactors bndsDueAmts actualPaidOut)
+    bndsPaid <- sequenceA $ map (\(l,amt) -> pay d DuePrincipal amt l) bndsAmountToBePaid
+    let bndMapUpdated =  (Map.fromList $ zip bndsToPayNames bndsPaid) <> bndMap
+    accMapAfterPay <- adjustM (A.draw d actualPaidOut (PayPrin bnds)) an accMap
+    return $ t {accounts = accMapAfterPay, bonds = bndMapUpdated} -- `debug` ("Bond Prin Pay Result"++show(bndMapUpdated))
+  where
+    duePrinToCurBal b = do
+      b' <- requireSingleBond b
+      setBondDuePrin (L.bndBalance b') b'
 
 performAction d t@TestDeal{accounts=accMap, bonds=bndMap} rc (W.FundWith mlimit an bnd) = 
   do
@@ -1256,31 +1251,37 @@ performAction d t@TestDeal{bonds=bndMap} rc (W.CalcBondInt bns)
 -- ^ set due prin mannually
 performAction d t@TestDeal{bonds=bndMap} rc (W.CalcBondPrin2 mLimit bnds) 
   = do 
-      bndsToPay <- lookupVs bnds bndMap
+      bndsToPay <- traverse requireSingleBond =<< lookupVs bnds bndMap
       let bndsToPayNames = L.bndName <$> bndsToPay
       bndsDueAmts <- traverse (L.bndDuePrin <$>) $ (calcDuePrin t rc d) <$> bndsToPay
       let totalDue = sum bndsDueAmts
       bookCap <- applyLimit t rc d totalDue totalDue mLimit
       let bndsAmountToBook = zip bndsToPayNames $ prorataFactors bndsDueAmts bookCap
-      let newBndMap = foldr 
-                        (\(bn,amt) acc -> Map.adjust (\b -> b {L.bndDuePrin = amt})  bn acc) 
-                        bndMap 
-                        bndsAmountToBook -- `debug` ("Calc Bond Prin"++ show bndsAmountToBePaid)
+      newBndMap <- foldM
+                     (\acc (bn,amt) -> do
+                         b <- lookupM bn acc
+                         b' <- setBondDuePrin amt b
+                         return (Map.insert bn b' acc))
+                     bndMap
+                     bndsAmountToBook -- `debug` ("Calc Bond Prin"++ show bndsAmountToBePaid)
       return $ t {bonds = newBndMap} 
 
 performAction d t@TestDeal{bonds=bndMap, accounts = accMap} rc (W.CalcBondPrin mLimit accName bnds mSupport) 
   = do 
-      bndsToPay <- lookupVs bnds bndMap
+      bndsToPay <- traverse requireSingleBond =<< lookupVs bnds bndMap
       let bndsToPayNames = L.bndName <$> bndsToPay
       acc <- lookupM accName accMap 
       let accBal = A.accBalance acc
       bndsDueAmts <- traverse (L.bndDuePrin <$>) $ (calcDuePrin t rc d) <$> bndsToPay
       (payAmount,_,_) <- calcAvailAfterLimit t rc d acc mSupport (sum bndsDueAmts) mLimit 
       let bndsAmountToBePaid = zip bndsToPayNames $ prorataFactors bndsDueAmts payAmount
-      let newBndMap = foldr 
-                        (\(bn,amt) acc -> Map.adjust (\b -> b {L.bndDuePrin = amt}) bn acc) 
-                        bndMap 
-                        bndsAmountToBePaid
+      newBndMap <- foldM
+                     (\acc (bn,amt) -> do
+                         b <- lookupM bn acc
+                         b' <- setBondDuePrin amt b
+                         return (Map.insert bn b' acc))
+                     bndMap
+                     bndsAmountToBePaid
       return $ t {bonds = newBndMap}
 
       
@@ -1301,7 +1302,7 @@ performAction d t@TestDeal{accounts=accs, liqProvider = Just _liqProvider} rc (W
                              (ByAvailAmount av, Just (DS ds)) -> (min (toRational av)) <$> queryCompound t rc d (patchDateToStats d ds) 
                              (_ , Just _x) -> Left $ "Date:"++show d ++"Not support limit in LiqSupport(Account)"++ show _x 
             let dAmt = fromRational transferAmt
-	    newLiqMap <- adjustM (draw d dAmt LiquidationDraw) pName _liqProvider
+            newLiqMap <- adjustM (draw d dAmt LiquidationDraw) pName _liqProvider
             return t { accounts = Map.adjust (A.deposit dAmt d (LiquidationSupport pName)) an accs
                      , liqProvider = Just newLiqMap }
   | otherwise = Left $ "Date:"++show d ++"There should only one account for LiqToAcc of LiqSupport"

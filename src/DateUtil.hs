@@ -11,19 +11,17 @@ module DateUtil(
 
 import qualified Data.Time as T
 import Data.List
-import Data.Maybe
-import qualified Data.Map as M
+import Data.Maybe ()
+import qualified Data.Map as M ()
 import qualified Data.Set as S
 import Data.Ratio ((%))
-import Debug.Trace
-import Data.Time (addDays)
+import Data.Time ()
 import Types
 import Data.Ix
 import Lib
 
-import Control.Exception 
+import Control.Exception ()
 
-debug = flip trace
 
 -- http://www.deltaquants.com/day-count-conventions
 -- https://www.iso20022.org/15022/uhb/mt565-16-field-22f.htm

@@ -26,8 +26,7 @@
 # I'm using language XXX
 
 * :snake: [Python wrapper](https://github.com/yellowbean/PyABS) is in ``Beta`` now !
-* :coffee: Easy integration with ``Java/C#/C++/JavaScript/Python`` with ``RESTful`` interface and Docker image are ready. 
-  * C/Java : [here](https://github.com/absbox/Hastructure/issues/106)
+* :coffee: _Protobuf in Progress_
 
 ### Installation
 
@@ -72,11 +71,17 @@ nix-build release.nix -A hastructure    # build the engine -> result/bin/Hastruc
 
 #### From release executables
 
-Prebuilt executables for Linux/macOS/Windows are attached to [GitHub releases](https://github.com/absbox/Hastructure/releases) as `Hastructure-<version>-<OS>-ghc-<ghc-version>`. Download one, then:
+Prebuilt executables for Linux/macOS/Windows are attached to [GitHub releases](https://github.com/absbox/Hastructure/releases) as `Hastructure-<tag>-<target>`, where `<target>` is one of `linux-amd64`, `linux-arm64`, `macos-arm64` and `windows-amd64`. Every target is published in two or three variants:
+
+* `Hastructure-<tag>-<target>` — normal build, full symbol table (useful for debugging/profiling).
+* `Hastructure-<tag>-<target>-stripped` — same binary with the symbol table removed (and, on macOS, re-signed). Much smaller and functionally identical; use this one to run the engine.
+* `Hastructure-<tag>-<target>-upx` — Linux and Windows only: the stripped binary packed with UPX at level `-9`. Smallest download; it decompresses itself in memory at startup. UPX does not support macOS.
+
+Download one, then:
 
 ```bash
-chmod +x Hastructure-<version>-Linux-ghc-9.10.2
-./Hastructure-<version>-Linux-ghc-9.10.2
+chmod +x Hastructure-v0.52.14-linux-amd64-stripped
+./Hastructure-v0.52.14-linux-amd64-stripped
 ```
 
 Run it from a directory containing `config.yml`: the engine reads the file at startup and refuses to start when it is missing, malformed or contains an invalid value.

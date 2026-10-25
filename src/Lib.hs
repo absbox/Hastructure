@@ -12,6 +12,7 @@ module Lib
     ,Floor,Cap,TsPoint(..)
     ,toDate,toDates,genDates,nextDate
     ,getValOnByDate,getIntValOnByDate,sumValTs,subTsBetweenDates,splitTsByDate
+    ,tryGetValOnByDate,tryGetIntValOnByDate,trySumValTs,trySubTsBetweenDates,trySplitTsByDate
     ,paySeqLiabilitiesAmt,getIntervalDays,getIntervalFactors
     ,zipWith8,zipWith9,zipWith10,zipWith11,zipWith12
     ,weightedBy, mkTs ,mkRateTs,paySeqLiabResi ,centiToDecimal
@@ -21,18 +22,17 @@ import qualified Data.Time as T
 import qualified Data.Time.Format as TF
 import Data.List
 -- import qualified Data.Scientific as SCI
-import qualified Data.Map as M
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
-import Data.Aeson hiding (json)
+import qualified Data.Map as M ()
+import qualified Data.IntSet as IntSet
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
+import Data.Aeson ()
 -- import Text.Regex.TDFA
-import Data.Fixed (Fixed(..), HasResolution,Centi, resolution)
-import Data.Ratio
+import Data.Fixed (Centi)
+import Data.Ratio ()
 import Types
 import Data.Decimal
-import Debug.Trace
-debug = flip trace
 
 
 periodRateFromAnnualRate :: Period -> IRate -> IRate
@@ -44,8 +44,6 @@ periodRateFromAnnualRate Daily annual_rate  = annual_rate / 365
 periodRateFromAnnualRate Weekly annual_rate  = annual_rate / 52.143
 periodRateFromAnnualRate BiWeekly annual_rate  = annual_rate / 26.0715
 
-addD :: Date -> T.CalendarDiffDays -> Date
-addD d calendarMonth = T.addGregorianDurationClip T.calendarMonth d
 
 getIntervalDays :: [Date] -> [Int]
 getIntervalDays [] = []
@@ -68,17 +66,18 @@ centiToDecimal c = Decimal 2 (round c * 100)
 -- negative allocations (#322 review L3).
 prorataFactors :: [Balance] -> Balance -> [Balance]
 prorataFactors bals amt
-  | totalCents <= 0 = replicate (length bals) 0
+  | totalCents <= 0 = replicate n 0
   | otherwise = map (toEnum . fromInteger) $ zipWith (+) baseAdds extraCents
   where
+    n = length bals
     centList = max 0 . toInteger . fromEnum <$> bals
     totalCents = sum centList
     payCents = max 0 $ min totalCents (toInteger $ fromEnum amt)
     baseAdds = [ b * payCents `div` totalCents | b <- centList ]
     residual = payCents - sum baseAdds
     order = sortOn (negate . snd) $ zip [0..] [ b * payCents `mod` totalCents | b <- centList ]
-    extraIdx = fst <$> take (fromInteger residual) order
-    extraCents = [ if i `elem` extraIdx then 1 else 0 | i <- [0 .. length bals - 1] ]
+    extraIdx = IntSet.fromList $ fst <$> take (fromInteger residual) order
+    extraCents = [ if IntSet.member i extraIdx then 1 else 0 | i <- [0 .. n - 1] ]
 
 -- 
 
@@ -139,37 +138,69 @@ mkRateTs :: [(Date,IRate)] -> Ts
 mkRateTs ps = IRateCurve [ TsPoint d v | (d,v) <- ps]
 
 
+tsTypeName :: Ts -> String
+tsTypeName (FloatCurve _) = "FloatCurve"
+tsTypeName (BoolCurve _) = "BoolCurve"
+tsTypeName (BalanceCurve _) = "BalanceCurve"
+tsTypeName (LeftBalanceCurve _) = "LeftBalanceCurve"
+tsTypeName (RatioCurve _) = "RatioCurve"
+tsTypeName (ThresholdCurve _) = "ThresholdCurve"
+tsTypeName (IRateCurve _) = "IRateCurve"
+tsTypeName (FactorCurveClosed _ _) = "FactorCurveClosed"
+tsTypeName (PricingCurve _) = "PricingCurve"
+tsTypeName (PeriodCurve _) = "PeriodCurve"
+tsTypeName (IntCurve _) = "IntCurve"
+
+unsupportedCurve :: String -> String -> Ts -> Either ErrorRep a
+unsupportedCurve fn expected ts
+  = Left $ fn ++ ": expected " ++ expected ++ " but got " ++ tsTypeName ts
+
+tryGetValOnByDate :: Ts -> Date -> Either ErrorRep Balance
+tryGetValOnByDate (BalanceCurve dps) d
+  = Right $ case find (\(TsPoint _d _) -> ( d >= _d )) (reverse dps)  of
+              Just (TsPoint _d v) -> v
+              Nothing -> 0
+tryGetValOnByDate ts _ = unsupportedCurve "getValOnByDate" "BalanceCurve" ts
+
 getValOnByDate :: Ts -> Date -> Balance
-getValOnByDate (BalanceCurve dps) d 
-  = case find (\(TsPoint _d _) -> ( d >= _d )) (reverse dps)  of 
-      Just (TsPoint _d v) -> v
-      Nothing -> 0
+getValOnByDate ts d = either error id (tryGetValOnByDate ts d)
+
+tryGetIntValOnByDate :: Ts -> Date -> Either ErrorRep Int
+tryGetIntValOnByDate (IntCurve dps) d
+  = Right $ case find (\(TsPoint _d _) -> ( d >= _d )) (reverse dps)  of
+              Just (TsPoint _d v) -> v
+              Nothing -> 0
+tryGetIntValOnByDate ts _ = unsupportedCurve "getIntValOnByDate" "IntCurve" ts
 
 getIntValOnByDate :: Ts -> Date -> Int
-getIntValOnByDate (IntCurve dps) d 
-  = case find (\(TsPoint _d _) -> ( d >= _d )) (reverse dps)  of 
-      Just (TsPoint _d v) -> v
-      Nothing -> 0
+getIntValOnByDate ts d = either error id (tryGetIntValOnByDate ts d)
 
+trySplitTsByDate :: Ts -> T.Day -> Either ErrorRep (Ts, Ts)
+trySplitTsByDate (BalanceCurve ds) d
+  = Right $ case (findIndex (\(TsPoint _d _) -> _d > d ) ds) of
+              Nothing -> (BalanceCurve ds, BalanceCurve [])
+              Just idx -> let (l,r) = splitAt idx ds in (BalanceCurve l, BalanceCurve r)
+trySplitTsByDate ts _ = unsupportedCurve "splitTsByDate" "BalanceCurve" ts
 
 splitTsByDate :: Ts -> T.Day -> (Ts, Ts)
-splitTsByDate (BalanceCurve ds) d
-  = case (findIndex (\(TsPoint _d _) -> _d > d ) ds) of
-      Nothing -> (BalanceCurve ds, BalanceCurve [])
-      Just idx -> (BalanceCurve l, BalanceCurve r)
-                  where
-                   (l,r) = splitAt idx ds
+splitTsByDate ts d = either error id (trySplitTsByDate ts d)
+
+trySubTsBetweenDates :: Ts -> Maybe Date -> Maybe Date -> Either ErrorRep Ts
+trySubTsBetweenDates (BalanceCurve vs) msd med
+  = Right $ BalanceCurve $ filter (\(TsPoint x _) -> inRange x) vs
+    where
+      inRange x = maybe True (x >) msd && maybe True (x <) med
+trySubTsBetweenDates ts _ _ = unsupportedCurve "subTsBetweenDates" "BalanceCurve" ts
 
 subTsBetweenDates :: Ts -> Maybe Date -> Maybe Date -> Ts
-subTsBetweenDates (BalanceCurve vs) (Just sd) (Just ed)
-  =  BalanceCurve $ filter(\(TsPoint x _) -> (x > sd) && (x < ed) ) vs
-subTsBetweenDates (BalanceCurve vs) Nothing (Just ed)
-  =  BalanceCurve $ filter(\(TsPoint x _) ->  x < ed ) vs
-subTsBetweenDates (BalanceCurve vs) (Just sd) Nothing
-  =  BalanceCurve $ filter(\(TsPoint x _) ->  x > sd ) vs
+subTsBetweenDates ts msd med = either error id (trySubTsBetweenDates ts msd med)
+
+trySumValTs :: Ts -> Either ErrorRep Amount
+trySumValTs (BalanceCurve ds) = Right $ foldr (\(TsPoint _ v) acc -> acc+v ) 0 ds
+trySumValTs ts = unsupportedCurve "sumValTs" "BalanceCurve" ts
 
 sumValTs :: Ts -> Amount
-sumValTs (BalanceCurve ds) = foldr (\(TsPoint _ v) acc -> acc+v ) 0 ds
+sumValTs ts = either error id (trySumValTs ts)
 
 
 toDate :: String -> Date
@@ -204,9 +235,6 @@ zipWith12 z (a:as) (b:bs) (c:cs) (d:ds) (e:es) (f:fs) (g:gs) (h:hs) (j:js) (k:ks
 zipWith12 _ _ _ _ _ _ _ _ _ _ _ _ _ = []
 
 
-floatToFixed :: HasResolution a => Float -> Fixed a
-floatToFixed x = y where
-  y = MkFixed (round (fromInteger (resolution y) * x))
 
 -- | given balances and weight, get sum weighted balance
 weightedBy :: [Rational] -> [Rational] -> Rational

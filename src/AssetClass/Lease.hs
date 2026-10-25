@@ -12,37 +12,32 @@ import qualified Data.Time as T
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
 import qualified Assumptions as AP
 import Asset
-import Types hiding (getOriginDate)
+import Types
 import Lib
 import Util
 import DateUtil
 
 import qualified Data.Map as Map
+import qualified Data.DList as DL
 import Data.List
-import Data.Aeson hiding (json)
-import Data.Decimal
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
-import GHC.Generics
-import Data.Maybe
+import Data.Aeson ()
+import Data.Decimal ()
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
+import GHC.Generics ()
+import Data.Maybe ()
+import Data.Bifunctor (first)
 import AssetClass.AssetBase
-import qualified Analytics as AN
+import qualified Analytics as AN ()
 
 import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens.TH ()
 
-import Debug.Trace
-import qualified Assumptions as A
-debug = flip trace
+import qualified Assumptions as A ()
 
-type PeriodAmount = Balance
-type CapRate = Rate
-type RentChangeRate = Rate
-type RentChangeCurve = Ts
 type TermChangeRate = Rate
 type DayGap = Int
-type LastAccuredDate = Date
 
 
 getNewRental :: AP.LeaseAssetRentAssump -> Date -> Date -> LeaseRateCalc -> (AP.LeaseAssetRentAssump, LeaseRateCalc)
@@ -86,9 +81,6 @@ calcEndDate sd periods (ByPeriodRental _ per) = case genDates sd per periods of
                                                   [] -> sd 
                                                   ds -> last ds
 
-calcGapDays :: AP.LeaseAssetGapAssump -> Date -> Int
-calcGapDays (AP.GapDays days) _ = days
-calcGapDays (AP.GapDaysByCurve ts) d = round $ fromRational $ getValByDate ts Exc d 
 
 -- ^ Generate next lease with new rental / term changes/ day gap
 nextLease :: Lease -> (AP.LeaseAssetRentAssump, TermChangeRate, DayGap) -> (Lease, Date ,(AP.LeaseAssetRentAssump, TermChangeRate, DayGap))
@@ -125,30 +117,33 @@ nextLease l@(StepUpLease (LeaseInfo sd ot rental ob) lsteupInfo bal rt _) (rAssu
 
 -- | create a new lease base on the lease in 1st argument, with new rental/term, a gap days, till the end date
 nextLeaseTill :: Lease -> (AP.LeaseAssetRentAssump, TermChangeRate, DayGap) -> Date -> AP.LeaseEndType -> [Lease] -> [Lease]
-nextLeaseTill l (rsc,tc,mg) lastDate (AP.CutByDate ed) accum 
-  | lastDate >= ed = accum 
-  | otherwise = nextLeaseTill new_lease newAssump new_lastDate (AP.CutByDate ed) (accum++[new_lease])
-                where 
-                 (new_lease,new_lastDate, newAssump) = nextLease l (rsc,tc,mg)
+nextLeaseTill l assump lastDate endType accum =
+  DL.toList (go l assump lastDate endType (DL.fromList accum))
+  where
+    go l (rsc,tc,mg) lastDate (AP.CutByDate ed) accum
+      | lastDate >= ed = accum
+      | otherwise =
+          let (new_lease,new_lastDate,newAssump) = nextLease l (rsc,tc,mg)
+          in go new_lease newAssump new_lastDate (AP.CutByDate ed) (DL.snoc accum new_lease)
 
-nextLeaseTill l (rsc,tc,mg) lastDate (AP.StopByExtTimes n) accum 
-  | n == 0 = accum 
-  | otherwise = nextLeaseTill new_lease newAssump new_lastDate (AP.StopByExtTimes (pred n)) (accum++[new_lease])
-                where 
-                 (new_lease,new_lastDate, newAssump) = nextLease l (rsc,tc,mg) 
+    go l (rsc,tc,mg) lastDate (AP.StopByExtTimes n) accum
+      | n == 0 = accum
+      | otherwise =
+          let (new_lease,new_lastDate,newAssump) = nextLease l (rsc,tc,mg)
+          in go new_lease newAssump new_lastDate (AP.StopByExtTimes (pred n)) (DL.snoc accum new_lease)
 
-nextLeaseTill l (rsc,tc,mg) lastDate (AP.EarlierOf ed n) accum 
-  | lastDate >= ed = accum 
-  | n == 0 = accum
-  | otherwise = nextLeaseTill new_lease newAssump new_lastDate (AP.EarlierOf ed (pred n)) (accum++[new_lease])
-                where 
-                 (new_lease,new_lastDate, newAssump) = nextLease l (rsc,tc,mg)
+    go l (rsc,tc,mg) lastDate (AP.EarlierOf ed n) accum
+      | lastDate >= ed = accum
+      | n == 0 = accum
+      | otherwise =
+          let (new_lease,new_lastDate,newAssump) = nextLease l (rsc,tc,mg)
+          in go new_lease newAssump new_lastDate (AP.EarlierOf ed (pred n)) (DL.snoc accum new_lease)
 
-nextLeaseTill l (rsc,tc,mg) lastDate (AP.LaterOf ed n) accum 
-  | lastDate >= ed && n == 0 = accum 
-  | otherwise = nextLeaseTill new_lease newAssump new_lastDate (AP.LaterOf ed (pred n)) (accum++[new_lease])
-                where 
-                 (new_lease,new_lastDate, newAssump) = nextLease l (rsc,tc,mg)
+    go l (rsc,tc,mg) lastDate (AP.LaterOf ed n) accum
+      | lastDate >= ed && n == 0 = accum
+      | otherwise =
+          let (new_lease,new_lastDate,newAssump) = nextLease l (rsc,tc,mg)
+          in go new_lease newAssump new_lastDate (AP.LaterOf ed (pred n)) (DL.snoc accum new_lease)
 
 -- ^ calculate the daily rate for a step up lease
 calcPmts :: LeaseStepUp -> [Rate] -> Amount -> Either String [Amount] 
@@ -294,28 +289,25 @@ instance Asset Lease where
     --   = fst . patchBalance $ RegularLease (LeaseInfo sd ot dp dr ob) bal ot st
 
     projCashflow l asOfDay (AP.LeaseAssump mDefault gapAssump rentAssump endType,_,_) mRates
-      = let 
-          pdates = getPaymentDates l 0  -- `debug` ("8")-- `debug` ("RCURVE"++show rcCurve)
-          -- get the gap days between leases
-          pickGapDays (AP.GapDays days) = days
-          pickGapDays (AP.GapDaysByCurve cv) = getIntValOnByDate cv asOfDay 
-        
-          newLeases = nextLeaseTill 
-                        l
-                        (rentAssump , 0.0 , pickGapDays gapAssump) 
-                        (case pdates of [] -> getOriginDate l; _ -> last pdates) 
-                        endType
-                        []
-          stressRentals  = 0
-        in
-          do
-            currentCf <- calcCashflow l asOfDay mRates
-            newCfs <- sequenceA [ calcCashflow l asOfDay mRates | l <- newLeases ] --  `debug` ("Current CF\n "++ show currentCf)
-            let (curCf,newTxns) = applyDefaults mDefault (currentCf, newCfs)
-            -- let allTxns = view CF.cashflowTxn currentCf ++ (concat $ (view CF.cashflowTxn) <$> newCfs)
-            let allTxns = curCf ++ concat newTxns
-            let begBal = CF.buildBegBal allTxns
-            return $ (CF.CashFlowFrame (begBal,max asOfDay (getOriginDate l),Nothing) allTxns, Map.empty)  
+      = do
+          gapDays <- case gapAssump of
+                       AP.GapDays days -> Right days
+                       AP.GapDaysByCurve cv -> first ("GapDaysByCurve: " ++) (tryGetIntValOnByDate cv asOfDay)
+          let pdates = getPaymentDates l 0  -- `debug` ("8")-- `debug` ("RCURVE"++show rcCurve)
+              newLeases = nextLeaseTill
+                            l
+                            (rentAssump , 0.0 , gapDays)
+                            (case pdates of [] -> getOriginDate l; _ -> last pdates)
+                            endType
+                            []
+              stressRentals  = 0
+          currentCf <- calcCashflow l asOfDay mRates
+          newCfs <- sequenceA [ calcCashflow l asOfDay mRates | l <- newLeases ] --  `debug` ("Current CF\n "++ show currentCf)
+          let (curCf,newTxns) = applyDefaults mDefault (currentCf, newCfs)
+          -- let allTxns = view CF.cashflowTxn currentCf ++ (concat $ (view CF.cashflowTxn) <$> newCfs)
+          let allTxns = curCf ++ concat newTxns
+          let begBal = CF.buildBegBal allTxns
+          return $ (CF.CashFlowFrame (begBal,max asOfDay (getOriginDate l),Nothing) allTxns, Map.empty)
         
 
     projCashflow a b c d = Left $ "Failed to match when proj lease with assumption >>" ++ show a ++ show b ++ show c ++ show d

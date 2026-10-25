@@ -31,50 +31,46 @@ module Cashflow (CashFlowFrame(..),Principals,Interests,Amount
                 ,emptyCashflow,isEmptyRow2,appendMCashFlow,getIntFlow
                 ) where
 
-import Data.Time (Day)
-import Data.Fixed
-import Lib (weightedBy,toDate,getIntervalFactors,daysBetween,paySeqLiabilitiesAmt)
-import Util (mulBR,mulBInt,mulIR,lastOf)
+import Data.Time ()
+import Data.Fixed ()
+import Lib (weightedBy, getIntervalFactors, daysBetween, paySeqLiabilitiesAmt)
+import Util (mulBR, lastOf)
 import DateUtil ( splitByDate ,yearCountFraction )
 import Types
 import qualified Data.Map as Map
+import qualified Data.DList as DL
 import qualified Data.Time as T
 import qualified Data.List as L
 import Data.Maybe 
 import Data.List.NonEmpty (NonEmpty(..), nonEmpty)
 
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
+import Data.Aeson
+import Language.Haskell.TH ()
 import GHC.Generics
 import Data.Aeson.TH
-import Data.Aeson.Types
-import Text.Printf
+import Data.Aeson.Types ()
+import Text.Printf ()
 
-import Debug.Trace
-import qualified Control.Lens as Map
-import Control.Applicative (liftA2)
-import Data.OpenApi (HasPatch(patch), HasXml (xml))
+import qualified Control.Lens as Map ()
+import Control.Applicative ()
+import Data.OpenApi ()
 import Control.DeepSeq (NFData,rnf)
-import Data.Text.Internal.Encoding.Fusion (streamUtf16BE)
+import Data.Text.Internal.Encoding.Fusion ()
 
 import qualified Text.Tabular as TT
 import qualified Text.Tabular.AsciiArt as A
 import Control.Lens hiding (element)
-import Control.Lens.TH
-import Control.Monad 
-debug = flip trace
+import Control.Lens.TH ()
+import Control.Monad ()
 
 type Delinquent = Balance
-type Amounts = [Float]
 type Principals = [Principal]
 type Interests = [Interest]
-type Prepayments = [Prepayment]
-type Recoveries = [Recovery]
-type Rates = [Rate]
 
 type CumulativeStat = (CumPrincipal,CumPrepay,CumDelinq,CumDefault,CumRecovery,CumLoss)
 type AssetCashflow = CashFlowFrame
 type PoolCashflow = (AssetCashflow, Maybe [AssetCashflow])
+emptyCashflow :: CashFlowFrame
 emptyCashflow = CashFlowFrame (0,epocDate,Nothing) []
 
 
@@ -97,9 +93,6 @@ sumStats :: Maybe CumulativeStat -> Maybe CumulativeStat -> Maybe CumulativeStat
 -- sumStats (a1,b1,c1,d1,e1,f1) (a2,b2,c3,d2,e2,f2) = (a1+a2,b1+b2,c1+c3,d1+d2,e1+e2,f1+f2)
 sumStats s1 s2 = opStats (+) s1 s2
 
-subStats :: Maybe CumulativeStat -> Maybe CumulativeStat -> Maybe CumulativeStat
--- subStats (a1,b1,c1,d1,e1,f1) (a2,b2,c3,d2,e2,f2) = (a1-a2,b1-b2,c1-c3,d1-d2,e1-e2,f1-f2)
-subStats s1 s2 = opStats (-) s1 s2
 
 maxStats :: Maybe CumulativeStat -> Maybe CumulativeStat -> Maybe CumulativeStat
 -- maxStats (a1,b1,c1,d1,e1,f1) (a2,b2,c3,d2,e2,f2) = (max a1 a2,max b1 b2,max c1 c3,max d1 d2,max e1 e2,max f1 f2)
@@ -592,21 +585,20 @@ combine cf1@(CashFlowFrame st1@(begBal1,begDate1,acc1) txn1) cf2@(CashFlowFrame 
       CashFlowFrame (begBal1,begDate1,acc1) txns 
 
 buildCollectedCF :: [[TsRow]] -> [Date] -> [TsRow] -> [[TsRow]]
-buildCollectedCF [] [] [] = []
-buildCollectedCF trs [] _trs = trs
-buildCollectedCF trs ds [] = 
-  case Util.lastOf trs (not . null) of
-    Just lastTr -> trs ++ [ [viewTsRow _d (last lastTr)] | _d <- ds ]
-    Nothing -> trs ++ replicate (length ds) []
-buildCollectedCF trs (d:ds) _trs =
-  case newFlow of
-    [] -> case Util.lastOf trs (not . null) of
-            Nothing -> buildCollectedCF (trs++[[]]) ds _trs  -- `debug` ("empty trs"++ show d)
-            Just lastTr ->  buildCollectedCF (trs++[[viewTsRow d (last lastTr)]]) ds _trs -- `debug` ("non empty last tr "++ show lastTr ++ "for date"++ show d++"insert with "++show (viewTsRow d (last lastTr)))
-    newFlow -> buildCollectedCF (trs++[newFlow]) ds remains
-  where 
-    (newFlow, remains) = splitBy d Inc _trs
-
+buildCollectedCF trs ds rows =
+  DL.toList (go (DL.fromList trs) (Util.lastOf trs (not . null)) ds rows)
+  where
+    go acc _ [] _ = acc
+    go acc mLast (d:ds) rows =
+      case newFlow of
+        [] -> case mLast of
+                Nothing -> go (DL.snoc acc []) Nothing ds rows
+                Just lastTr ->
+                  let g = [viewTsRow d (last lastTr)]
+                  in go (DL.snoc acc g) (Just g) ds rows
+        newFlow -> go (DL.snoc acc newFlow) (Just newFlow) ds remains
+      where
+        (newFlow, remains) = splitBy d Inc rows
 
 aggTsByDates :: [TsRow] -> [Date] -> [TsRow]
 aggTsByDates [] ds = []
@@ -981,7 +973,6 @@ lookupSource tr NewDefaults = mflowDefault tr
 lookupSource tr NewLosses = mflowLoss tr
 lookupSource tr CurBalance = view tsRowBalance tr
 lookupSource tr CurBegBalance = mflowBegBalance tr
-lookupSource tr x = error ("Failed to lookup source"++ show x)
 
 lookupSourceM :: Balance -> Maybe TsRow -> PoolSource -> Balance
 lookupSourceM bal Nothing CurBegBalance = bal
@@ -1033,14 +1024,6 @@ currentCumulativeStat trs =
     fromMaybe (0,0,0,0,0,0) $ view txnCumulativeStats tr
 
 
-cashFlowInitCumulativeStats ::  Lens' CashFlowFrame (Maybe CumulativeStat)
-cashFlowInitCumulativeStats = lens getter setter 
-  where
-    getter (CashFlowFrame _ []) = Nothing
-    getter (CashFlowFrame _ (tr:trs)) = view txnCumulativeStats tr
-    
-    setter (CashFlowFrame st []) mStat = CashFlowFrame st []
-    setter (CashFlowFrame st (tr:trs)) mStat = CashFlowFrame st $ (set txnCumulativeStats mStat tr):trs
 
 
 patchCumulativeAtInit :: Maybe CumulativeStat -> [TsRow] -> [TsRow]

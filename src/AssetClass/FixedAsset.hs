@@ -7,34 +7,32 @@ module AssetClass.FixedAsset
   ()
   where
 
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import Data.Ratio
 
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
+import Data.Aeson ()
+import Language.Haskell.TH ()
 import Data.Maybe
 import Data.List
-import Data.Aeson.TH
+import Data.Aeson.TH ()
 import qualified Data.Map as Map
-import Data.Aeson.Types
-import GHC.Generics
+import Data.Aeson.Types ()
+import GHC.Generics ()
 
 import qualified Assumptions as A
 import Types hiding (startDate)
 import Lib
 import Util
-import DateUtil
+import DateUtil ()
 import qualified Cashflow as CF
 
 import AssetClass.AssetBase
 
 
-import Debug.Trace
-import AssetClass.AssetCashflow
+import AssetClass.AssetCashflow ()
 import qualified Asset as Ast
 import Asset (Asset(projCashflow))
-import Assumptions (AssetDelinqPerfAssumption(DummyDelinqAssump))
-debug = flip trace
+import Assumptions ()
 
 
 -- life time schedule amortization amount list
@@ -57,14 +55,6 @@ calcAmortAmt fa@(FixedAsset fai@FixedAssetInfo{originBalance=ob, accRule=ar, ori
         in 
           Right (diffNum futureBals'')
 
-      _ -> Left ("Not implemented for depreciation rule"++show ar)
- 
-calcAmortBals ::FixedAsset -> Either String [Balance]
-calcAmortBals fa@(FixedAsset fai@FixedAssetInfo{originBalance=ob, accRule=ar, originTerm=ot
-                                               ,residualBalance=rb ,capacity=cap} b rt)
-  = do 
-      bals <- calcAmortAmt fa
-      return $ scanl (-) ob bals
  
 
 instance Ast.Asset FixedAsset where 
@@ -75,6 +65,10 @@ instance Ast.Asset FixedAsset where
   getCurrentBal  fa@(FixedAsset fai@FixedAssetInfo{originBalance=ob, accRule=ar, originTerm=ot
                                                  ,residualBalance=rb ,capacity=cap} curBal rt) 
     = curBal
+
+  getOriginBal fa@(FixedAsset FixedAssetInfo{originBalance=ob} _ _) = ob
+  -- ^ a depreciation-modelled asset carries no rate
+  getOriginRate _ = 0
 
   resetToOrig fa@(FixedAsset fai@FixedAssetInfo{originBalance=ob, accRule=ar, originTerm=ot
                                                  ,residualBalance=rb ,capacity=cap} b rt) 

@@ -6,18 +6,18 @@ module AssetClass.Installment
   (projectInstallmentFlow, updateOriginDate)
   where
 
-import qualified Data.Time as T
-import Data.Ratio
+import qualified Data.Time as T ()
+import Data.Ratio ()
 
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
-import Data.Maybe
+import Data.Aeson ()
+import Language.Haskell.TH ()
+import Data.Maybe ()
 import Data.List
 import qualified Data.DList as DL
-import Data.Aeson.TH
+import Data.Aeson.TH ()
 import qualified Data.Map as Map
-import Data.Aeson.Types
-import GHC.Generics
+import Data.Aeson.Types ()
+import GHC.Generics ()
 
 import Asset
 import InterestRate
@@ -25,17 +25,15 @@ import qualified Assumptions as A
 import Types 
 import Lib
 import Util
-import DateUtil
+import DateUtil ()
 import qualified Cashflow as CF
 
 import AssetClass.AssetBase
 
-import Debug.Trace
 import AssetClass.AssetCashflow
 import qualified Asset as Ast
-import Control.Lens hiding (element)
-import Control.Lens.TH
-debug = flip trace
+import Control.Lens ()
+import Control.Lens.TH ()
 
 
 projectInstallmentFlow :: (Balance,Date,(Balance,Balance),IRate,Rational,AmortPlan,Int) -> (Dates, [DefaultRate], [PrepaymentRate], [Int]) -> (DL.DList CF.TsRow, Balance ,Rational)

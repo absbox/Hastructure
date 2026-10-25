@@ -11,17 +11,17 @@ module CreditEnhancement
   )
   where
 
-import qualified Data.Text as T
-import qualified Data.Time as Time
-import qualified Data.Map as Map
+import qualified Data.Text as T ()
+import qualified Data.Time as Time ()
+import qualified Data.Map as Map ()
 import qualified Data.DList as DL
 import GHC.Generics
 import Interface
-import Language.Haskell.TH
-import Data.Aeson hiding (json)
+import Language.Haskell.TH ()
+import Data.Aeson
 import Data.Aeson.TH
-import Data.Aeson.Types
-import Data.Fixed
+import Data.Aeson.Types ()
+import Data.Fixed ()
 import Data.Maybe
 import Types
 import Util
@@ -31,10 +31,8 @@ import qualified InterestRate as IR
 
 import qualified Stmt as S
 
-import Debug.Trace
-import Lib (paySeqLiabilities)
-import Data.Decimal
-debug = flip trace
+import Lib ()
+import Data.Decimal ()
 
 type LiquidityProviderName = String
 
@@ -144,10 +142,11 @@ buildLiqRateResetAction (liq:liqProviders) ed r =
         liqProviders 
         ed 
         [(ln,IR.getRateResetDates sd ed rt ++ IR.getRateResetDates sd ed prt)]++r
-    _ -> buildLiqRateResetAction liqProviders ed r
 
 
 instance Drawable LiqFacility where
+  -- ^ available to support: the facility's own credit (ByAvailAmount balance / Unlimit)
+  availForDraw _ liq@LiqFacility{liqCredit = c} = c
   draw d amt txn liq@LiqFacility{ liqBalance = liqBal ,liqStmt = mStmt 
                                  ,liqCredit = mCredit ,liqDueInt = dueInt 
                                  ,liqDuePremium = duePremium}
@@ -269,6 +268,20 @@ instance Liable LiqFacility where
 
   getOriginBalance LiqFacility{liqBalance = bal} = 0 
 
+  -- ^ the facility's current accrual interest rate on the outstanding balance
+  getCurRate LiqFacility{liqRate = r} = fromMaybe 0 r
+
+  getOriginDate LiqFacility{liqStart = d} = d
+
+  getAccrueBegDate liq@LiqFacility{liqDueIntDate = lastCalcDate} 
+    = fromMaybe (liqStart liq) lastCalcDate
+
+  -- ^ the liquidity facility has no interest-over-interest
+  getDueIntOverInt _ = 0
+
+  -- ^ total due = interest due + usage premium due
+  getTotalDueInt LiqFacility{liqDueInt = dueInt,liqDuePremium = duePremium} = dueInt + duePremium
+
 instance IR.UseRate LiqFacility where 
   getIndexes liq@LiqFacility{liqRateType = mRt,liqPremiumRateType = mPrt} 
     = case (mRt,mPrt) of 
@@ -284,7 +297,19 @@ instance IR.UseRate LiqFacility where
         (_, Just (IR.Floater {})) -> True
         _ -> False
 
-  getIndex liq = head <$> IR.getIndexes liq
+  getIndex liq = case IR.getIndexes liq of
+                   Just (idx:_) -> Just idx
+                   _ -> Nothing
+
+  -- ^ reset dates of both rate types over the facility's life
+  --   (same derivation as the deal-run `buildLiqRateResetAction`)
+  getResetDates liq@LiqFacility{liqRateType = mRt,liqPremiumRateType = mPrt,liqStart = sd,liqEnds = mEd} 
+    = case mEd of
+        Nothing -> []
+        Just ed -> IR.getRateResetDates sd ed mRt ++ IR.getRateResetDates sd ed mPrt
+
+  -- ^ spread of the (interest) rate type
+  getSpread LiqFacility{liqRateType = mRt} = maybe Nothing IR._getSpread mRt
 
 data CreditDefaultSwap = CDS {
     cdsName :: String
@@ -315,6 +340,22 @@ instance IR.UseRate CreditDefaultSwap where
     = case rt of 
         (IR.Floater _ idx _ _ _ _ _ _) -> Just [idx]
         (IR.Fix _ _) -> Nothing
+
+  getIndex cds = case IR.getIndexes cds of
+                   Just (idx:_) -> Just idx
+                   _ -> Nothing
+
+  isAdjustableRate cds@CDS{cdsRateType = rt} 
+    = case rt of 
+        (IR.Floater {}) -> True
+        (IR.Fix {}) -> False
+
+  getResetDates cds@CDS{cdsRateType = rt,cdsStart = sd,cdsEnds = mEd} 
+    = case mEd of
+        Nothing -> []
+        Just ed -> IR.getRateResetDates sd ed (Just rt)
+
+  getSpread cds@CDS{cdsRateType = rt} = IR._getSpread rt
 
 
 $(deriveJSON defaultOptions ''LiqRepayType)

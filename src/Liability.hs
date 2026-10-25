@@ -10,7 +10,7 @@
 module Liability
   (Bond(..),BondType(..),OriginalInfo(..)
   ,isPaidOff
-  ,priceBond,pv,InterestInfo(..),RateReset(..)
+  ,priceBond,pv,InterestInfo(..),RateReset
   ,getDueInt,weightAverageBalance,calcZspread,getTotalDueInt
   ,buildRateResetDates,isAdjustable,StepUp(..),isStepUp,getDayCountFromInfo
   ,calcWalBond,patchBondFactor,InterestOverInterestType(..)
@@ -23,42 +23,39 @@ module Liability
   ,getAccrueBegDate,getTxnInt,adjInterestInfoByRate,adjInterestInfoBySpread
   ,interestInfoTraversal,getOriginBalance,curRatesTraversal
   ,backoutAccruedInt,extractIrrResult,adjustBalance
-  ,_Bond,_MultiIntBond,_BondGroup
   )
   where
 
-import Data.Aeson       hiding (json)
+import Data.Aeson
 import Data.Aeson.TH
-import Data.Fixed
-import qualified Data.Time as T
-import Lib (Period(..),Ts(..) ,TsPoint(..) ,daysBetween, weightedBy,paySeqLiabResi)
+import Data.Fixed ()
+import qualified Data.Time as T ()
+import Lib (daysBetween, weightedBy)
 import Util
 import DateUtil
 import Types
 import Analytics
-import Data.Ratio 
+import Data.Ratio ()
 import Data.Maybe
 import Data.List
 import Interface
 import qualified Data.Set as Set
 import qualified Data.DList as DL
 import qualified Stmt as S 
-import qualified Cashflow as CF
+import qualified Cashflow as CF ()
 import qualified InterestRate as IR
 import qualified Lib
 import GHC.Generics
 import qualified Data.Map as Map
-import Debug.Trace
-import InterestRate (UseRate(getIndexes))
-import Language.Haskell.TH
+import InterestRate (UseRate(getIndexes,getSpread,getResetDates))
+import Language.Haskell.TH ()
 import Control.Lens hiding (Index)
-import Control.Lens.TH
-import Language.Haskell.TH.Lens 
+import Control.Lens.TH ()
+import Language.Haskell.TH.Lens ()
 import Stmt (getTxnAmt)
 import Numeric.RootFinding
 
 
-debug = flip trace
 
 -- | test if a bond may changes its interest rate
 isAdjustable :: InterestInfo -> Bool 
@@ -92,7 +89,6 @@ getDayCountFromInfo (RefBal ds info) = getDayCountFromInfo info
 getDayCountFromInfo (CapRate info _) = getDayCountFromInfo info
 getDayCountFromInfo (FloorRate info _) = getDayCountFromInfo info
 getDayCountFromInfo (WithIoI info _) = getDayCountFromInfo info
-getDayCountFromInfo _ = Nothing
 
 type RateReset = DatePattern 
 
@@ -157,6 +153,16 @@ getDpFromIntInfo (CapRate ii _) = getDpFromIntInfo ii
 getDpFromIntInfo (FloorRate ii _) = getDpFromIntInfo ii
 getDpFromIntInfo (WithIoI ii _) = getDpFromIntInfo ii
 getDpFromIntInfo _ = Nothing
+
+
+-- ^ get spread from interest info
+getSpreadFromIntInfo :: InterestInfo -> Maybe Spread
+getSpreadFromIntInfo (Floater _ _ s _ _ _ _) = Just s
+getSpreadFromIntInfo (RefBal _ ii) = getSpreadFromIntInfo ii
+getSpreadFromIntInfo (CapRate ii _) = getSpreadFromIntInfo ii
+getSpreadFromIntInfo (FloorRate ii _) = getSpreadFromIntInfo ii
+getSpreadFromIntInfo (WithIoI ii _) = getSpreadFromIntInfo ii
+getSpreadFromIntInfo _ = Nothing  -- ^ Fix / RefRate carry no spread
 
 
 getBeginRate :: InterestInfo -> IRate 
@@ -296,7 +302,6 @@ instance S.HasStmt Bond where
   hasEmptyTxn MultiIntBond{bndStmt = Nothing} = True
   hasEmptyTxn MultiIntBond{bndStmt = Just (S.Statement txn)} = txn == DL.empty
   hasEmptyTxn (BondGroup bMap _) = all S.hasEmptyTxn $ Map.elems bMap
-  hasEmptyTxn _ = False
 
 
 setBondOrigDate :: Date -> Bond -> Bond
@@ -321,6 +326,26 @@ patchBondFactor bnd
       in 
         newBnd
 
+-- | Update principal/balance/statement fields shared by 'Bond' and
+-- 'MultiIntBond'. Bond groups are rejected by the callers; the final clause
+-- is a defensive no-op.
+setBndPrinBalStmt :: Balance -> Balance -> Maybe S.Statement -> Bond -> Bond
+setBndPrinBalStmt newDue newBal newStmt b@Bond{} = b {bndDuePrin = newDue, bndBalance = newBal, bndStmt = newStmt}
+setBndPrinBalStmt newDue newBal newStmt b@MultiIntBond{} = b {bndDuePrin = newDue, bndBalance = newBal, bndStmt = newStmt}
+setBndPrinBalStmt _ _ _ b = b
+
+-- | Update balance/statement fields shared by 'Bond' and 'MultiIntBond'.
+setBndBalStmt :: Balance -> Maybe S.Statement -> Bond -> Bond
+setBndBalStmt newBal newStmt b@Bond{} = b {bndBalance = newBal, bndStmt = newStmt}
+setBndBalStmt newBal newStmt b@MultiIntBond{} = b {bndBalance = newBal, bndStmt = newStmt}
+setBndBalStmt _ _ b = b
+
+-- | Update the statement field shared by 'Bond' and 'MultiIntBond'.
+setBndStmtOnly :: Maybe S.Statement -> Bond -> Bond
+setBndStmtOnly newStmt b@Bond{} = b {bndStmt = newStmt}
+setBndStmtOnly newStmt b@MultiIntBond{} = b {bndStmt = newStmt}
+setBndStmtOnly _ b = b
+
 instance Payable Bond where
 
 
@@ -335,6 +360,7 @@ instance Payable Bond where
   pay d DuePrincipal 0 b = return b
   pay d DuePrincipal _ bnd@(Bond {bndBalance = 0}) = return bnd
   pay d DuePrincipal _ bnd@(MultiIntBond {bndBalance = 0}) = return bnd
+  pay _ DuePrincipal _ (BondGroup {}) = Left "Cannot pay principal on a bond group"
   pay d DuePrincipal amt bnd
     | amt > (bndBalance bnd) = Left $ "Payment amount is greater than bond balance "++ show (bndBalance bnd) ++ " bond name "++ show (bndName bnd)
     | otherwise
@@ -348,7 +374,8 @@ instance Payable Bond where
             r = getCurRate bnd
             newStmt = S.appendStmt (BondTxn d newBal 0 amt r amt dueInt dueIoI Nothing (S.PayPrin [bn] )) stmt 
           in 
-            return $ bnd {bndDuePrin = newDue, bndBalance = newBal , bndStmt = newStmt}
+            return $ setBndPrinBalStmt newDue newBal newStmt bnd
+  pay _ DueResidual _ (BondGroup {}) = Left "Cannot pay residual on a bond group"
   pay d DueResidual amt bnd
     = let 
         bal = bndBalance bnd
@@ -359,7 +386,7 @@ instance Payable Bond where
         stmt = bndStmt bnd
         newStmt = S.appendStmt (BondTxn d bal amt 0 r amt dueInt dueIoI Nothing (S.PayYield bn)) stmt 
       in 
-        return bnd { bndStmt = newStmt}
+        return $ setBndStmtOnly newStmt bnd
         
   pay d (DueInterest _) 0 b = return b
   pay d (DueInterest Nothing) amt bnd@(Bond bn bt oi iinfo _ bal r duePrin dueInt dueIoI dueIntDate lpayInt lpayPrin stmt)
@@ -497,6 +524,7 @@ instance Payable Bond where
 
 -- TODO: should increase the original balance of the bond?
 instance Drawable Bond where
+  draw _ _ _ bond@(BondGroup {}) = Left "Cannot draw on a bond group"
   draw d amt txn bond 
     | amt < 0 = Left $ "Cannot draw negative amount "++ show amt ++ " from bond "++ show (bndName bond)
     | amt == 0 = return bond
@@ -508,7 +536,7 @@ instance Drawable Bond where
                     newBal = bndBalance bond' + amt
                     newStmt = S.appendStmt (BondTxn d newBal 0 (negate amt) (getCurRate bond') 0 dueInt dueIoI Nothing txn) stmt 
                   in 
-                    return $ bond' {bndBalance = newBal, bndStmt=newStmt } 
+                    return $ setBndBalStmt newBal newStmt bond'
 
   availForDraw d bond = Unlimit
 
@@ -801,10 +829,6 @@ instance Liable Bond where
   getDueInt MultiIntBond{bndDueInts=dis} = sum dis
   getDueInt (BondGroup bMap _) = sum $ getDueInt <$> Map.elems bMap
 
-  getDueIntAt MultiIntBond{bndDueInts=dis} idx = dis !! idx
-  getDueIntOverIntAt MultiIntBond{bndDueIntOverInts=diois} idx = diois !! idx 
-  getTotalDueIntAt b idx = getDueIntAt b idx + getDueIntOverIntAt b idx
-
   -- ^ get due IoI of a bond
   getDueIntOverInt b@Bond{bndDueIntOverInt=dioi} = dioi
   getDueIntOverInt MultiIntBond{bndDueIntOverInts=diois} = sum diois
@@ -817,6 +841,24 @@ instance Liable Bond where
 
   getOutstandingAmount b = getTotalDueInt b + getCurBalance b
 
+
+-- ^ the `Int`-indexed accruals for multi-interest bonds; a plain `Bond` has a single
+--   interest tranche (index 0), a `BondGroup` aggregates the per-bond tranches.
+instance MultiIntLiable Bond where
+  getDueIntAt (BondGroup bMap _) idx = sum $ (\b -> getDueIntAt b idx) <$> Map.elems bMap
+  getDueIntAt MultiIntBond{bndDueInts=dis} idx = dis !! idx
+  getDueIntAt Bond{bndDueInt=di} idx
+    | idx == 0 = di
+    | otherwise = 0
+
+  getDueIntOverIntAt (BondGroup bMap _) idx = sum $ (\b -> getDueIntOverIntAt b idx) <$> Map.elems bMap
+  getDueIntOverIntAt MultiIntBond{bndDueIntOverInts=diois} idx = diois !! idx
+  getDueIntOverIntAt Bond{bndDueIntOverInt=dioi} idx
+    | idx == 0 = dioi
+    | otherwise = 0
+
+  getTotalDueIntAt b idx = getDueIntAt b idx + getDueIntOverIntAt b idx
+
 instance IR.UseRate Bond where 
   isAdjustableRate :: Bond -> Bool
   isAdjustableRate Bond{bndInterestInfo = iinfo} = isAdjustable iinfo
@@ -827,9 +869,34 @@ instance IR.UseRate Bond where
   getIndexes MultiIntBond{bndInterestInfos = iis} 
     = Just $ concat $ concat <$> getIndexFromInfo <$> iis
 
+  getIndex b = case getIndexes b of
+                 Just (idx:_) -> Just idx
+                 _ -> Nothing
+
+  -- ^ reset dates of a floater interest schedule, derived from its own reset pattern
+  --   (same derivation as `buildRateResetDates`; `[]` when no maturity is modeled on the bond)
+  getResetDates Bond{bndInterestInfo = iinfo, bndOriginInfo = oi} 
+    = case (getDpFromIntInfo iinfo, maturityDate oi) of
+        (Just dp, Just ed) -> genSerialDatesTill2 NO_IE (originDate oi) dp ed
+        _ -> []
+  getResetDates MultiIntBond{bndInterestInfos = iis, bndOriginInfo = oi}
+    = case maturityDate oi of
+        Nothing -> []
+        Just ed -> concat $ (\dp -> genSerialDatesTill2 NO_IE (originDate oi) dp ed)
+                            <$> mapMaybe getDpFromIntInfo iis
+  getResetDates (BondGroup bMap _) = concat $ IR.getResetDates <$> Map.elems bMap
+
+  getSpread (Bond{bndInterestInfo = iinfo}) = getSpreadFromIntInfo iinfo
+  getSpread MultiIntBond{bndInterestInfos = iis} = case (getSpreadFromIntInfo <$> iis) of
+                                                     (Just sp:_) -> Just sp
+                                                     _ -> Nothing
+  getSpread (BondGroup bMap _) = case catMaybes (IR.getSpread <$> Map.elems bMap) of
+                                   (sp:_) -> Just sp
+                                   _ -> Nothing
+
   
 
-makeLensesFor [("bndType","bndTypeLens"),("bndOriginInfo","bndOriginInfoLens"),("bndInterestInfo","bndIntLens"),("bndStmt","bndStmtLens")] ''Bond
+makeLensesFor [("bndOriginInfo","bndOriginInfoLens"),("bndInterestInfo","bndIntLens")] ''Bond
 makeLensesFor [("bndOriginDate","bndOriginDateLens"),("bndOriginBalance","bndOriginBalanceLens"),("bndOriginRate","bndOriginRateLens")] ''OriginalInfo
 
 makePrisms ''Bond

@@ -14,27 +14,25 @@ import Types
 import Lib
 import Util
 import DateUtil
-import InterestRate as IR
+import InterestRate as IR ()
 
-import qualified Data.Map as Map
-import Data.List
-import Data.Ratio
-import Data.Maybe
-import GHC.Generics
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
+import qualified Data.Map as Map ()
+import Data.List ()
+import Data.Ratio ()
+import Data.Maybe ()
+import GHC.Generics ()
+import Data.Aeson ()
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
 
 import AssetClass.AssetBase
 import AssetClass.AssetCashflow
-import Debug.Trace
-import Assumptions (AssetPerfAssumption(ReceivableAssump))
-import GHC.Float.RealFracMethods (truncateFloatInteger)
-import Cashflow (extendTxns)
+import Assumptions ()
+import GHC.Float.RealFracMethods ()
+import Cashflow ()
 import qualified Asset as A
 
-debug = flip trace
 
 -- project recovery cashflow from recovery assumption and defaulted balance
 buildRecoveryCfs :: StartDate -> Balance -> Maybe A.RecoveryAssumption -> Either String [CF.TsRow]
@@ -78,6 +76,8 @@ calcDueFactorFee r@(Invoice (ReceivableInfo sd ob oa dd ft obr) st) asOfDay
 instance Asset Receivable where 
 
   getPaymentDates r@(Invoice (ReceivableInfo sd ob oa dd ft _) st) _ = [dd]
+
+  getOriginBal r@(Invoice (ReceivableInfo _ ob _ _ _ _) _) = ob
 
   calcCashflow r@(Invoice (ReceivableInfo sd ob oa dd ft _) st) asOfDay _ 
     = Right $ CF.CashFlowFrame (ob,asOfDay,Nothing) $ cutBy Inc Future asOfDay txns

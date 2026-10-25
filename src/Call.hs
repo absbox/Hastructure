@@ -5,13 +5,13 @@
 module Call(CallOption(..))
  where
 
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import Lib
 import Types
-import Data.Aeson hiding (json)
-import Language.Haskell.TH
+import Data.Aeson
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 import GHC.Generics
 
 data CallOption 

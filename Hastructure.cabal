@@ -74,7 +74,7 @@ library
       Paths_Hastructure
   hs-source-dirs:
       src
-  ghc-options: -Werror=missing-fields
+  ghc-options: -O2 -Werror=missing-fields -Werror=incomplete-record-updates
   build-depends:
     Decimal >= 0.5.2 && < 0.6,
     base >= 4.18.0 && < 4.22,
@@ -118,7 +118,7 @@ executable Hastructure-exe
       Paths_Hastructure
   hs-source-dirs:
       app
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Werror=missing-fields -Wincomplete-patterns -Werror=incomplete-patterns
+  ghc-options: -O2 -threaded -rtsopts -with-rtsopts=-N -Werror=missing-fields -Wincomplete-patterns -Werror=incomplete-patterns -Werror=incomplete-record-updates
   build-depends:
     Hastructure,
     base,
@@ -180,7 +180,7 @@ test-suite Hastructure-test
       Paths_Hastructure
   hs-source-dirs:
       test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Werror=missing-fields
+  ghc-options: -O2 -threaded -rtsopts -with-rtsopts=-N -Werror=missing-fields
   build-depends:
     Hastructure,
     base,

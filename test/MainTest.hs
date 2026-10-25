@@ -70,6 +70,7 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,BT.accrueTest
                            ,BT.selectorTest
                            ,BT.walSafetyTest
+                           ,BT.bondGroupSafetyTest
                            ,LT.curveTests
                            ,LT.periodCurveTest
                            ,LT.pvTests
@@ -99,6 +100,7 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,UtilT.tsTest
                            ,UtilT.ts2Test
                            ,UtilT.ts3Test
+                           ,UtilT.curveLookupLegacyTest
                            ,UtilT.dateVectorPatternTest
                            ,UtilT.paddingTest
                            ,UtilT.dateSliceTest
@@ -117,6 +119,7 @@ tests = testGroup "Tests" [AT.mortgageTests
                            ,UtilT.workerNumTest
                            ,UtilT.serverConfigLimitTest
                            ,UtilT.badRequestJSONTest
+                           ,UtilT.moneyMathLegacyTest
                            ,AccT.intTests
                            ,AccT.investTests
                            ,AccT.reserveAccTest

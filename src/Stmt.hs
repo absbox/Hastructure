@@ -17,30 +17,28 @@ module Stmt
   where
 
 import Lib (toDate,getIntervalFactors)
-import Util (mulBR, mulBInt)
+import Util (mulBR)
 import Types 
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
-import Data.Aeson hiding (json)
-import Text.Regex.Base
-import Text.Regex.PCRE
-import Data.Fixed
+import Data.Aeson.Types ()
+import Data.Aeson ()
+import Text.Regex.Base ()
+import Text.Regex.PCRE ()
+import Data.Fixed ()
 import Data.List
 import qualified Data.DList as DL
 import Data.Maybe
 import GHC.Generics
-import qualified Data.Set as Set
-import qualified Data.Vector as V
-import qualified Data.Text as T
+import qualified Data.Set as Set ()
+import qualified Data.Vector as V ()
+import qualified Data.Text as T ()
 import qualified Data.Map as M
 
-import Control.Applicative (liftA2)
+import Control.Applicative ()
 import Control.Lens hiding (element,Empty)
-import Control.Lens.TH
+import Control.Lens.TH ()
 
-import Debug.Trace
-debug = flip trace
 
 
 aggByTxnComment :: [Txn] -> M.Map TxnComment [Txn] -> M.Map TxnComment Balance
@@ -113,14 +111,6 @@ getTxnAmt TrgTxn {} = 0.0
 getTxnAsOf :: [Txn] -> Date -> Maybe Txn
 getTxnAsOf txns d = find (\x -> getDate x <= d) $ reverse txns
 
-emptyTxn :: Txn -> Date -> Txn
-emptyTxn BondTxn {} d = BondTxn d 0 0 0 0 0 0 0 Nothing Empty
-emptyTxn AccTxn {} d = AccTxn d 0 0 Empty
-emptyTxn ExpTxn {} d = ExpTxn d 0 0 0 Empty
-emptyTxn SupportTxn {} d = SupportTxn d Unlimit 0 0 0 0 Empty
-emptyTxn IrsTxn {} d = IrsTxn d 0 0 0 0 0 Empty
-emptyTxn EntryTxn {} d = EntryTxn d (Credit,0) (Credit,0) Empty
-emptyTxn TrgTxn {} d = TrgTxn d False Empty
 
 isEmptyTxn :: Txn -> Bool
 isEmptyTxn (BondTxn _ 0 0 0 _ 0 0 0 _ Empty) = True
@@ -263,7 +253,6 @@ getFlow comment =
             Inflow
           else
             Noneflow
-      _ -> error ("Missing in GetFlow >> "++ show comment)
 
 -- ^ filter transaction by apply a filter function on txn comment
 filterTxn :: (TxnComment -> Bool) -> [Txn] -> [Txn]
