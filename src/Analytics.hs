@@ -12,12 +12,12 @@ import Types
 import Lib
 import Util
 import DateUtil
-import Data.Aeson
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson ()
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
 import Data.List (uncons)
-import GHC.Generics
+import GHC.Generics ()
 import Data.Ratio
 import Numeric.RootFinding
 import qualified Numeric.Interpolation.Piecewise as Piecewise

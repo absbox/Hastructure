@@ -31,10 +31,10 @@ module Cashflow (CashFlowFrame(..),Principals,Interests,Amount
                 ,emptyCashflow,isEmptyRow2,appendMCashFlow,getIntFlow
                 ) where
 
-import Data.Time (Day)
-import Data.Fixed
-import Lib (weightedBy,toDate,getIntervalFactors,daysBetween,paySeqLiabilitiesAmt)
-import Util (mulBR,mulBInt,mulIR,lastOf)
+import Data.Time ()
+import Data.Fixed ()
+import Lib (weightedBy, getIntervalFactors, daysBetween, paySeqLiabilitiesAmt)
+import Util (mulBR, lastOf)
 import DateUtil ( splitByDate ,yearCountFraction )
 import Types
 import qualified Data.Map as Map
@@ -45,23 +45,23 @@ import Data.Maybe
 import Data.List.NonEmpty (NonEmpty(..), nonEmpty)
 
 import Data.Aeson
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import GHC.Generics
 import Data.Aeson.TH
-import Data.Aeson.Types
-import Text.Printf
+import Data.Aeson.Types ()
+import Text.Printf ()
 
-import qualified Control.Lens as Map
-import Control.Applicative (liftA2)
-import Data.OpenApi (HasPatch(patch), HasXml (xml))
+import qualified Control.Lens as Map ()
+import Control.Applicative ()
+import Data.OpenApi ()
 import Control.DeepSeq (NFData,rnf)
-import Data.Text.Internal.Encoding.Fusion (streamUtf16BE)
+import Data.Text.Internal.Encoding.Fusion ()
 
 import qualified Text.Tabular as TT
 import qualified Text.Tabular.AsciiArt as A
 import Control.Lens hiding (element)
-import Control.Lens.TH
-import Control.Monad 
+import Control.Lens.TH ()
+import Control.Monad ()
 
 type Delinquent = Balance
 type Principals = [Principal]

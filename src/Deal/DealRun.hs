@@ -2,30 +2,30 @@
 
 module Deal.DealRun ( run ) where
 
-import qualified Data.Set as S
+import qualified Data.Set as S ()
 import qualified Data.DList as DL
 import Data.List
 import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens.TH ()
 import Control.Monad
 import Data.Maybe
-import Data.Either
+import Data.Either ()
 import Data.Either.Utils
-import Control.Monad.Loops (allM,anyM)
+import Control.Monad.Loops (anyM)
 
 import qualified Asset as Ast
 import qualified Cashflow as CF
 import qualified Accounts as A
 import qualified Data.Map as Map hiding (mapEither)
 import qualified Waterfall as W
-import qualified Expense as F
+import qualified Expense as F ()
 import qualified Liability as L
 import qualified Reports as Rpt
 import qualified Pool as P
 import qualified Assumptions as AP
 import qualified Hedge as HE
 import qualified CreditEnhancement as CE
-import qualified InterestRate as IR
+import qualified InterestRate as IR ()
 import Triggers
 import Interface
 
@@ -33,13 +33,13 @@ import Deal.DealBase
 import Deal.DealAction
 import Deal.DealQuery
 import Deal.DealCollection
-import Revolving
-import Hedge
+import Revolving ()
+import Hedge ()
 import Stmt
 import Types
 
 import Util
-import Lib
+import Lib ()
 
 
 -- ^ execute effects of trigger: making changes to deal

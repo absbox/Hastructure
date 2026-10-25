@@ -21,20 +21,20 @@ import qualified Data.Map as Map
 import qualified Data.DList as DL
 import Data.List
 import Data.Aeson ()
-import Data.Decimal
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
-import GHC.Generics
-import Data.Maybe
+import Data.Decimal ()
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
+import GHC.Generics ()
+import Data.Maybe ()
 import Data.Bifunctor (first)
 import AssetClass.AssetBase
-import qualified Analytics as AN
+import qualified Analytics as AN ()
 
 import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens.TH ()
 
-import qualified Assumptions as A
+import qualified Assumptions as A ()
 
 type TermChangeRate = Rate
 type DayGap = Int

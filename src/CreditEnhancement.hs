@@ -11,17 +11,17 @@ module CreditEnhancement
   )
   where
 
-import qualified Data.Text as T
-import qualified Data.Time as Time
-import qualified Data.Map as Map
+import qualified Data.Text as T ()
+import qualified Data.Time as Time ()
+import qualified Data.Map as Map ()
 import qualified Data.DList as DL
 import GHC.Generics
 import Interface
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import Data.Aeson
 import Data.Aeson.TH
-import Data.Aeson.Types
-import Data.Fixed
+import Data.Aeson.Types ()
+import Data.Fixed ()
 import Data.Maybe
 import Types
 import Util
@@ -31,8 +31,8 @@ import qualified InterestRate as IR
 
 import qualified Stmt as S
 
-import Lib (paySeqLiabilities)
-import Data.Decimal
+import Lib ()
+import Data.Decimal ()
 
 type LiquidityProviderName = String
 

@@ -14,13 +14,10 @@ module Asset ( Asset(..),
 ) where
 
 import qualified Data.Time as T
-import qualified Data.Text as Text
-import Text.Read (readMaybe)
+import qualified Data.Text as Text ()
+import Text.Read ()
 
-import Lib (Period(..)
-          ,Ts(..),periodRateFromAnnualRate,toDate
-          ,getIntervalDays,zipWith9,mkTs,monthsBetween
-          ,mkRateTs,daysBetween, getIntervalFactors)
+import Lib (getIntervalDays, mkTs, monthsBetween, daysBetween)
 
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
 import qualified Assumptions as A
@@ -30,26 +27,26 @@ import AssetClass.AssetCashflow
 import qualified Data.Map as Map
 import Analytics
 import Data.List
-import Data.Maybe
-import Data.Ratio
+import Data.Maybe ()
+import Data.Ratio ()
 import Data.Aeson ()
-import Language.Haskell.TH
-import GHC.Generics
-import Data.Aeson.TH
-import Data.Aeson.Types
+import Language.Haskell.TH ()
+import GHC.Generics ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
 import Types
-import Text.Printf
-import Data.Fixed
+import Text.Printf ()
+import Data.Fixed ()
 import qualified InterestRate as IR
 import qualified Data.Set as Set
 import Util
 
-import AssetClass.AssetBase ( OriginalInfo(..), calcPmt, AssetUnion, Obligor(..) )
+import AssetClass.AssetBase (OriginalInfo(..), Obligor(..))
 
 import Assumptions (ExtraStress(ExtraStress))
 
-import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens ()
+import Control.Lens.TH ()
 import DateUtil (yearCountFraction)
 
 

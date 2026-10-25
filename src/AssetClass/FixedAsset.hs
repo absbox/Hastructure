@@ -7,32 +7,32 @@ module AssetClass.FixedAsset
   ()
   where
 
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import Data.Ratio
 
-import Data.Aeson
-import Language.Haskell.TH
+import Data.Aeson ()
+import Language.Haskell.TH ()
 import Data.Maybe
 import Data.List
-import Data.Aeson.TH
+import Data.Aeson.TH ()
 import qualified Data.Map as Map
-import Data.Aeson.Types
-import GHC.Generics
+import Data.Aeson.Types ()
+import GHC.Generics ()
 
 import qualified Assumptions as A
 import Types hiding (startDate)
 import Lib
 import Util
-import DateUtil
+import DateUtil ()
 import qualified Cashflow as CF
 
 import AssetClass.AssetBase
 
 
-import AssetClass.AssetCashflow
+import AssetClass.AssetCashflow ()
 import qualified Asset as Ast
 import Asset (Asset(projCashflow))
-import Assumptions (AssetDelinqPerfAssumption(DummyDelinqAssump))
+import Assumptions ()
 
 
 -- life time schedule amortization amount list

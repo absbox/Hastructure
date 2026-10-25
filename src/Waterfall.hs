@@ -8,23 +8,23 @@ module Waterfall
   ,ActionWhen(..),BookType(..),ExtraSupport(..),PayOrderBy(..))
   where
 
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import Data.Aeson
-import qualified Data.Text as T
-import Text.Read (readMaybe)
+import qualified Data.Text as T ()
+import Text.Read ()
 import Data.Aeson.TH
-import Data.Aeson.Types
-import Data.Hashable
-import Data.Fixed
+import Data.Aeson.Types ()
+import Data.Hashable ()
+import Data.Fixed ()
 import GHC.Generics
 
 import Types
-import Revolving
-import Stmt (TxnComment(..))
-import qualified Lib as L
-import qualified Call as C
+import Revolving ()
+import Stmt ()
+import qualified Lib as L ()
+import qualified Call as C ()
 import qualified CreditEnhancement as CE
-import qualified Hedge as HE
+import qualified Hedge as HE ()
 import Ledger (LedgerName)
 
 

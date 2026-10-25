@@ -12,14 +12,14 @@ module Revolving
   where
 
 import GHC.Generics
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import Data.Aeson
-import qualified Data.Text as T
-import qualified Cashflow as CF
+import qualified Data.Text as T ()
+import qualified Cashflow as CF ()
 import Data.Aeson.TH
-import Data.Aeson.Types
-import Data.Hashable
-import Data.Fixed
+import Data.Aeson.Types ()
+import Data.Hashable ()
+import Data.Fixed ()
 import Data.List
 import Types
 

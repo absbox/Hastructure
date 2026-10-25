@@ -14,23 +14,23 @@ import Types
 import Lib
 import Util
 import DateUtil
-import InterestRate as IR
+import InterestRate as IR ()
 
-import qualified Data.Map as Map
-import Data.List
-import Data.Ratio
-import Data.Maybe
-import GHC.Generics
-import Data.Aeson
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
+import qualified Data.Map as Map ()
+import Data.List ()
+import Data.Ratio ()
+import Data.Maybe ()
+import GHC.Generics ()
+import Data.Aeson ()
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
 
 import AssetClass.AssetBase
 import AssetClass.AssetCashflow
-import Assumptions (AssetPerfAssumption(ReceivableAssump))
-import GHC.Float.RealFracMethods (truncateFloatInteger)
-import Cashflow (extendTxns)
+import Assumptions ()
+import GHC.Float.RealFracMethods ()
+import Cashflow ()
 import qualified Asset as A
 
 

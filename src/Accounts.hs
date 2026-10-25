@@ -8,20 +8,19 @@ module Accounts (Account(..),ReserveAmount(..),draw,deposit
                 ,transfer,depositInt ,InterestInfo(..),buildEarnIntAction
                 ,accBalLens,buildRateResetDates,accrueInt,accTypeLens)
     where
-import qualified Data.Time as T
-import Stmt (Statement(..),appendStmt,getTxnBegBalance,getDate
-            ,TxnComment(..),QueryByComment(..),getTxnComment,getTxnAmt,weightAvgBalanceByDates)
+import qualified Data.Time as T ()
+import Stmt (Statement(..),appendStmt,getTxnBegBalance,QueryByComment(..),getTxnComment)
 import Types
-import Lib
+import Lib ()
 import Util
 import DateUtil
 import Interface
 import Data.Aeson
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 import GHC.Generics
-import Control.Lens.Tuple
+import Control.Lens.Tuple ()
 import Control.Lens hiding (Index)
 import qualified InterestRate as IR
 import qualified Data.DList as DL

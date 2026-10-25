@@ -6,7 +6,7 @@ module AssetClass.ProjectedCashFlow
   (ProjectedCashFlow(..),projFixCfwithAssumption)
   where
 
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import qualified Assumptions as A
 import Asset as Ast
 import Types
@@ -17,23 +17,23 @@ import InterestRate as IR
 
 import qualified Data.Map as Map
 import Data.List
-import Data.Ratio
+import Data.Ratio ()
 import Data.Maybe
-import GHC.Generics
+import GHC.Generics ()
 import Data.Aeson ()
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
 import qualified Data.DList as DL
 import qualified Cashflow as CF
 
 import AssetClass.AssetBase
 import AssetClass.AssetCashflow
 
-import Cashflow (extendTxns,TsRow(..))
+import Cashflow ()
 
 import Control.Lens hiding (element,Index)
-import Control.Lens.TH
+import Control.Lens.TH ()
 
 
 data IntCalcType = ByRate IRate

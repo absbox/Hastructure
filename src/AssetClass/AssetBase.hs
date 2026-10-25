@@ -15,10 +15,10 @@ module AssetClass.AssetBase
   )
   where
 
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import GHC.Generics
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 --import Asset
 
 import Data.OpenApi hiding (Server,contentType)
@@ -34,7 +34,7 @@ import qualified Data.Map as Map
 import qualified InterestRate as IR
 import qualified Cashflow as CF
 import Control.Lens hiding (element,Index)
-import Control.Lens.TH
+import Control.Lens.TH ()
 
 
 

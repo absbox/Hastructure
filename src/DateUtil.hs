@@ -11,16 +11,16 @@ module DateUtil(
 
 import qualified Data.Time as T
 import Data.List
-import Data.Maybe
-import qualified Data.Map as M
+import Data.Maybe ()
+import qualified Data.Map as M ()
 import qualified Data.Set as S
 import Data.Ratio ((%))
-import Data.Time (addDays)
+import Data.Time ()
 import Types
 import Data.Ix
 import Lib
 
-import Control.Exception 
+import Control.Exception ()
 
 
 -- http://www.deltaquants.com/day-count-conventions

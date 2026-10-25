@@ -57,28 +57,28 @@ import qualified Data.Time as Time
 import qualified Data.Time.Format as TF
 import qualified Data.List.Split
 import GHC.Generics
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 
 import Control.Lens hiding (element,Index,Empty)
-import Control.Lens.TH
+import Control.Lens.TH ()
 
-import Text.Read (readMaybe, get)
-import Data.Aeson (ToJSON, toJSON, Value(String))
+import Text.Read (readMaybe)
+import Data.Aeson ()
 
-import Data.Ratio (Ratio, numerator, denominator)
-import Data.Text (pack)
-import Control.DeepSeq (NFData,rnf)
-import Control.Monad (foldM)
+import Data.Ratio (Ratio)
+import Data.Text ()
+import Control.DeepSeq (NFData)
+import Control.Monad ()
 
-import Data.Scientific (fromRationalRepetend,formatScientific, Scientific,FPFormat(Fixed))
+import Data.Scientific (fromRationalRepetend, formatScientific, FPFormat(Fixed))
 
 import Data.Aeson
 import Data.Aeson.TH
 import Data.Aeson.Types
 import Data.Fixed
 import Data.Decimal
-import Data.Ix
-import Data.List (intercalate, findIndex, find)
+import Data.Ix ()
+import Data.List (findIndex, find)
 import Data.Scientific (scientific)
 import Data.Text (unpack)
 

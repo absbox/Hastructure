@@ -17,27 +17,27 @@ module Stmt
   where
 
 import Lib (toDate,getIntervalFactors)
-import Util (mulBR, mulBInt)
+import Util (mulBR)
 import Types 
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 import Data.Aeson ()
-import Text.Regex.Base
-import Text.Regex.PCRE
-import Data.Fixed
+import Text.Regex.Base ()
+import Text.Regex.PCRE ()
+import Data.Fixed ()
 import Data.List
 import qualified Data.DList as DL
 import Data.Maybe
 import GHC.Generics
-import qualified Data.Set as Set
-import qualified Data.Vector as V
-import qualified Data.Text as T
+import qualified Data.Set as Set ()
+import qualified Data.Vector as V ()
+import qualified Data.Text as T ()
 import qualified Data.Map as M
 
-import Control.Applicative (liftA2)
+import Control.Applicative ()
 import Control.Lens hiding (element,Empty)
-import Control.Lens.TH
+import Control.Lens.TH ()
 
 
 

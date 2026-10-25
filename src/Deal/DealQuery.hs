@@ -12,18 +12,18 @@ module Deal.DealQuery (queryDealBool ,patchDateToStats,patchDatesToStats,testPre
   where
 
 import Deal.DealBase
-import Deal.DealDate
+import Deal.DealDate ()
 import Types
 import qualified Asset as P
 import qualified AssetClass.AssetBase as AB 
 import Data.List
-import Data.Fixed
+import Data.Fixed ()
 import Data.Maybe
 import Data.Bifunctor (first)
-import Data.Text (replace, pack, unpack)
-import Numeric.Limits
+import Data.Text ()
+import Numeric.Limits ()
 import Control.Monad.Loops
-import GHC.Real
+import GHC.Real ()
 import qualified Data.Map as Map
 import qualified Data.Set as S
 import qualified Liability as L
@@ -41,17 +41,17 @@ import qualified Pool as Pl
 import qualified InterestRate as IR
 import Stmt
 import Util
-import Errors
+import Errors ()
 import Interface
 import DateUtil
 import Control.Lens hiding (element)
 import Control.Lens.Extras (is)
-import Control.Lens.TH
-import Control.Applicative
-import Data.Map.Lens
-import Data.List.Lens
+import Control.Lens.TH ()
+import Control.Applicative ()
+import Data.Map.Lens ()
+import Data.List.Lens ()
 import Lib
-import qualified Cashflow as P
+import qualified Cashflow as P ()
 
 -- | calcuate target balance for a reserve account, 0 for a non-reserve account
 calcTargetAmount :: P.Asset a => TestDeal a -> RunContext -> Date -> A.Account -> Either ErrorRep Balance

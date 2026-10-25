@@ -20,14 +20,14 @@ import qualified Cashflow as CF
 import qualified Assumptions as AP
 import qualified AssetClass.AssetBase as ACM
 import AssetClass.Mortgage
-import AssetClass.Lease
-import AssetClass.Loan
-import AssetClass.Installment
+import AssetClass.Lease ()
+import AssetClass.Loan ()
+import AssetClass.Installment ()
 import AssetClass.MixedAsset
 
-import qualified Call as C
+import qualified Call as C ()
 import qualified InterestRate as IR
-import qualified Analytics as AN
+import qualified Analytics as AN ()
 
 import Deal.DealBase
 import Deal.DealQuery
@@ -45,24 +45,24 @@ import Interface
 import qualified Data.Map as Map
 import qualified Data.Time as T
 import qualified Data.Set as S
-import qualified Control.Lens as LS
+import qualified Control.Lens as LS ()
 import Data.List
 import qualified Data.DList as DL
-import Data.Fixed
-import Data.Time.Clock
+import Data.Fixed ()
+import Data.Time.Clock ()
 import Data.Maybe
-import Data.Either
-import Data.Either.Utils
+import Data.Either ()
+import Data.Either.Utils ()
 import Data.Bifunctor (first)
 import Data.Aeson ()
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
-import GHC.Generics
-import Control.Applicative
-import Cashflow (CashFlowFrame(CashFlowFrame))
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
+import GHC.Generics ()
+import Control.Applicative ()
+import Cashflow ()
 import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens.TH ()
 import Control.Lens.Extras (is)
 import Control.Monad
 

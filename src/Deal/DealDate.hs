@@ -9,7 +9,7 @@ module Deal.DealDate (DealDates,getClosingDate,getFirstPayDate,getLastPayDate,ge
 import qualified Data.Map as Map
 import Deal.DealBase
 import Types
-import Lib
+import Lib ()
 
 class DealDates a where 
   getClosingDate :: a -> Either String Date

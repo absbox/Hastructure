@@ -12,23 +12,23 @@ import Data.List ( find, sort )
 import qualified Data.DList as DL
 import qualified Asset as P
 import qualified Data.Map as Map
-import qualified Cashflow as CF
+import qualified Cashflow as CF ()
 import qualified Accounts as A
 import qualified CreditEnhancement as CE
 import qualified Hedge as HE
 import qualified Expense as F
 import qualified Liability as L
-import Control.Applicative (liftA3)
+import Control.Applicative ()
 import Types
 import Deal.DealBase
-    ( TestDeal(TestDeal, pool, fees, bonds, accounts,liqProvider,rateSwap), getIssuanceStatsConsol ,poolTypePool, dealPool,RunContext)
+    ( TestDeal(TestDeal, pool, fees, bonds, accounts,liqProvider,rateSwap), poolTypePool, dealPool,RunContext)
 import Deal.DealQuery ( queryCompound )
 import Deal.DealAction ( calcDueFee, calcDueInt )
 import Data.Maybe (fromMaybe)
 
 import Control.Lens hiding (element)
-import Control.Lens.TH
-import Control.Lens
+import Control.Lens.TH ()
+import Control.Lens ()
 import Stmt
     ( aggByTxnComment,
       getFlow,

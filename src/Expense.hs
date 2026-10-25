@@ -7,21 +7,20 @@ module Expense (Fee(..),FeeType(..) ,buildFeeAccrueAction
                ,feeNameLens,feeDueLens,feeTypeLens,feeStmtLens,reAccruableFeeType)
   where
 
-import Lib(Period,paySeqLiabilities,Dates
-           ,Amount,Balance,Date,Rate,Ts(..))
-import Stmt(appendStmt,Statement,TxnComment(..))
-import Data.Traversable
-import Control.Monad
-import Language.Haskell.TH
+import Lib ()
+import Stmt(appendStmt, Statement)
+import Data.Traversable ()
+import Control.Monad ()
+import Language.Haskell.TH ()
 
-import qualified Data.Text
+import qualified Data.Text ()
 import Data.Aeson
 import           Data.Aeson.TH
-import           Data.Aeson.Types
+import Data.Aeson.Types ()
 import qualified Data.DList as DL
 import GHC.Generics
 
-import Data.Fixed
+import Data.Fixed ()
 import Types
 import Util
 import DateUtil

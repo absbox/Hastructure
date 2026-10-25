@@ -21,12 +21,12 @@ module Util
     ,debugOnDate,paySeqM,payProM,splitByLengths,showLength
     )
     where
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import qualified Data.Map as Map
 import Data.List
 import Data.Fixed
 import Data.Ratio ((%), numerator, denominator)
-import Data.Ix
+import Data.Ix ()
 import Data.Maybe
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -35,11 +35,11 @@ import Types
 import DateUtil
 
 import Numeric.Limits (infinity)
-import Text.Printf
+import Text.Printf ()
 import Control.Exception
 
 import Control.Parallel.Strategies (parBuffer, rseq, using)
-import Data.Time (addDays)
+import Data.Time ()
 
 -- | Resolution of 'IRate'/'Balance'. Kept internal: 'Micro' is 1,000,000 and
 -- 'Centi' is 100. Using 'resolution' keeps this correct if the aliases change.

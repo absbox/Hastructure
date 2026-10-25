@@ -7,38 +7,38 @@ module AssetClass.MixedAsset
   (projAssetUnion,projAssetUnionList,projectCashflow, calcAssetUnion,curBal)
   where
 
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import qualified Cashflow as CF -- (Cashflow,Amount,Interests,Principals)
 import qualified Assumptions as A
 import qualified AssetClass.AssetBase as ACM
-import InterestRate
-import Interface
+import InterestRate ()
+import Interface ()
 import qualified Asset as P
 import Lib
-import Util
-import DateUtil
+import Util ()
+import DateUtil ()
 import Types
 import qualified Data.Map as Map
-import Data.List
-import Data.Maybe
+import Data.List ()
+import Data.Maybe ()
 import Data.Aeson ()
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
-import GHC.Generics
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
+import GHC.Generics ()
 
 import AssetClass.AssetBase
 import AssetClass.Mortgage
 import AssetClass.Lease
-import AssetClass.Loan
-import AssetClass.Installment
-import AssetClass.Receivable
-import AssetClass.AssetCashflow
-import AssetClass.FixedAsset
-import AssetClass.ProjectedCashFlow
+import AssetClass.Loan ()
+import AssetClass.Installment ()
+import AssetClass.Receivable ()
+import AssetClass.AssetCashflow ()
+import AssetClass.FixedAsset ()
+import AssetClass.ProjectedCashFlow ()
 
-import Assumptions (AssetDefaultAssumption(DefaultCDR))
-import qualified Asset as Ast
+import Assumptions ()
+import qualified Asset as Ast ()
 
 
 

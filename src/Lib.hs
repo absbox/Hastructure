@@ -22,15 +22,15 @@ import qualified Data.Time as T
 import qualified Data.Time.Format as TF
 import Data.List
 -- import qualified Data.Scientific as SCI
-import qualified Data.Map as M
+import qualified Data.Map as M ()
 import qualified Data.IntSet as IntSet
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
 import Data.Aeson ()
 -- import Text.Regex.TDFA
 import Data.Fixed (Centi)
-import Data.Ratio
+import Data.Ratio ()
 import Types
 import Data.Decimal
 

@@ -29,9 +29,9 @@ import qualified Hedge as HE
 import qualified Waterfall as W
 import qualified Cashflow as CF
 import qualified Assumptions as AP
-import qualified AssetClass.AssetBase as ACM
-import qualified Call as C
-import qualified InterestRate as IR
+import qualified AssetClass.AssetBase as ACM ()
+import qualified Call as C ()
+import qualified InterestRate as IR ()
 import Interface
 import Stmt
 import Lib
@@ -44,28 +44,28 @@ import Triggers
 import Deal.DealCollection (CollectionRule(..))
 
 import qualified Data.Map as Map
-import qualified Data.Time as T
+import qualified Data.Time as T ()
 import qualified Data.Set as S
 import qualified Data.DList as DL
 import Data.List
-import Data.Fixed
+import Data.Fixed ()
 import Data.Maybe
-import Data.Ratio
+import Data.Ratio ()
 import Data.Aeson
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 import GHC.Generics
 import Control.Lens hiding (element)
-import Control.Lens.TH
+import Control.Lens.TH ()
 import Control.Monad (foldM)
-import Data.IntMap (filterWithKey)
-import qualified Data.Text as T
-import Text.Read (readMaybe)
+import Data.IntMap ()
+import qualified Data.Text as T ()
+import Text.Read ()
 import qualified Pool as P
-import qualified Types as CF
+import qualified Types as CF ()
 
-import qualified Control.Lens as P
+import qualified Control.Lens as P ()
 
 
 data DealComp = CompBond 

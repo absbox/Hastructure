@@ -29,7 +29,7 @@ module Assumptions (BondPricingInput(..),IrrType(..)
 where
 
 import Call as C
-import Lib (Ts(..),TsPoint(..),toDate,mkRateTs)
+import Lib (mkRateTs)
 import Liability (Bond,InterestInfo(..))
 import Util
 import DateUtil
@@ -37,16 +37,16 @@ import qualified Data.Map as Map
 import Data.List
 import qualified Data.Set as Set
 import Data.Aeson
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import Data.Aeson.TH
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 import Types
-import qualified Data.Time as T
-import Data.Fixed
-import Data.Ratio
+import qualified Data.Time as T ()
+import Data.Fixed ()
+import Data.Ratio ()
 import Revolving
 import GHC.Generics
-import AssetClass.AssetBase
+import AssetClass.AssetBase ()
 import qualified InterestRate as IR
 import Control.Lens hiding (Index) 
 

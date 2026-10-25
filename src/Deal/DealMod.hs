@@ -11,57 +11,57 @@ module Deal.DealMod (modDeal, ModifyType(..), AdjStrategy(..)
   where
 
 import Data.Aeson
-import Data.Aeson.Types
+import Data.Aeson.Types ()
 import Data.Aeson.TH
-import Data.Aeson.Encode.Pretty (encodePretty)
-import Servant.OpenApi
+import Data.Aeson.Encode.Pretty ()
+import Servant.OpenApi ()
 import Data.OpenApi hiding (Server,contentType,trace)
 
-import qualified Accounts as A
-import qualified Ledger as LD
+import qualified Accounts as A ()
+import qualified Ledger as LD ()
 import qualified Asset as Ast
-import qualified Expense as F
+import qualified Expense as F ()
 import qualified Liability as L
-import qualified CreditEnhancement as CE
-import qualified Hedge as HE
-import qualified Waterfall as W
-import qualified Cashflow as CF
-import qualified Assumptions as AP
-import qualified AssetClass.AssetBase as ACM
-import qualified Call as C
-import qualified InterestRate as IR
+import qualified CreditEnhancement as CE ()
+import qualified Hedge as HE ()
+import qualified Waterfall as W ()
+import qualified Cashflow as CF ()
+import qualified Assumptions as AP ()
+import qualified AssetClass.AssetBase as ACM ()
+import qualified Call as C ()
+import qualified InterestRate as IR ()
 import qualified Util as U
 import qualified Deal.DealBase as DB
-import Stmt
-import Lib
+import Stmt ()
+import Lib ()
 import Util
-import DateUtil
+import DateUtil ()
 import Types
-import Revolving
-import Triggers
+import Revolving ()
+import Triggers ()
 
-import qualified Data.Map as Map
-import qualified Data.Time as T
-import qualified Data.Set as S
-import Data.List
-import Data.Fixed
-import Data.Maybe
-import Data.Ratio
+import qualified Data.Map as Map ()
+import qualified Data.Time as T ()
+import qualified Data.Set as S ()
+import Data.List ()
+import Data.Fixed ()
+import Data.Maybe ()
+import Data.Ratio ()
 import Data.Aeson ()
 -- import qualified Data.Aeson.Encode.Pretty as Pretty
-import Language.Haskell.TH
-import Data.Aeson.TH
-import Data.Aeson.Types
+import Language.Haskell.TH ()
+import Data.Aeson.TH ()
+import Data.Aeson.Types ()
 import GHC.Generics
 import Control.Lens hiding (element)
-import Control.Lens.TH
-import Data.IntMap (filterWithKey)
-import qualified Data.Text as T
-import Text.Read (readMaybe)
-import qualified Pool as P
-import qualified Types as CF
+import Control.Lens.TH ()
+import Data.IntMap ()
+import qualified Data.Text as T ()
+import Text.Read ()
+import qualified Pool as P ()
+import qualified Types as CF ()
 
-import qualified Control.Lens as P
+import qualified Control.Lens as P ()
 
 
 data AdjStrategy = ScaleBySpread

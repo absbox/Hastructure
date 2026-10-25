@@ -5,7 +5,7 @@ module Interface(Liable(..),MultiIntLiable(..),Accruable(..),Payable(..),RateRes
 
 where
 
-import GHC.Generics
+import GHC.Generics ()
 import Types
 
 class Liable lb where 

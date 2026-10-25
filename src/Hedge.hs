@@ -11,15 +11,15 @@ module Hedge
   )
   where
 
-import qualified Data.Text as T
-import qualified Data.Time as Time
-import qualified Data.Map as Map
+import qualified Data.Text as T ()
+import qualified Data.Time as Time ()
+import qualified Data.Map as Map ()
 import GHC.Generics
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import Data.Aeson
 import Data.Aeson.TH
-import Data.Aeson.Types
-import Data.Fixed
+import Data.Aeson.Types ()
+import Data.Fixed ()
 import Data.Maybe
 import qualified Data.DList as DL
 import Types
@@ -28,7 +28,7 @@ import Stmt
 import DateUtil
 import Interface
 
-import qualified Assumptions as A
+import qualified Assumptions as A ()
 import qualified InterestRate as IR
 import Control.Lens
 

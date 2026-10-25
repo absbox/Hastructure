@@ -10,14 +10,14 @@ module InterestRate
   
   where
 
-import Language.Haskell.TH
+import Language.Haskell.TH ()
 import Data.Aeson
 import Data.Aeson.TH
 import Data.Maybe
-import Data.Fixed
+import Data.Fixed ()
 import GHC.Generics
 import DateUtil
-import Data.Decimal
+import Data.Decimal ()
 
 import Types
 import Util
