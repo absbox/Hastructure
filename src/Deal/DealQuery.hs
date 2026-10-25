@@ -198,16 +198,6 @@ poolSourceToIssuanceField NewDelinquencies = HistoryDelinquency
 poolSourceToIssuanceField a = error ("Failed to match pool source when mapping to issuance field"++show a)
 
 
-eval :: (P.Asset a, Num b) => TestDeal a -> Date -> EvalExpr b -> Either ErrorRep b
-eval t d exp =
-  let 
-    eval' = eval t d
-  in 
-    case exp of 
-      (EvalSum xs) -> sum <$> traverse eval' xs
-      CurrentBondBalance' b -> return b
-      -- (EvalSubtract x:xs) -> (eval' x) - liftA sum $ sequenceA (eval' <$> xs)
--- eval (EvalAvg xs) =  (sum (eval <$> xs)) / (length xs)
 
 queryCompound :: P.Asset a => TestDeal a -> RunContext -> Date -> DealStats -> Either ErrorRep Rational 
 queryCompound t@TestDeal{accounts=accMap, bonds=bndMap, ledgers=ledgersM, fees=feeMap, pool=pt}

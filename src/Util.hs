@@ -196,9 +196,6 @@ getValByDate (PricingCurve dps) _ d
 getValByDate a b c = error $ "Not match for curve type"++show a++" > "++show b++" > " ++show c
 
 
-getIndexRateByDates :: RateAssumption  -> [Date] -> [IRate]
-getIndexRateByDates (RateCurve idx rc) ds = fromRational <$> getValByDates rc Inc ds
-getIndexRateByDates (RateFlat idx r) ds = replicate (length ds) r 
 
 -- | Curve points are traversed with a single forward cursor when the input
 -- dates are ascending. This avoids reversing the curve for every date, which

@@ -256,7 +256,6 @@ data ExtraStress = ExtraStress {
                      ,poolHairCut :: Maybe [(PoolSource, Rate)] -- ^ haircut on pool income source
                    } deriving (Show,Generic,Read)
 
-type ExtendCashflowDates = DatePattern
 
 data AssetDefaultedPerfAssumption = DefaultedRecovery Rate Int [Rate]
                                   | DummyDefaultAssump
@@ -284,7 +283,6 @@ data RevolvingAssumption = AvailableAssets RevolvingPool ApplyAssumptionType
 type HistoryCash = [(Date,Amount)]
 type CurrentHolding = Balance -- as of the deal date
 type PricingDate = Date
-type AmountToBuy = Balance
 
 
 data TradeType = ByCash Balance 

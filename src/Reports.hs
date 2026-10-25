@@ -69,7 +69,6 @@ getPoolBalanceStats t rc d mPid
         poolStats2::[Rational] <- sequenceA poolStats
         return $ fromRational <$> poolStats2
 
-type PoolBalanceSnapshot = (Balance, Balance, Balance)
 
 buildBalanceSheet :: P.Asset a => TestDeal a -> RunContext-> Date -> Either String BalanceSheetReport
 buildBalanceSheet t@TestDeal{ pool = pool, bonds = bndMap , fees = feeMap , liqProvider = liqMap, rateSwap = rsMap ,accounts = accMap} 

@@ -596,11 +596,6 @@ poolTypePool = lens getter setter
     getter = \case MultiPool pm -> pm
     setter (MultiPool pm) newPm = MultiPool newPm
 
-poolTypeUnderDeal :: Ast.Asset a => Lens' (PoolType a) (Map.Map PoolId (UnderlyingDeal a))
-poolTypeUnderDeal = lens getter setter
-  where 
-    getter = \case ResecDeal dm -> dm
-    setter (ResecDeal dm) newDm = ResecDeal newDm
 
 getPoolIds :: Ast.Asset a => TestDeal a -> [PoolId]
 getPoolIds t@TestDeal{pool = pt} 

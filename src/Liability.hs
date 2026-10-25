@@ -10,7 +10,7 @@
 module Liability
   (Bond(..),BondType(..),OriginalInfo(..)
   ,isPaidOff
-  ,priceBond,pv,InterestInfo(..),RateReset(..)
+  ,priceBond,pv,InterestInfo(..),RateReset
   ,getDueInt,weightAverageBalance,calcZspread,getTotalDueInt
   ,buildRateResetDates,isAdjustable,StepUp(..),isStepUp,getDayCountFromInfo
   ,calcWalBond,patchBondFactor,InterestOverInterestType(..)
@@ -23,15 +23,14 @@ module Liability
   ,getAccrueBegDate,getTxnInt,adjInterestInfoByRate,adjInterestInfoBySpread
   ,interestInfoTraversal,getOriginBalance,curRatesTraversal
   ,backoutAccruedInt,extractIrrResult,adjustBalance
-  ,_Bond,_MultiIntBond,_BondGroup
   )
   where
 
-import Data.Aeson       hiding (json)
+import Data.Aeson
 import Data.Aeson.TH
 import Data.Fixed
 import qualified Data.Time as T
-import Lib (Period(..),Ts(..) ,TsPoint(..) ,daysBetween, weightedBy,paySeqLiabResi)
+import Lib (daysBetween, weightedBy)
 import Util
 import DateUtil
 import Types
@@ -48,7 +47,6 @@ import qualified InterestRate as IR
 import qualified Lib
 import GHC.Generics
 import qualified Data.Map as Map
-import Debug.Trace
 import InterestRate (UseRate(getIndexes,getSpread,getResetDates))
 import Language.Haskell.TH
 import Control.Lens hiding (Index)
@@ -58,7 +56,6 @@ import Stmt (getTxnAmt)
 import Numeric.RootFinding
 
 
-debug = flip trace
 
 -- | test if a bond may changes its interest rate
 isAdjustable :: InterestInfo -> Bool 
@@ -899,7 +896,7 @@ instance IR.UseRate Bond where
 
   
 
-makeLensesFor [("bndType","bndTypeLens"),("bndOriginInfo","bndOriginInfoLens"),("bndInterestInfo","bndIntLens"),("bndStmt","bndStmtLens")] ''Bond
+makeLensesFor [("bndOriginInfo","bndOriginInfoLens"),("bndInterestInfo","bndIntLens")] ''Bond
 makeLensesFor [("bndOriginDate","bndOriginDateLens"),("bndOriginBalance","bndOriginBalanceLens"),("bndOriginRate","bndOriginRateLens")] ''OriginalInfo
 
 makePrisms ''Bond

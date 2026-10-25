@@ -27,7 +27,6 @@ import Lib
 type InitPeriod = Int 
 type PeriodicCap = Maybe Spread
 type LifetimeCap = Maybe IRate
-type PaymentCap = Maybe Balance
 type RateFloor = Maybe IRate
 type RateCap = Maybe IRate
 type InitCap = Maybe IRate

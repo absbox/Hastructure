@@ -15,7 +15,7 @@ import Control.Monad
 import Language.Haskell.TH
 
 import qualified Data.Text
-import           Data.Aeson       hiding (json)
+import Data.Aeson
 import           Data.Aeson.TH
 import           Data.Aeson.Types
 import qualified Data.DList as DL
@@ -31,8 +31,6 @@ import qualified InterestRate as IR
 import Data.Maybe (fromMaybe)
 
 import Control.Lens
-import Debug.Trace
-debug = flip trace
 
 type FormulaRate = DealStats
 
@@ -215,7 +213,7 @@ instance IR.UseRate Fee where
 
 
 makeLensesFor [("feeName","feeNameLens"),("feeType","feeTypeLens") ,("feeDue","feeDueLens") 
-              ,("feeDueDate","feeDueDateLens") ,("feeStmt","feeStmtLens")] ''Fee
+              ,("feeStmt","feeStmtLens")] ''Fee
 
 $(deriveJSON defaultOptions ''FeeType)
 $(deriveJSON defaultOptions ''Fee)

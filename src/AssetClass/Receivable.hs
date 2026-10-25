@@ -21,20 +21,18 @@ import Data.List
 import Data.Ratio
 import Data.Maybe
 import GHC.Generics
-import Data.Aeson hiding (json)
+import Data.Aeson
 import Language.Haskell.TH
 import Data.Aeson.TH
 import Data.Aeson.Types
 
 import AssetClass.AssetBase
 import AssetClass.AssetCashflow
-import Debug.Trace
 import Assumptions (AssetPerfAssumption(ReceivableAssump))
 import GHC.Float.RealFracMethods (truncateFloatInteger)
 import Cashflow (extendTxns)
 import qualified Asset as A
 
-debug = flip trace
 
 -- project recovery cashflow from recovery assumption and defaulted balance
 buildRecoveryCfs :: StartDate -> Balance -> Maybe A.RecoveryAssumption -> Either String [CF.TsRow]

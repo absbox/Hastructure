@@ -530,9 +530,6 @@ showInspection (InspectBal d ds r) = show r
 showInspection x = error $ "not implemented for showing ResultComponent " ++ show x
 
 
-calcAvailFund :: Ast.Asset a => TestDeal a -> RunContext -> Date -> A.Account -> Maybe W.ExtraSupport -> Either ErrorRep SupportAvailType
-calcAvailFund t rc d acc Nothing = return $ ByAvailAmount $ A.accBalance acc
-calcAvailFund t rc d acc (Just support) = (\x -> sumSupport ((ByAvailAmount (A.accBalance acc)):[x]) ) <$> evalExtraSupportBalance d t rc support
 
 -- ^ Deal, Date , cap balance, due balance
 applyLimit :: Ast.Asset a => TestDeal a -> RunContext -> Date -> Balance -> Balance -> Maybe Limit -> Either ErrorRep Balance

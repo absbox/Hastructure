@@ -10,7 +10,7 @@ module AssetClass.FixedAsset
 import qualified Data.Time as T
 import Data.Ratio
 
-import Data.Aeson hiding (json)
+import Data.Aeson
 import Language.Haskell.TH
 import Data.Maybe
 import Data.List
@@ -29,12 +29,10 @@ import qualified Cashflow as CF
 import AssetClass.AssetBase
 
 
-import Debug.Trace
 import AssetClass.AssetCashflow
 import qualified Asset as Ast
 import Asset (Asset(projCashflow))
 import Assumptions (AssetDelinqPerfAssumption(DummyDelinqAssump))
-debug = flip trace
 
 
 -- life time schedule amortization amount list
@@ -57,12 +55,6 @@ calcAmortAmt fa@(FixedAsset fai@FixedAssetInfo{originBalance=ob, accRule=ar, ori
         in 
           Right (diffNum futureBals'')
 
-calcAmortBals ::FixedAsset -> Either String [Balance]
-calcAmortBals fa@(FixedAsset fai@FixedAssetInfo{originBalance=ob, accRule=ar, originTerm=ot
-                                               ,residualBalance=rb ,capacity=cap} b rt)
-  = do 
-      bals <- calcAmortAmt fa
-      return $ scanl (-) ob bals
  
 
 instance Ast.Asset FixedAsset where 

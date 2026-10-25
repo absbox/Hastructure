@@ -16,7 +16,7 @@ import Lib
 import Util
 import DateUtil
 import Interface
-import Data.Aeson hiding (json)
+import Data.Aeson
 import Language.Haskell.TH
 import Data.Aeson.TH
 import Data.Aeson.Types
@@ -28,8 +28,6 @@ import qualified Data.DList as DL
 
 -- import Web.Hyperbole
 
-import Debug.Trace
-debug = flip trace
 
 data InterestInfo 
   -- | fix reinvest return rate
@@ -139,8 +137,7 @@ buildRateResetDates ed Account{accName = n, accInterest = Just (InvestmentAccoun
 buildRateResetDates _ _ = Nothing
 
 
-makeLensesFor [("accBalance","accBalLens") ,("accName","accNameLens") 
-              ,("accType","accTypeLens") ,("accStmt","accStmtLens"),("accInterest","accIntLens")] ''Account
+makeLensesFor [("accBalance","accBalLens") ,("accType","accTypeLens")] ''Account
 
 
 instance IR.UseRate Account where 

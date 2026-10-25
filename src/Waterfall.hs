@@ -4,7 +4,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 module Waterfall
-  (PoolSource(..),Action(..),DistributionSeq(..)
+  (PoolSource(..),Action(..),DistributionSeq
   ,ActionWhen(..),BookType(..),ExtraSupport(..),PayOrderBy(..))
   where
 
@@ -66,7 +66,6 @@ data PayOrderBy
   deriving (Show,Generic,Eq,Ord)
 
 type BookLedger = (BookDirection, LedgerName) 
-type BookLedgers = (BookDirection, [LedgerName]) 
 
 data Action 
   -- Accounts 

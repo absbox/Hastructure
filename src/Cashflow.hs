@@ -64,16 +64,13 @@ import Control.Lens.TH
 import Control.Monad 
 
 type Delinquent = Balance
-type Amounts = [Float]
 type Principals = [Principal]
 type Interests = [Interest]
-type Prepayments = [Prepayment]
-type Recoveries = [Recovery]
-type Rates = [Rate]
 
 type CumulativeStat = (CumPrincipal,CumPrepay,CumDelinq,CumDefault,CumRecovery,CumLoss)
 type AssetCashflow = CashFlowFrame
 type PoolCashflow = (AssetCashflow, Maybe [AssetCashflow])
+emptyCashflow :: CashFlowFrame
 emptyCashflow = CashFlowFrame (0,epocDate,Nothing) []
 
 
@@ -96,9 +93,6 @@ sumStats :: Maybe CumulativeStat -> Maybe CumulativeStat -> Maybe CumulativeStat
 -- sumStats (a1,b1,c1,d1,e1,f1) (a2,b2,c3,d2,e2,f2) = (a1+a2,b1+b2,c1+c3,d1+d2,e1+e2,f1+f2)
 sumStats s1 s2 = opStats (+) s1 s2
 
-subStats :: Maybe CumulativeStat -> Maybe CumulativeStat -> Maybe CumulativeStat
--- subStats (a1,b1,c1,d1,e1,f1) (a2,b2,c3,d2,e2,f2) = (a1-a2,b1-b2,c1-c3,d1-d2,e1-e2,f1-f2)
-subStats s1 s2 = opStats (-) s1 s2
 
 maxStats :: Maybe CumulativeStat -> Maybe CumulativeStat -> Maybe CumulativeStat
 -- maxStats (a1,b1,c1,d1,e1,f1) (a2,b2,c3,d2,e2,f2) = (max a1 a2,max b1 b2,max c1 c3,max d1 d2,max e1 e2,max f1 f2)
@@ -1030,14 +1024,6 @@ currentCumulativeStat trs =
     fromMaybe (0,0,0,0,0,0) $ view txnCumulativeStats tr
 
 
-cashFlowInitCumulativeStats ::  Lens' CashFlowFrame (Maybe CumulativeStat)
-cashFlowInitCumulativeStats = lens getter setter 
-  where
-    getter (CashFlowFrame _ []) = Nothing
-    getter (CashFlowFrame _ (tr:trs)) = view txnCumulativeStats tr
-    
-    setter (CashFlowFrame st []) mStat = CashFlowFrame st []
-    setter (CashFlowFrame st (tr:trs)) mStat = CashFlowFrame st $ (set txnCumulativeStats mStat tr):trs
 
 
 patchCumulativeAtInit :: Maybe CumulativeStat -> [TsRow] -> [TsRow]

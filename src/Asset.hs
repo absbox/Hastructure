@@ -321,9 +321,6 @@ getDefaultDelinqAssump (Just (A.DelinqCDR r (lag,pct))) ds
     ,lag 
     ,pct)
 
-getDefaultLagAndRate :: Maybe A.RecoveryAssumption -> (Rate,Int)
-getDefaultLagAndRate Nothing = (0,0)
-getDefaultLagAndRate (Just (A.Recovery (r,lag))) = (r,lag)
 
 -- | build prepayment rates/ delinq rates and (%,lag) convert to default, recovery rate, recovery lag
 buildAssumptionPpyDelinqDefRecRate :: Asset a => a -> [Date] -> A.AssetPerfAssumption -> Either String ([Rate],[Rate],(Rate,Lag),Rate,Int)

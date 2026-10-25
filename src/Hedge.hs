@@ -16,7 +16,7 @@ import qualified Data.Time as Time
 import qualified Data.Map as Map
 import GHC.Generics
 import Language.Haskell.TH
-import Data.Aeson hiding (json)
+import Data.Aeson
 import Data.Aeson.TH
 import Data.Aeson.Types
 import Data.Fixed
@@ -32,12 +32,8 @@ import qualified Assumptions as A
 import qualified InterestRate as IR
 import Control.Lens
 
-import Debug.Trace
-debug = flip trace
 
 type SettleDates = DatePattern       -- ^ dates when rates/ex-rates are reseted
-type ReceiveAmount = Balance         -- ^ cash to be collect in instrutment
-type PayoutAmount = Balance          -- ^ cash to be paid in instrutment
 
 data RateSwapBase = Fixed Balance    -- ^ a fixed balance as notional base 
                   | Base DealStats   -- ^ a referece as notional base
@@ -205,7 +201,7 @@ instance IR.UseRate RateSwap where
 
   getResetDates _ = [] -- ^ settle/reset dates are computed by the deal run from `rsSettleDates` with deal dates
 
-makeLensesFor [("rsType","rsTypeLens"),("rsRefBalance","rsRefBalLens")] ''RateSwap
+makeLensesFor [("rsRefBalance","rsRefBalLens")] ''RateSwap
 
 data SrtType = SrtByEndDay DealStats DatePattern  -- ^ autu accrue by end of day
               deriving(Show,Generic,Eq,Ord)
@@ -269,26 +265,6 @@ instance IR.UseRate SRT where
         (IR.Floater _ _ _ _ dp _ _ _ ) -> genSerialDatesTill2 EI sd dp ed
         _ -> []
 
--- | update the reset events of liquidity provider
-buildSrtAccrueAction :: [SRT] -> Date -> [(String, Dates)] -> [(String, Dates)]
-buildSrtAccrueAction [] ed r = r
-buildSrtAccrueAction (srt:srts) ed r = 
-  case srt of 
-    (SRT srtName (SrtByEndDay _ dp ) _ _ _ _ _ _ ss _ _ )
-      -> buildSrtAccrueAction
-           srts
-           ed
-           [(srtName, projDatesByPattern dp ss ed)]++r
-
-buildSrtResetAction :: [SRT] -> Date -> [(String, Dates)] -> [(String, Dates)]
-buildSrtResetAction [] ed r = r
-buildSrtResetAction (srt:srts) ed r = 
-  case srt of 
-    srt@SRT{srtPremiumType = rt, srtName = ln , srtStart = sd} -> 
-       buildSrtResetAction 
-        srts 
-        ed 
-        [(ln,IR.getRateResetDates sd ed (Just rt))]++r
 
 
 

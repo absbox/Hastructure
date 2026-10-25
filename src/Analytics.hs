@@ -12,12 +12,11 @@ import Types
 import Lib
 import Util
 import DateUtil
-import Data.Aeson hiding (json)
+import Data.Aeson
 import Language.Haskell.TH
 import Data.Aeson.TH
 import Data.Aeson.Types
-import Data.Ord (comparing)
-import Data.List (sortBy, uncons)
+import Data.List (uncons)
 import GHC.Generics
 import Data.Ratio
 import Numeric.RootFinding
@@ -25,8 +24,6 @@ import qualified Numeric.Interpolation.Piecewise as Piecewise
 import qualified Numeric.Interpolation.Type as Type
 import qualified Numeric.Interpolation.NodeList as Nodes
 
-import Debug.Trace
-debug = flip trace
 
 calcSurvivorFactors :: Date -> [Date] -> Double -> [Double]
 calcSurvivorFactors sd ds 0 = replicate (length ds) 1.0 
@@ -40,14 +37,7 @@ calcSurvivorFactors sd ds survivalRate =
 
 -- ^ interpolate the yield curve using Fritsch-Carlson method
 type TimeYield = (Double, Double)
-type YieldPoint = (Date, Double)
 
-toTimeYield :: Date -> [YieldPoint] -> [TimeYield]
-toTimeYield refDate points 
-  = let 
-        sorted = sortBy (comparing fst) points
-    in 
-        [ (fromRational (yearCountFraction DC_ACT_365F refDate d), y) | (d, y) <- sorted]
 
 secantSlopes :: [TimeYield] -> [Double]
 secantSlopes ((t1, y1) : rest@((t2, y2) : _)) =
@@ -144,7 +134,7 @@ tsTypeName (PricingCurve _)        = "PricingCurve"
 tsTypeName (PeriodCurve _)         = "PeriodCurve"
 tsTypeName (IntCurve _)            = "IntCurve"
 
--- | The single discount-rate evaluator shared by pv, pv3, pv3', duration and
+-- | The single discount-rate evaluator shared by pv, pv3, duration and
 -- convexity: Hermite (Fritsch-Carlson) through the curve nodes with constant
 -- extension at both borders, exactly like pv4. Flat curves short-circuit to the
 -- constant rate so legacy constant-rate arithmetic stays bit-identical.
@@ -242,14 +232,6 @@ pv3 pvCurve pricingDate ds vs
     in 
       sum pvs
 
-pv3' :: Ts -> Date -> [Date] -> [Amount] -> Balance
-pv3' pvCurve pricingDate ds vs 
-  = let 
-      rs = curveRatesAt pricingDate pvCurve ds
-      vs' = (fromRational . toRational) <$> vs
-      pvs = [ pv2' r pricingDate d amt | (r,d,amt) <- zip3 rs ds vs' ]
-    in 
-      fromRational . toRational $ foldr (+) 0 pvs
 
 -- ^ using hermite interpolation to get present value
 pv4 :: (Date,Ts) -> [(Date,Amount)] -> Either ErrorRep Balance

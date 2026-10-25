@@ -18,7 +18,7 @@ import qualified Data.DList as DL
 import GHC.Generics
 import Interface
 import Language.Haskell.TH
-import Data.Aeson hiding (json)
+import Data.Aeson
 import Data.Aeson.TH
 import Data.Aeson.Types
 import Data.Fixed
@@ -31,10 +31,8 @@ import qualified InterestRate as IR
 
 import qualified Stmt as S
 
-import Debug.Trace
 import Lib (paySeqLiabilities)
 import Data.Decimal
-debug = flip trace
 
 type LiquidityProviderName = String
 

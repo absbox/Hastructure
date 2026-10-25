@@ -50,9 +50,6 @@ data Trigger = Trigger {
             ,trgStmt :: Maybe S.Statement             -- ^ Transaction stmt
             } deriving (Show, Eq, Generic,Ord)
 
-makeLensesFor [("trgStatus","trgStatusLens") 
-                ,("trgEffects","trgEffectsLens") 
-                ,("trgCondition","trgConditionLens") 
-                ,("trgCurable","trgCurableLens")] ''Trigger
+makeLensesFor [("trgStatus","trgStatusLens")] ''Trigger
 
 $(concat <$> traverse (deriveJSON defaultOptions) [''TriggerEffect, ''Trigger])

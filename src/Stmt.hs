@@ -111,14 +111,6 @@ getTxnAmt TrgTxn {} = 0.0
 getTxnAsOf :: [Txn] -> Date -> Maybe Txn
 getTxnAsOf txns d = find (\x -> getDate x <= d) $ reverse txns
 
-emptyTxn :: Txn -> Date -> Txn
-emptyTxn BondTxn {} d = BondTxn d 0 0 0 0 0 0 0 Nothing Empty
-emptyTxn AccTxn {} d = AccTxn d 0 0 Empty
-emptyTxn ExpTxn {} d = ExpTxn d 0 0 0 Empty
-emptyTxn SupportTxn {} d = SupportTxn d Unlimit 0 0 0 0 Empty
-emptyTxn IrsTxn {} d = IrsTxn d 0 0 0 0 0 Empty
-emptyTxn EntryTxn {} d = EntryTxn d (Credit,0) (Credit,0) Empty
-emptyTxn TrgTxn {} d = TrgTxn d False Empty
 
 isEmptyTxn :: Txn -> Bool
 isEmptyTxn (BondTxn _ 0 0 0 _ 0 0 0 _ Empty) = True

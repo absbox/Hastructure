@@ -23,7 +23,7 @@ import Data.Aeson.Types
 
 import Data.OpenApi hiding (Server,contentType)
 
-import Types hiding (Current,startDate,originTerm)
+import Types hiding (startDate)
 import DateUtil (genSerialDatesTill2)
 import qualified Data.Time as T
 import Data.Ratio
@@ -36,8 +36,6 @@ import qualified Cashflow as CF
 import Control.Lens hiding (element,Index)
 import Control.Lens.TH
 
-import Debug.Trace (trace)
-debug = flip Debug.Trace.trace
 
 
 type DailyRate = Balance

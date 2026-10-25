@@ -36,13 +36,8 @@ import Control.Lens.TH
 
 import qualified Assumptions as A
 
-type PeriodAmount = Balance
-type CapRate = Rate
-type RentChangeRate = Rate
-type RentChangeCurve = Ts
 type TermChangeRate = Rate
 type DayGap = Int
-type LastAccuredDate = Date
 
 
 getNewRental :: AP.LeaseAssetRentAssump -> Date -> Date -> LeaseRateCalc -> (AP.LeaseAssetRentAssump, LeaseRateCalc)
